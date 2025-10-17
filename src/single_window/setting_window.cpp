@@ -220,7 +220,7 @@ int Render::SettingWindow() {
         if (ImGui::Button(localization::self_hosted_server_config
                               [localization_language_index_]
                                   .c_str())) {
-          LOG_ERROR("Self Built Server");
+          show_self_hosted_server_config_window_ = true;
         }
 
         if (ConfigCenter::LANGUAGE::CHINESE == localization_language_) {
@@ -243,7 +243,7 @@ int Render::SettingWindow() {
         ImGui::SetCursorPosX(SETTINGS_OK_BUTTON_PADDING_EN);
       }
 
-      settings_items_offset += settings_items_padding;
+      settings_items_offset += settings_items_padding + 10;
       ImGui::SetCursorPosY(settings_items_offset);
       ImGui::PopStyleVar();
 
@@ -251,6 +251,7 @@ int Render::SettingWindow() {
       if (ImGui::Button(
               localization::ok[localization_language_index_].c_str())) {
         show_settings_window_ = false;
+        show_self_hosted_server_config_window_ = false;
 
         // Language
         if (language_button_value_ == 0) {
@@ -328,6 +329,8 @@ int Render::SettingWindow() {
       if (ImGui::Button(
               localization::cancel[localization_language_index_].c_str())) {
         show_settings_window_ = false;
+        show_self_hosted_server_config_window_ = false;
+
         if (language_button_value_ != language_button_value_last_) {
           language_button_value_ = language_button_value_last_;
         }
