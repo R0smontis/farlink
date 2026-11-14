@@ -192,12 +192,12 @@ macOS 保留一个 CrossDesk Dock 应用图标，主窗口与远程控制窗口�
 
 ```ini
 [Settings]
-direct_start_bitrate_bps = 1500000
-relay_start_bitrate_bps = 500000
+direct_start_bitrate_bps = 2500000
+relay_start_bitrate_bps = 1500000
 disable_receiver_padding_probing = true
 ```
 
-两个值的单位均为 bps，分别控制本机原生媒体发送端在 P2P / IP 直连和 TURN 中继路径上的拥塞控制起始估计。桌面端默认值为 1.5 Mbps 和 0.5 Mbps，允许范围为 300000–20000000；缺失或非法值使用对应默认值，启动时补写到配置文件。连接后仍按网络反馈动态调整，桌面墙带宽预算继续生效。观看远程画面时，应修改发送画面的被控端配置。浏览器连接使用独立的带宽控制，不受这两个选项影响。
+两个值的单位均为 bps，分别控制本机原生媒体发送端在 P2P / IP 直连和 TURN 中继路径上的拥塞控制起始估计。桌面端默认值为 2.5 Mbps 和 1.5 Mbps，允许范围为 300000–20000000；缺失或非法值使用对应默认值，启动时补写到配置文件。连接后仍按网络反馈动态调整，桌面墙带宽预算继续生效。观看远程画面时，应修改发送画面的被控端配置。浏览器连接使用独立的带宽控制，不受这两个选项影响。
 
 该文件在 macOS / Linux 上默认位于 `~/.cache/CrossDesk/`（设置 `XDG_CACHE_HOME` 时使用该目录下的 `CrossDesk/`）；Windows 安装版 Release 位于 `%LOCALAPPDATA%\CrossDesk\cache\`，Windows Debug 使用工作目录下的 `cache/`，便携版使用可执行文件旁的 `data/`。
 

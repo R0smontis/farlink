@@ -193,12 +193,12 @@ Quit the client, edit the `[Settings]` section in its cache directory's `config.
 
 ```ini
 [Settings]
-direct_start_bitrate_bps = 1500000
-relay_start_bitrate_bps = 500000
+direct_start_bitrate_bps = 2500000
+relay_start_bitrate_bps = 1500000
 disable_receiver_padding_probing = true
 ```
 
-Both values are in bps and set the local native media sender's initial congestion-control estimate for P2P / direct IP and TURN relay paths, respectively. Desktop defaults are 1.5 Mbps and 0.5 Mbps; the accepted range is 300000–20000000. Missing or invalid values use the corresponding default, which is written to the file on startup. Network feedback continues to adjust bandwidth, and DeskHub bandwidth budgets still apply. To change the stream you watch remotely, edit the host that sends the video. Browser connections use separate bandwidth control and are unaffected.
+Both values are in bps and set the local native media sender's initial congestion-control estimate for P2P / direct IP and TURN relay paths, respectively. Desktop defaults are 2.5 Mbps and 1.5 Mbps; the accepted range is 300000–20000000. Missing or invalid values use the corresponding default, which is written to the file on startup. Network feedback continues to adjust bandwidth, and DeskHub bandwidth budgets still apply. To change the stream you watch remotely, edit the host that sends the video. Browser connections use separate bandwidth control and are unaffected.
 
 The file is in `~/.cache/CrossDesk/` on macOS / Linux (`CrossDesk/` under `XDG_CACHE_HOME` when set), and `%LOCALAPPDATA%\CrossDesk\cache\` for installed Windows Release builds. Windows Debug builds use `cache/` under the working directory; portable builds use `data/` beside the executable.
 
