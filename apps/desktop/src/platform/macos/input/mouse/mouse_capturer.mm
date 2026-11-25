@@ -1,0 +1,339 @@
+/*
+ * @Author: DI JUNKUN
+ * @Date: 2026-11-25
+ * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ */
+
+#include "mouse_capturer.h"
+
+#include <chrono>
+
+#include <atomic>
+
+#include "rd_log.h"
+
+namespace crossdesk {
+
+namespace {
+
+int SlintButtonFromCg(CGMouseButton button) {
+  switch (button) {
+    case kCGMouseButtonLeft:
+      return 1;
+    case kCGMouseButtonRight:
+      return 2;
+    case kCGMouseButtonCenter:
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+// Translates the macOS key codes involved in the escape chord into the
+// Windows virtual keys GameModeExitChord tracks. Everything else is -1.
+int VkFromMacKeyCode(CGKeyCode key_code) {
+  switch (key_code) {
+    case 0x3B:
+      return 0xA2;  // left control
+    case 0x3E:
+      return 0xA3;  // right control
+    case 0x3A:
+      return 0xA4;  // left option
+    case 0x3D:
+      return 0xA5;  // right option
+    case 0x05:
+      return 'G';
+    default:
+      return -1;
+  }
+}
+
+}  // namespace
+
+// The callback is file-static because CGEventTapCreate requires a plain
+// function pointer; state lives on the capturer instance.
+static CGEventRef MouseCaptureCallback(CGEventTapProxy proxy, CGEventType type,
+                                       CGEventRef event, void* user_info) {
+  (void)proxy;
+  auto* capturer = static_cast<PlatformMouseCapturer*>(user_info);
+  if (!capturer) return event;
+  // Re-enable a tap the system disabled; game mode has no other way to
+  // observe motion while the cursor is frozen.
+  if (type == kCGEventTapDisabledByTimeout ||
+      type == kCGEventTapDisabledByUserInput) {
+    capturer->ReenableTap();
+    return event;
+  }
+
+  switch (type) {
+    case kCGEventMouseMoved:
+    case kCGEventLeftMouseDragged:
+    case kCGEventRightMouseDragged:
+    case kCGEventOtherMouseDragged: {
+      // Raw device deltas: present on mouse events regardless of cursor
+      // position or association, so they never saturate at screen edges.
+      const double raw_dx = static_cast<double>(
+          CGEventGetIntegerValueField(event, kCGMouseEventDeltaX));
+      const double raw_dy = static_cast<double>(
+          CGEventGetIntegerValueField(event, kCGMouseEventDeltaY));
+      if ((raw_dx != 0 || raw_dy != 0)) {
+        capturer->DeliverDelta(raw_dx, raw_dy);
+      }
+      return nullptr;
+    }
+    case kCGEventLeftMouseDown:
+    case kCGEventRightMouseDown:
+    case kCGEventOtherMouseDown:
+    case kCGEventLeftMouseUp:
+    case kCGEventRightMouseUp:
+    case kCGEventOtherMouseUp: {
+      const int slint_button = SlintButtonFromCg(static_cast<CGMouseButton>(
+          CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber)));
+      const bool down = type == kCGEventLeftMouseDown ||
+                        type == kCGEventRightMouseDown ||
+                        type == kCGEventOtherMouseDown;
+      if (slint_button != 0) capturer->DeliverButton(slint_button, down);
+      return nullptr;
+    }
+    case kCGEventScrollWheel:
+      // The wheel must not reach the desktop beneath the frozen cursor.
+      // Scrolling still reaches the peer through the Slint stream window's
+      // own scroll events.
+      return nullptr;
+    case kCGEventKeyDown:
+    case kCGEventKeyUp: {
+      // Typing continues through the keyboard capturer's own tap, which
+      // forwards and suppresses keys independently; the escape chord only
+      // needs to be observed here.
+      const int vk = VkFromMacKeyCode(static_cast<CGKeyCode>(
+          CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)));
+      if (vk >= 0 &&
+          capturer->exit_chord_.Update(vk, type == kCGEventKeyDown)) {
+        capturer->DeliverExit();
+      }
+      return event;
+    }
+    case kCGEventFlagsChanged: {
+      const int vk = VkFromMacKeyCode(static_cast<CGKeyCode>(
+          CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)));
+      if (vk == 0xA2 || vk == 0xA3 || vk == 0xA4 || vk == 0xA5) {
+        const CGEventFlags flags = CGEventGetFlags(event);
+        const bool down = (vk == 0xA2 || vk == 0xA3)
+                              ? (flags & kCGEventFlagMaskControl) != 0
+                              : (flags & kCGEventFlagMaskAlternate) != 0;
+        capturer->exit_chord_.Update(vk, down);
+      }
+      return event;
+    }
+    default:
+      return event;
+  }
+}
+
+PlatformMouseCapturer::PlatformMouseCapturer() = default;
+
+PlatformMouseCapturer::~PlatformMouseCapturer() { Unhook(); }
+
+void PlatformMouseCapturer::SetScale(double scale_x, double scale_y) {
+  scale_x_.store(scale_x, std::memory_order_release);
+  scale_y_.store(scale_y, std::memory_order_release);
+}
+
+void PlatformMouseCapturer::DeliverDelta(double raw_dx, double raw_dy) {
+  if (!on_delta_) return;
+  const double sx = scale_x_.load(std::memory_order_acquire);
+  const double sy = scale_y_.load(std::memory_order_acquire);
+  double dx = 0, dy = 0;
+  if (!RelativeDeltaScale::Convert(raw_dx, raw_dy, sx, sy, dx, dy)) return;
+  on_delta_(dx, dy, user_ptr_);
+}
+
+void PlatformMouseCapturer::DeliverButton(int button, bool down) {
+  if (on_button_) on_button_(button, down, user_ptr_);
+}
+
+void PlatformMouseCapturer::DeliverExit() {
+  if (on_exit_) on_exit_(user_ptr_);
+}
+
+bool PlatformMouseCapturer::WithinWarpSuppression(CGEventRef event) const {
+  (void)event;
+  return std::chrono::steady_clock::now() < warp_suppress_until_;
+}
+
+void PlatformMouseCapturer::ReenableTap() {
+  std::lock_guard lock(state_mutex_);
+  if (event_tap_) CGEventTapEnable(event_tap_, true);
+}
+
+void PlatformMouseCapturer::FreezeCursorAtCurrentPosition() {
+  CGEventRef current = CGEventCreate(nullptr);
+  if (!current) return;
+  restore_point_ = CGEventGetLocation(current);
+  CFRelease(current);
+  // Park the hardware cursor at the freeze location before dissociating.
+  // Warp-then-freeze keeps the re-associated position continuous; pure
+  // dissociation with no warp can drift by device motion already in flight.
+  CGWarpMouseCursorPosition(frozen_point_);
+  warp_suppress_until_ =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+  // Cursor hiding is per-display: hide on the display the freeze point sits
+  // on. Falling back to the main display mirrors what single-display code
+  // paths do everywhere else in the system.
+  if (!cursor_hidden_) {
+    CGDirectDisplayID displays[8] = {};
+    uint32_t display_count = 0;
+    hidden_display_ = kCGDirectMainDisplay;
+    if (CGGetDisplaysWithPoint(frozen_point_, 8, displays, &display_count) ==
+            kCGErrorSuccess &&
+        display_count > 0) {
+      hidden_display_ = displays[0];
+    }
+    CGDisplayHideCursor(hidden_display_);
+    cursor_hidden_ = true;
+  }
+  if (CGAssociateMouseAndMouseCursorPosition(false) == kCGErrorSuccess) {
+    cursor_dissociated_ = true;
+  }
+}
+
+void PlatformMouseCapturer::RestoreCursor() {
+  if (cursor_dissociated_) {
+    // Return the hardware cursor to where the user originally grabbed game
+    // mode before re-associating; without this warp the re-associated
+    // cursor resumes at the freeze point, which is not where the user left
+    // it.
+    CGWarpMouseCursorPosition(restore_point_);
+    CGAssociateMouseAndMouseCursorPosition(true);
+    cursor_dissociated_ = false;
+  }
+  if (cursor_hidden_) {
+    CGDisplayShowCursor(hidden_display_);
+    cursor_hidden_ = false;
+  }
+}
+
+int PlatformMouseCapturer::Hook(OnMouseDelta on_delta, OnMouseButton on_button,
+                                OnGameModeExit on_exit, void* user_ptr,
+                                double scale_x, double scale_y,
+                                CGPoint freeze_at) {
+  if (active_.load(std::memory_order_acquire) ||
+      run_loop_thread_.joinable()) {
+    return 0;
+  }
+  if (!std::isfinite(scale_x) || !std::isfinite(scale_y) || scale_x <= 0 ||
+      scale_y <= 0) {
+    LOG_WARN("Mouse capturer rejected invalid scale {}x{}", scale_x, scale_y);
+    return -1;
+  }
+  on_delta_ = on_delta;
+  on_button_ = on_button;
+  on_exit_ = on_exit;
+  user_ptr_ = user_ptr;
+  SetScale(scale_x, scale_y);
+  exit_chord_.Reset();
+  tap_ready_.store(false, std::memory_order_release);
+
+  frozen_point_ = freeze_at;
+  FreezeCursorAtCurrentPosition();
+  run_loop_thread_ = std::thread([this] { RunLoopThreadMain(); });
+
+  // Hook's caller relies on capture being live once control returns. The run
+  // loop thread publishes the outcome through tap_ready_/tap_failed_.
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+  while (!tap_ready_.load(std::memory_order_acquire) &&
+         !tap_failed_.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  if (!tap_ready_.load(std::memory_order_acquire)) {
+    LOG_ERROR("Mouse capture tap failed to start");
+    StopRunLoop();
+    if (run_loop_thread_.joinable()) run_loop_thread_.join();
+    RestoreCursor();
+    return -1;
+  }
+  active_.store(true, std::memory_order_release);
+  return 0;
+}
+
+void PlatformMouseCapturer::RunLoopThreadMain() {
+  const CGEventMask mask =
+      (1 << kCGEventMouseMoved) | (1 << kCGEventLeftMouseDragged) |
+      (1 << kCGEventRightMouseDragged) | (1 << kCGEventOtherMouseDragged) |
+      (1 << kCGEventLeftMouseDown) | (1 << kCGEventLeftMouseUp) |
+      (1 << kCGEventRightMouseDown) | (1 << kCGEventRightMouseUp) |
+      (1 << kCGEventOtherMouseDown) | (1 << kCGEventOtherMouseUp) |
+      (1 << kCGEventScrollWheel) | (1 << kCGEventKeyDown) |
+      (1 << kCGEventKeyUp) | (1 << kCGEventFlagsChanged);
+  CFMachPortRef tap = CGEventTapCreate(
+      kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
+      mask, MouseCaptureCallback, this);
+  if (!tap) {
+    LOG_ERROR("Mouse capturer CGEventTapCreate failed");
+    tap_failed_.store(true, std::memory_order_release);
+    return;
+  }
+  CFRunLoopSourceRef source =
+      CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
+  if (!source) {
+    CFRelease(tap);
+    tap_failed_.store(true, std::memory_order_release);
+    return;
+  }
+  CFRunLoopRef run_loop = CFRunLoopGetCurrent();
+  {
+    std::lock_guard lock(state_mutex_);
+    event_tap_ = tap;
+    run_loop_source_ = source;
+    run_loop_ = run_loop;
+  }
+  CFRunLoopAddSource(run_loop, source, kCFRunLoopCommonModes);
+  CGEventTapEnable(tap, true);
+  tap_ready_.store(true, std::memory_order_release);
+  CFRunLoopRun();
+  // Teardown on the same thread that owned the run loop source.
+  CGEventTapEnable(tap, false);
+  CFRunLoopRemoveSource(run_loop, source, kCFRunLoopCommonModes);
+  {
+    std::lock_guard lock(state_mutex_);
+    CFRelease(source);
+    CFRelease(tap);
+    run_loop_source_ = nullptr;
+    event_tap_ = nullptr;
+    run_loop_ = nullptr;
+  }
+}
+
+void PlatformMouseCapturer::StopRunLoop() {
+  CFRunLoopRef run_loop;
+  {
+    std::lock_guard lock(state_mutex_);
+    run_loop = run_loop_;
+  }
+  if (run_loop) {
+    CFRunLoopStop(run_loop);
+    CFRunLoopWakeUp(run_loop);
+  }
+}
+
+int PlatformMouseCapturer::Unhook() {
+  const bool was_active = active_.load(std::memory_order_acquire) ||
+                          run_loop_thread_.joinable();
+  StopRunLoop();
+  if (run_loop_thread_.joinable()) run_loop_thread_.join();
+  RestoreCursor();
+  active_.store(false, std::memory_order_release);
+  tap_ready_.store(false, std::memory_order_release);
+  tap_failed_.store(false, std::memory_order_release);
+  on_delta_ = nullptr;
+  on_button_ = nullptr;
+  on_exit_ = nullptr;
+  user_ptr_ = nullptr;
+  exit_chord_.Reset();
+  if (was_active) LOG_INFO("Stop mouse capturer");
+  return 0;
+}
+
+}  // namespace crossdesk

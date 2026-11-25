@@ -51,6 +51,12 @@ bool IsStreamWindowActive(void* slint_view);
 // Moves the system pointer to a control in the stream view (backing pixels).
 bool PlaceMacStreamControlPointer(void* slint_view, float pixel_x, float pixel_y);
 
+// Converts a point in the stream view (backing pixels, top-left origin like
+// the Slint software coordinate space) to global Core Graphics display
+// coordinates. Returns false while the window or its screen is unavailable.
+bool MacStreamViewPointToScreen(void* slint_view, float pixel_x, float pixel_y,
+                                double* screen_x, double* screen_y);
+
 // Shows a desktop transfer notification without replacing the current key
 // window, including while the stream is fullscreen.
 // |slint_view| must be the notification's existing AppKit NSView*.

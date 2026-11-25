@@ -22,6 +22,7 @@
 #include "device_controller.h"
 #include "display_info.h"
 #include "features/input/captured_keyboard_queue.h"
+#include "features/input/captured_mouse_queue.h"
 #include "features/input/remote_mouse_buttons.h"
 #include "screen_sharing_power.h"
 #include "speaker_capture_controller.h"
@@ -29,6 +30,10 @@
 struct SDL_AudioStream;
 
 namespace crossdesk {
+
+#ifdef __APPLE__
+class PlatformMouseCapturer;
+#endif
 
 class GuiRuntime;
 class DeviceControllerFactory;
@@ -81,6 +86,19 @@ public:
   int StartKeyboardCapturer();
   int StopKeyboardCapturer();
 
+#ifdef __APPLE__
+  // Game mode captures raw mouse deltas behind a hidden, frozen cursor.
+  // scale_x/scale_y convert device points into physical pixels of the
+  // controlled remote display and can be refreshed while active.
+  // freeze_x/freeze_y are global Core Graphics display
+  // coordinates: the capturer warps the cursor there before freezing it.
+  int StartMouseCapturer(double scale_x, double scale_y, double freeze_x,
+                         double freeze_y);
+  int StopMouseCapturer();
+  bool MouseCapturerActive() const;
+  void SetMouseCapturerScale(double scale_x, double scale_y);
+#endif
+
   int DestroyAudioOutput();
   // Serialized by GuiRuntime::audio_delivery_mutex_. Each peer has its own
   // stream so SDL mixes simultaneous playback and muting clears only that peer.
@@ -107,6 +125,9 @@ private:
   int InitializeAudioOutput();
   unsigned ReleaseMouseButtonMask(unsigned mask);
   void DrainCapturedKeyboardInput();
+#ifdef __APPLE__
+  void DrainCapturedMouseInput();
+#endif
   bool ShouldSendCapturedFrame(std::chrono::steady_clock::time_point now,
                                int fps);
   bool ShouldCaptureCursor() const;
@@ -131,6 +152,10 @@ private:
   // Input is executed on a worker while the UI starts/stops this controller.
   std::mutex mouse_controller_mutex_;
   KeyboardCapturer *keyboard_capturer_ = nullptr;
+#ifdef __APPLE__
+  std::unique_ptr<PlatformMouseCapturer> mouse_capturer_;
+  CapturedMouseQueue captured_mouse_inputs_;
+#endif
   // Guards display_info_list_ (UI thread writes, transport threads read).
   mutable std::mutex display_info_mutex_;
   std::vector<DisplayInfo> display_info_list_;

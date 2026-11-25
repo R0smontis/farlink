@@ -1,5 +1,9 @@
 #include "features/devices/session_device_manager.h"
 
+#ifdef __APPLE__
+#include "platform/macos/input/mouse/mouse_capturer.h"
+#endif
+
 #include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_init.h>
@@ -822,6 +826,9 @@ void SessionDeviceManager::UpdateInteractions() {
         LOG_WARN("Native keyboard capture stopped; using Slint keyboard events");
       }
       DrainCapturedKeyboardInput();
+#ifdef __APPLE__
+      DrainCapturedMouseInput();
+#endif
       owner_.keyboard_.SendHeartbeat(false);
     }
   } else if (owner_.keyboard_capturer_is_started_) {
@@ -831,6 +838,72 @@ void SessionDeviceManager::UpdateInteractions() {
 
   owner_.keyboard_.CheckRemoteTimeouts();
 }
+
+#ifdef __APPLE__
+int SessionDeviceManager::StartMouseCapturer(double scale_x, double scale_y,
+                                              double freeze_x, double freeze_y) {
+  if (mouse_capturer_ && mouse_capturer_->active()) {
+    mouse_capturer_->SetScale(scale_x, scale_y);
+    return 0;
+  }
+  if (!owner_.EnsureMacAccessibilityPermission()) return -1;
+  if (!mouse_capturer_) mouse_capturer_ = std::make_unique<PlatformMouseCapturer>();
+  captured_mouse_inputs_.Clear();
+  const int ret = mouse_capturer_->Hook(
+      [](double dx, double dy, void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushDelta(dx, dy);
+      },
+      [](int button, bool down, void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushButton(button, down);
+      },
+      [](void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushExit();
+      },
+      this, scale_x, scale_y, CGPointMake(freeze_x, freeze_y));
+  if (ret != 0) {
+    mouse_capturer_->Unhook();
+    return -1;
+  }
+  LOG_INFO("Start mouse capturer (game mode)");
+  return 0;
+}
+
+int SessionDeviceManager::StopMouseCapturer() {
+  if (!mouse_capturer_) return 0;
+  const int ret = mouse_capturer_->Unhook();
+  captured_mouse_inputs_.Clear();
+  return ret;
+}
+
+bool SessionDeviceManager::MouseCapturerActive() const {
+  return mouse_capturer_ && mouse_capturer_->active();
+}
+
+void SessionDeviceManager::SetMouseCapturerScale(double scale_x,
+                                                 double scale_y) {
+  if (mouse_capturer_) mouse_capturer_->SetScale(scale_x, scale_y);
+}
+
+void SessionDeviceManager::DrainCapturedMouseInput() {
+  if (!mouse_capturer_ || !mouse_capturer_->active()) return;
+  for (const auto& event : captured_mouse_inputs_.Drain()) {
+    switch (event.kind) {
+      case CapturedMouseEvent::Kind::delta:
+        owner_.SendRelativeMouseInput(event.dx, event.dy);
+        break;
+      case CapturedMouseEvent::Kind::button:
+        owner_.SendGameModeButtonInput(event.button, event.down);
+        break;
+      case CapturedMouseEvent::Kind::exit:
+        owner_.RequestGameModeExit();
+        break;
+    }
+  }
+}
+#endif
 
 void SessionDeviceManager::DrainCapturedKeyboardInput() {
   const auto inputs = captured_keyboard_inputs_.Drain();
