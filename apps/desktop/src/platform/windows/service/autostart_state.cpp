@@ -1,6 +1,7 @@
 #include "platform/windows/service/autostart_control.h"
 
 #include "platform/autostart_backend.h"
+#include "platform/machine_identity.h"
 #include "platform/windows/autostart_task.h"
 #include "platform/windows/executable_path.h"
 #include "service_host.h"
@@ -42,12 +43,12 @@ bool ServiceAutostartMatches(bool enabled) {
       return false;
     // The flag can already be off after a partially failed disable. Only skip
     // the retry after checking the same registrations that cleanup removes.
-    return platform::IsInstalledAutostartAbsent("CrossDesk");
+    return platform::IsInstalledAutostartAbsent(platform::kMachineAppName);
   }
   return SharedHostArmed() &&
          QueryCrossDeskServiceRegistration(ServiceExecutable(), nullptr, &start_type) ==
              ServiceRegistrationState::current &&
-         start_type == SERVICE_AUTO_START && platform::IsAutostartEnabled("CrossDesk");
+         start_type == SERVICE_AUTO_START && platform::IsAutostartEnabled(platform::kMachineAppName);
 }
 
 }  // namespace crossdesk
