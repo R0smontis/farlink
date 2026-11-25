@@ -204,6 +204,17 @@ function setup_targets()
         set_default(false)
         add_files("apps/desktop/tests/video_callback_lifetime_test.cpp")
 
+    target("encoder_ceiling_reprobe_test")
+        set_kind("binary")
+        set_default(false)
+        -- Header-only harness: drives the real EncoderThroughputCeiling state
+        -- machine and VideoAdaptationPolicy gate predicates, so it only needs
+        -- the minirtc include roots, not the linked library.
+        add_includedirs("deps/submodules/minirtc/src/media/resolution_adapter",
+            "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/frame")
+        add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
+
     if is_plat("macosx") then
         target("video_toolbox_in_flight_test")
             set_kind("binary")
