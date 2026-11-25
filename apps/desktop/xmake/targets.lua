@@ -187,6 +187,26 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/game_mode_input_latency_bench.cpp")
 
+    target("game_mode_buttons_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_buttons_test.cpp")
+
+
+    target("captured_mouse_queue_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/captured_mouse_queue_test.cpp")
+    target("captured_mouse_queue_tsan_stress")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/captured_mouse_queue_tsan_stress.cpp")
+        add_cxflags("-fsanitize=thread", "-g", "-O1")
+        add_ldflags("-fsanitize=thread")
+
     if is_os("macosx") then
         target("macos_relative_mouse_roundtrip_tool")
             set_kind("binary")
@@ -221,6 +241,16 @@ function setup_targets()
                 "apps/desktop/src/device_controller", "apps/desktop/src/log",
                 "apps/desktop/src/common")
             add_files("apps/desktop/tests/macos_chord_release_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_capture_restart_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_capture_restart_tool.mm",
                 "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
             add_frameworks("ApplicationServices", "CoreGraphics")
     end

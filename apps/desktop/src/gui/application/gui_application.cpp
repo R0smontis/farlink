@@ -5756,7 +5756,7 @@ void GuiApplication::EnterGameMode(StreamView& view) {
                                center_local_x, center_local_y);
   {
     std::lock_guard lock(game_mode_mutex_);
-    game_mode_pressed_buttons_.clear();
+    game_mode_pressed_buttons_.TakePressed();
     game_mode_scroll_ = ScrollAccumulator{};
     game_mode_wheel_percent_ =
         config_center_->GetWheelSensitivityPercent(props->device_preference_key_);
@@ -5778,14 +5778,20 @@ void GuiApplication::ExitGameMode() {
     std::lock_guard lock(game_mode_mutex_);
     if (!game_mode_active_) return;
     game_mode_active_ = false;
-    pressed = game_mode_pressed_buttons_;
-    game_mode_pressed_buttons_.clear();
+    pressed = game_mode_pressed_buttons_.TakePressed();
     target = game_mode_target_;
     game_mode_target_.clear();
   }
-  // Release buttons the capture tap reported as still pressed; releases are
-  // ordinary absolute-position mouse events at the last known position,
-  // which the host anchors at the live cursor while relative mode persists.
+  // Release buttons the capture tap reported as still pressed. This must
+  // happen on every exit path — chord, focus loss, disconnect, capability
+  // loss, quit — or the host is left with a stuck button. The send goes
+  // directly to the captured target rather than through SendRemoteInput,
+  // which derives its destination from controlled_remote_id_: on some exit
+  // paths (display switch, SyncGameMode precondition failure) control has
+  // conceptually already moved on, and the release must still reach the
+  // session the buttons were pressed on. SendGameModeActionDirect checks
+  // connectivity itself, so a session already closing simply drops the
+  // release — exactly the documented "if the session is still connected".
   for (int button : pressed) {
     RemoteAction action{};
     action.type = ControlType::mouse;
@@ -5796,7 +5802,7 @@ void GuiApplication::ExitGameMode() {
     action.m.flag = button == 1   ? MouseFlag::left_up
                     : button == 2 ? MouseFlag::right_up
                                   : MouseFlag::middle_up;
-    SendRemoteInput(action);
+    SendGameModeActionDirect(target, action, 0);
   }
   devices_.StopMouseCapturer();
   if (auto* view = FindStreamView(target)) {
@@ -5881,11 +5887,7 @@ void GuiApplication::SendGameModeButtonInput(int button, bool down) {
     if (!game_mode_active_ || game_mode_target_.empty()) return;
     if (button < 1 || button > 3) return;
     target = game_mode_target_;
-    if (down) {
-      game_mode_pressed_buttons_.insert(button);
-    } else {
-      game_mode_pressed_buttons_.erase(button);
-    }
+    game_mode_pressed_buttons_.Update(button, down);
   }
   RemoteAction action{};
   action.type = ControlType::mouse;

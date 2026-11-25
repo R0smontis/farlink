@@ -89,8 +89,8 @@ public:
 
 #ifdef __APPLE__
   // Game mode captures raw mouse deltas behind a hidden, frozen cursor.
-  // scale_x/scale_y convert device points into physical pixels of the
-  // controlled remote display and can be refreshed while active.
+  // scale_x/scale_y convert device points into the wire unit (fraction of
+  // the controlled display per axis) and can be refreshed while active.
   // freeze_x/freeze_y are global Core Graphics display
   // coordinates: the capturer warps the cursor there before freezing it.
   int StartMouseCapturer(double scale_x, double scale_y, double freeze_x,
@@ -127,7 +127,12 @@ private:
   unsigned ReleaseMouseButtonMask(unsigned mask);
   void DrainCapturedKeyboardInput();
 #ifdef __APPLE__
-  void DrainCapturedMouseInput();
+  // One consumer on the input queue: the exit transition travels on this
+  // atomic flag instead, because a second drainer would steal and discard
+  // input — and a lost button-up is a stuck button on the host. Set on the
+  // capturer's tap thread, consumed with exchange(false) on the UI tick.
+  std::atomic<bool> game_mode_exit_requested_{false};
+  void ServiceGameModeExit();
 #endif
   bool ShouldSendCapturedFrame(std::chrono::steady_clock::time_point now,
                                int fps);

@@ -20,6 +20,7 @@
 #include <remote_action.h>
 
 #include "application/signal_connection_indicator.h"
+#include "features/input/game_mode_buttons.h"
 #include "features/input/scroll_accumulator.h"
 #include "rendering/video_geometry.h"
 #include "runtime/cursor_state_provider.h"
@@ -173,7 +174,7 @@ private:
   // cursor is frozen, so the UI accumulator is never involved) and the
   // sensitivity snapshot taken at entry.
   std::mutex game_mode_mutex_;
-  std::set<int> game_mode_pressed_buttons_;
+  GameModePressedButtons game_mode_pressed_buttons_;
   ScrollAccumulator game_mode_scroll_;
   int game_mode_wheel_percent_ = 100;
 #endif

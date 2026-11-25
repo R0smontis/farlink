@@ -273,9 +273,14 @@ int PlatformMouseCapturer::Hook(OnMouseDelta on_delta, OnMouseButton on_button,
                                 OnMouseWheel on_wheel, OnGameModeExit on_exit,
                                 void* user_ptr, double scale_x, double scale_y,
                                 CGPoint freeze_at) {
+  // Returning 0 must always mean the tap is live and swallowing. A stale
+  // capture — pass-through after the escape chord, or a half-joined run
+  // loop — is torn down here rather than reported as success, because the
+  // caller wires its sender thread on the assumption that events are
+  // captured.
   if (active_.load(std::memory_order_acquire) ||
       run_loop_thread_.joinable()) {
-    return 0;
+    Unhook();
   }
   if (!std::isfinite(scale_x) || !std::isfinite(scale_y) || scale_x <= 0 ||
       scale_y <= 0) {

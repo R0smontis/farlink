@@ -59,7 +59,7 @@ int main() {
     std::thread consumer([&] {
       while (!stop.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        const auto events = queue.Drain();
+        const auto events = queue.WaitAndDrain(std::chrono::milliseconds(0));
         if (!events.empty()) {
           consumed.fetch_add(static_cast<int>(events.size()));
         }
