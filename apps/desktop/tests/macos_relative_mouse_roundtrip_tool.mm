@@ -1,7 +1,8 @@
 /*
- * @Author: DI JUNKUN
+ * @Author: Farlink contributors
  * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 by Farlink contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 // Runtime verification for relative injection: drives the real

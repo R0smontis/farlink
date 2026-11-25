@@ -186,7 +186,18 @@ function setup_targets()
             add_files("apps/desktop/tests/macos_relative_mouse_roundtrip_tool.mm",
                 "apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp")
             add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_relative_mouse_edge_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_relative_mouse_edge_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp")
+            add_frameworks("ApplicationServices", "CoreGraphics")
     end
+
 
     target("cursor_position_test")
         set_kind("binary")
