@@ -84,12 +84,13 @@ void CheckConservation(const AudioJitterBuffer& jb, const char* tag) {
   const uint64_t accounted = s.emitted_normal + s.emitted_reordered +
                              s.duplicates + s.dropped_too_late +
                              s.dropped_drain + s.dropped_shrink +
+                             s.converge_drops +
                              uint64_t(jb.BufferedCountForTesting());
   if (accounted != s.received) {
     std::fprintf(stderr,
                  "FAIL conservation[%s]: received=%llu accounted=%llu "
                  "(norm=%llu reord=%llu dup=%llu late=%llu drain=%llu "
-                 "shrink=%llu buffered=%d)\n",
+                 "shrink=%llu converge=%llu buffered=%d)\n",
                  tag, (unsigned long long)s.received,
                  (unsigned long long)accounted,
                  (unsigned long long)s.emitted_normal,
@@ -98,6 +99,7 @@ void CheckConservation(const AudioJitterBuffer& jb, const char* tag) {
                  (unsigned long long)s.dropped_too_late,
                  (unsigned long long)s.dropped_drain,
                  (unsigned long long)s.dropped_shrink,
+                 (unsigned long long)s.converge_drops,
                  jb.BufferedCountForTesting());
     ++failures;
   }
@@ -407,6 +409,218 @@ void TestDuplicatesIgnored() {
   std::printf("duplicates ignored OK\n");
 }
 
+// ---- Convergence test harness ---------------------------------------------
+// Drive a stream deterministically: frame i is produced at grid time i*10ms
+// and inserted at arrival_fn(i). Pumps are stepped every millisecond across
+// each frame window so every emission boundary is hit exactly. Returns the
+// per-packet insert→emit delay via the sink markers.
+struct StreamRun {
+  std::map<uint16_t, int64_t> insert_time;  // seq -> insert ms
+  std::map<uint16_t, int64_t> emit_time;    // seq -> first emit ms (real only)
+  int plc_total = 0;
+  // PLC emitted after a given time (for "no concealment after convergence").
+  int plc_after_ms_count = 0;
+};
+
+// arrival_fn(i) gives the insert time in ms for frame index i.
+template <typename F>
+StreamRun RunStream(AudioJitterBuffer& jb, int frames, int64_t pump_span,
+                    F&& arrival_fn, int64_t plc_after_ms = -1) {
+  StreamRun r;
+  uint16_t base = 1000;
+  for (int i = 0; i < frames; ++i) {
+    const uint16_t seq = uint16_t(base + i);
+    const int64_t arr = arrival_fn(i);
+    const auto pkt = MakePacket(seq);
+    r.insert_time[seq] = arr;
+    jb.Insert(seq, pkt.data(), pkt.size(), arr);
+    for (int64_t t = arr; t < arr + pump_span; ++t) {
+      jb.Pump(t, [&](const AudioJitterBuffer::Frame& f) {
+        if (f.kind == AudioJitterBuffer::FrameKind::kPlc) {
+          ++r.plc_total;
+          if (plc_after_ms >= 0 && t >= plc_after_ms) ++r.plc_after_ms_count;
+          return;
+        }
+        const uint16_t m = MarkerOf(f.payload, f.payload_size);
+        if (!r.emit_time.count(m)) r.emit_time[m] = t;
+      });
+    }
+  }
+  return r;
+}
+
+int64_t DelayAt(const StreamRun& r, int idx) {
+  const uint16_t seq = uint16_t(1000 + idx);
+  if (!r.emit_time.count(seq) || !r.insert_time.count(seq)) return -1;
+  return r.emit_time.at(seq) - r.insert_time.at(seq);
+}
+
+// 11. Late anchor convergence: first packet 40 ms late, then on-grid for
+// 10 s. Effective delay must return to 30 ms (±1 frame) within 6 s, total
+// converge drops == 4 (40 ms / one frame), no drops afterwards, and no
+// concealment afterwards.
+void TestLateAnchorConverges() {
+  AudioJitterBuffer jb;
+  const int frames = 1000;  // 10 s
+  StreamRun r = RunStream(jb, frames, 12, [&](int i) -> int64_t {
+    return (i == 0) ? 40 : int64_t(i) * 10;  // packet 0 +40 ms, rest on grid
+  });
+
+  // Exactly 4 convergence drops total (40 ms of lateness, one frame each).
+  CHECK(jb.GetStats().converge_drops == 4);
+
+  // Find the first index whose delay is at target (30-40 ms window).
+  int conv_idx = -1;
+  for (int i = 20; i < frames; ++i) {
+    const int64_t d = DelayAt(r, i);
+    if (d >= 30 && d <= 40) { conv_idx = i; break; }
+  }
+  CHECK(conv_idx > 0);
+  // Within 6 s = frame index 600.
+  CHECK(conv_idx < 600);
+
+  // After convergence the delay settles at target and stays there.
+  CHECK(DelayAt(r, 900) >= 30 && DelayAt(r, 900) <= 40);
+  // No concealment in a clean stream.
+  CHECK(r.plc_total == 0);
+  CheckConservation(jb, "late-anchor-converge");
+  std::printf(
+      "late-anchor convergence OK (converged at frame %d = %.1fs, drops %llu, "
+      "settled delay %lld ms)\n",
+      conv_idx, conv_idx * 10 / 1000.0,
+      (unsigned long long)jb.GetStats().converge_drops,
+      (long long)DelayAt(r, 900));
+}
+
+// 12. On-time anchor: zero convergence drops over 60 s of clean traffic.
+void TestOnTimeAnchorNoConverge() {
+  AudioJitterBuffer jb;
+  StreamRun r = RunStream(jb, 6000, 12, [&](int i) -> int64_t {
+    return int64_t(i) * 10;  // every packet exactly on grid
+  });
+  CHECK(jb.GetStats().converge_drops == 0);
+  CheckConservation(jb, "on-time-no-converge");
+  std::printf("on-time anchor no-converge OK (60 s clean, 0 converge drops)\n");
+}
+
+// 13. Late anchor under jitter: uniform 0-20 ms on every packet, first at
+// +20. The min-filter must protect the late tail: the schedule converges only
+// to the point where the tightest (latest-arriving) packets still meet the
+// target, and crucially must not create concealments by over-converging.
+// Deterministic pseudo-jitter (no rand): a fixed permutation of 0..20.
+void TestLateAnchorUnderJitter() {
+  AudioJitterBuffer jb;
+  // Deterministic jitter pattern covering the full 0..20 range repeatedly.
+  static const int kJit[21] = {0, 7, 14, 3, 20, 11, 5, 18, 2, 9, 16,
+                               1, 13, 6, 19, 4, 12, 17, 8, 15, 10};
+  StreamRun r = RunStream(jb, 1500, 30, [&](int i) -> int64_t {
+    if (i == 0) return 20;  // first packet +20 ms
+    return int64_t(i) * 10 + kJit[i % 21];
+  }, /*plc_after_ms=*/8000);  // count PLC after 8 s (post-convergence)
+
+  // The tightest jittered packets (+20) have slack exactly at target, so the
+  // min-filter must prevent any convergence that would underrun them: no
+  // concealment after the stream settles.
+  CHECK(r.plc_after_ms_count == 0);
+  CheckConservation(jb, "late-anchor-jitter");
+  std::printf(
+      "late-anchor-under-jitter OK (post-convergence concealments %d, converge "
+      "drops %llu, target %d)\n",
+      r.plc_after_ms_count, (unsigned long long)jb.GetStats().converge_drops,
+      jb.TargetDelayMs());
+}
+
+// 14. Boundary no-flap. The convergence/grow hysteresis contract: grow acts
+// on target_ms_, convergence acts on the schedule offset and pulls residence
+// only toward the CURRENT target_ms_. Because convergence is one-directional
+// (it only ever shortens the schedule, never lengthens it) and is bounded
+// below by the min-filtered slack of the late tail, it cannot overshoot
+// target_ms_, and there is no mechanism that pushes the schedule offset back
+// up. Convergence therefore fires at most floor(looseness/frame) times and
+// then permanently settles — it cannot oscillate.
+//
+// This test sits exactly on the convergence boundary: the anchor is one frame
+// (10 ms) late, putting the windowed min slack exactly at target+frame, the
+// trigger threshold. Convergence must fire exactly once, drop exactly one
+// frame, and never fire again — and target_ms_ must not change direction at
+// all. We run 30 s and count target direction changes (must be zero here,
+// far under the 1-per-10-s budget) and total convergence drops (must be 1).
+void TestConvergeNoFlap() {
+  AudioJitterBuffer jb;
+  int last_target = 30;
+  int last_dir = 0;  // +1 grew, -1 shrank, 0 none yet
+  int dir_changes = 0;
+  uint16_t base = 1000;
+  Sink sink;
+  for (int i = 0; i < 3000; ++i) {  // 30 s
+    const uint16_t seq = uint16_t(base + i);
+    const int64_t grid = int64_t(i) * 10;
+    // Anchor exactly one frame late (at the convergence boundary); the rest
+    // exactly on grid, so the only looseness is that single frame.
+    const int64_t arr = (i == 0) ? grid + 10 : grid;
+    const auto pkt = MakePacket(seq);
+    jb.Insert(seq, pkt.data(), pkt.size(), arr);
+    for (int64_t t = arr; t < arr + 12; ++t) {
+      jb.Pump(t, [&](const AudioJitterBuffer::Frame&) {});
+    }
+    const int tgt = jb.TargetDelayMs();
+    if (tgt != last_target) {
+      const int dir = (tgt > last_target) ? 1 : -1;
+      if (last_dir != 0 && dir != last_dir) ++dir_changes;
+      last_dir = dir;
+      last_target = tgt;
+    }
+  }
+  // Exactly one convergence step total: the single frame of looseness is
+  // removed and convergence never re-fires (no oscillation).
+  CHECK(jb.GetStats().converge_drops == 1);
+  // Target never oscillates: clean stream, so no grow/shrink at all.
+  CHECK(dir_changes == 0);
+  CheckConservation(jb, "converge-no-flap");
+  std::printf(
+      "converge no-flap OK (boundary anchor +1 frame: exactly %llu converge "
+      "drop, %d target direction changes over 30 s)\n",
+      (unsigned long long)jb.GetStats().converge_drops, dir_changes);
+}
+
+// 15. Convergence does not fight grow. Persistent jitter that legitimately
+// grows the target (tardy packets the buffer cannot absorb) must not be
+// undone by convergence: once target_ms_ rises, convergence pulls residence
+// only toward that higher target, so convergence drops stay at zero while
+// grow is active. This is the consistency proof for the two mechanisms.
+void TestConvergeDoesNotFightGrow() {
+  AudioJitterBuffer jb;
+  uint16_t base = 1000;
+  Sink sink;
+  for (int i = 0; i < 400; ++i) {
+    const uint16_t seq = uint16_t(base + i);
+
+    const int64_t grid = int64_t(i) * 10;
+    // Clean anchor phase, then half the packets 35 ms late: genuine jitter
+    // that exceeds the base target and drives the target up.
+    int64_t arr;
+    if (i < 80) arr = grid;
+    else arr = (i % 2 == 0) ? grid + 35 : grid + 2;
+    const auto pkt = MakePacket(seq);
+    jb.Insert(seq, pkt.data(), pkt.size(), arr);
+    for (int64_t t = arr; t < arr + 12; ++t) {
+      jb.Pump(t, [&](const AudioJitterBuffer::Frame&) {});
+    }
+  }
+  // Grow fired (target rose) but convergence did NOT pull frames out from
+  // under it — the late tail (the +35 ms packets) legitimately needs the
+  // buffering, and the min-filter protects them.
+  CHECK(jb.GetStats().grow_events > 0);
+  CHECK(jb.TargetDelayMs() > 30);
+  CHECK(jb.GetStats().converge_drops == 0);
+  CheckConservation(jb, "converge-not-fight-grow");
+  std::printf(
+      "converge-does-not-fight-grow OK (target %d ms, grow %llu, converge "
+      "drops %llu — convergence correctly inactive under genuine jitter)\n",
+      jb.TargetDelayMs(), (unsigned long long)jb.GetStats().grow_events,
+      (unsigned long long)jb.GetStats().converge_drops);
+}
+
 }  // namespace
 
 int main() {
@@ -420,6 +634,11 @@ int main() {
   TestBurstAfterStallReanchor();
   TestSequenceWraparound();
   TestDuplicatesIgnored();
+  TestLateAnchorConverges();
+  TestOnTimeAnchorNoConverge();
+  TestLateAnchorUnderJitter();
+  TestConvergeNoFlap();
+  TestConvergeDoesNotFightGrow();
 
   if (failures == 0) {
     std::printf("audio_jitter_buffer_test: all checks passed\n");
