@@ -1,14 +1,9 @@
-// MiniRTC direct-connection measurement harness.
-//
-// Establishes a HostOnly ICE direct peer-to-peer session between two in-process
-// MiniRTC endpoints over the machine's real LAN interface (loopback through
-// the host NIC) and measures connection-establishment stage timings plus
-// first-frame latency, without any signaling server or external network.
-// Used to produce the baseline numbers for connection-time optimization.
-//
-// This harness never contacts external servers: ICE is restricted to host
-// candidates on the configured LAN IP pair, trickle ICE exchanges candidates
-// through the in-process signal channel, and all media stays on loopback.
+/*
+ * @Author: Farlink contributors
+ * @Date: 2026-11-25
+ * Copyright (c) 2026 by Farlink contributors, All Rights Reserved.
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 
 #include <atomic>
 #include <chrono>

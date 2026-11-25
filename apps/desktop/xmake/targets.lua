@@ -213,6 +213,14 @@ function setup_targets()
         add_files("apps/desktop/tests/audio_jitter_buffer_test.cpp",
             "deps/submodules/minirtc/src/media/audio/jitter/audio_jitter_buffer.cpp")
 
+    target("audio_output_trim_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("libsdl3")
+        add_deps("rd_log")
+        add_includedirs("apps/desktop/src/gui/features/devices")
+        add_files("apps/desktop/tests/audio_output_trim_test.cpp")
+
     -- MiniRTC-level two-endpoint LAN harness: measures direct-connection
     -- stage timings and first-frame latency without any signaling server.
     -- Build-only target; run manually with the machine's LAN IPv4 address.

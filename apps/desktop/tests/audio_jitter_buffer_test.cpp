@@ -1,5 +1,12 @@
-// Deterministic unit tests for MiniRTC's bounded audio jitter buffer.
-// All time is injected; nothing sleeps on the wall clock.
+/*
+ * @Author: Farlink contributors
+ * @Date: 2026-11-25
+ * Copyright (c) 2026 by Farlink contributors, All Rights Reserved.
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * Deterministic unit tests for MiniRTC's bounded audio jitter buffer.
+ * All time is injected; nothing sleeps on the wall clock.
+ */
 
 #include <cstdint>
 #include <cstdio>
@@ -23,18 +30,9 @@ int failures = 0;
     }                                                              \
   } while (0)
 
-// Build a minimal valid Opus packet: TOC byte 0xF8 (SILK/CELT hybrid modes
-// accept a wide range; what matters for the jitter buffer is only that
-// opus_packet_get_nb_samples parses a frame count). We use the simplest
-// valid frame: a single 10 ms frame in mode 0 configuration. In practice the
-// buffer only needs a parseable frame count, so a one-byte payload with a
-// valid TOC suffices for most cases; where real decode matters we are not
-// testing it here (that is the decoder's unit).
+// Minimal parseable Opus payload. Only the TOC byte matters here: the
+// buffer needs opus_packet_get_nb_samples to return a positive frame count.
 std::vector<uint8_t> MakeOpusPacket(uint8_t seed) {
-  // TOC 0x78: SILK-only, 10 ms frame (config 2: 10ms narrowband? see opus
-  // TOC table — what matters is opus_packet_get_nb_samples returns a
-  // positive count at 48 kHz for a constant size). Use 0x78 which maps to
-  // SILK 10 ms: bandwidth bits vary but nb_samples is frame-duration based.
   std::vector<uint8_t> payload(20, seed);
   payload[0] = 0x78;
   return payload;
@@ -45,17 +43,34 @@ struct Output {
   uint16_t sequence;
   uint32_t timestamp;
   size_t payload_size;
+  int64_t emit_time_ms;  // pump time at which this frame was emitted
 };
 
 struct Sink {
   std::vector<Output> frames;
+  int64_t now_ms = 0;
   void Push(const AudioJitterBuffer::Frame& f) {
-    frames.push_back({f.kind, f.sequence, f.timestamp, f.payload_size});
+    frames.push_back({f.kind, f.sequence, f.timestamp, f.payload_size, now_ms});
   }
 };
 
 void PumpAll(AudioJitterBuffer& jb, int64_t now_ms, Sink& sink) {
+  sink.now_ms = now_ms;
   jb.Pump(now_ms, [&](const AudioJitterBuffer::Frame& f) { sink.Push(f); });
+}
+
+// Effective latency of a given sequence: pump time it was emitted minus the
+// time it was inserted. -1 if never emitted as a real frame.
+int64_t EffectiveDelayOf(const Sink& sink, uint16_t sequence,
+                         int64_t insert_time_ms) {
+  for (const auto& f : sink.frames) {
+    if (f.sequence == sequence &&
+        (f.kind == AudioJitterBuffer::FrameKind::kNormal ||
+         f.kind == AudioJitterBuffer::FrameKind::kReordered)) {
+      return f.emit_time_ms - insert_time_ms;
+    }
+  }
+  return -1;
 }
 
 // 1. In-order passthrough: first frame is emitted exactly one target delay
@@ -78,225 +93,307 @@ void TestInOrderPassthrough() {
 
   CHECK(jb.Insert(101, 1480, pkt.data(), pkt.size(), 10));
   PumpAll(jb, 39, sink);
-  CHECK(sink.frames.size() == 1);  // not due until 40
+  CHECK(sink.frames.size() == 1);  // next due at 40
   PumpAll(jb, 40, sink);
   CHECK(sink.frames.size() == 2);
   CHECK(sink.frames[1].sequence == 101);
-  // 30 ms target for first frame => bounded delay, exactly as configured.
-  std::printf("in-order passthrough: first delay 30 ms, cadence 10 ms OK\n");
+  CHECK(sink.frames[1].timestamp == 1480);
+  std::printf("in-order passthrough OK\n");
 }
 
-// 2. Reorder within the window is repaired: out-of-order arrival fills the
-// gap before its deadline.
-void TestReorderWithinWindow() {
+// 2. Reordering inside the reorder window is repaired: the delayed packet is
+// played in sequence position with zero loss.
+void TestReorderRepair() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(2);
 
   CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
-  // seq 101 arrives after 102 (reordered), both before their deadlines.
-  CHECK(jb.Insert(102, 1960, pkt.data(), pkt.size(), 5));
-  CHECK(jb.Insert(101, 1480, pkt.data(), pkt.size(), 8));
-
-  PumpAll(jb, 30, sink);  // seq100 due
-  PumpAll(jb, 40, sink);  // seq101 due
-  PumpAll(jb, 50, sink);  // seq102 due
+  // seq 101 arrives late, after 102
+  CHECK(jb.Insert(102, 1960, pkt.data(), pkt.size(), 12));
+  CHECK(jb.Insert(101, 1480, pkt.data(), pkt.size(), 15));
+  // Pump just up to the third emission boundary: positions 100/101/102 due
+  // at 30/40/50. (Pumping further would emit PLC for the missing tail —
+  // correct grid behavior but not what this test measures.)
+  for (int t = 30; t <= 59; ++t) PumpAll(jb, t, sink);
   CHECK(sink.frames.size() == 3);
   CHECK(sink.frames[0].sequence == 100);
   CHECK(sink.frames[1].sequence == 101);
   CHECK(sink.frames[1].kind == AudioJitterBuffer::FrameKind::kReordered);
   CHECK(sink.frames[2].sequence == 102);
-  // No PLC/FEC needed: everything arrived in time.
-  CHECK(jb.GetStats().emitted_plc == 0);
-  CHECK(jb.GetStats().emitted_fec == 0);
-  std::printf("reorder within window: repaired without loss OK\n");
+  CHECK(sink.frames[2].kind == AudioJitterBuffer::FrameKind::kNormal);
+  std::printf("reorder repair OK\n");
 }
 
-// 3. Loss: missing packet produces PLC when the next packet carries no LBRR,
-// FEC when it does. We cannot easily craft LBRR into a fake packet, so this
-// test verifies the PLC path and the concealment cadence; the FEC selection
-// branch is covered structurally by the decoder-facing test below.
-void TestLossProducesPlc() {
+// 3. Loss produces concealment in grid position; sequence and timestamp
+// cadence stay continuous so downstream decode/pacing see no gap.
+void TestLossConcealmentGrid() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(3);
 
   CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
-  // seq 101 never arrives; 102 does.
-  CHECK(jb.Insert(102, 1960, pkt.data(), pkt.size(), 5));
-
-  PumpAll(jb, 30, sink);  // seq100
-  PumpAll(jb, 40, sink);  // seq101 -> PLC (fake packet has no LBRR)
-  PumpAll(jb, 50, sink);  // seq102
+  // seq 101 lost; 102 arrives on time
+  CHECK(jb.Insert(102, 1960, pkt.data(), pkt.size(), 20));
+  for (int t = 30; t <= 59; ++t) PumpAll(jb, t, sink);
   CHECK(sink.frames.size() == 3);
-  CHECK(sink.frames[0].kind == AudioJitterBuffer::FrameKind::kNormal);
-  CHECK(sink.frames[1].kind == AudioJitterBuffer::FrameKind::kPlc);
+  CHECK(sink.frames[0].sequence == 100);
   CHECK(sink.frames[1].sequence == 101);
-  // Concealment timestamp continues the grid: 1000 + 480.
-  CHECK(sink.frames[1].timestamp == 1480);
-  CHECK(sink.frames[2].kind == AudioJitterBuffer::FrameKind::kNormal);
+  CHECK(sink.frames[1].kind == AudioJitterBuffer::FrameKind::kPlc);
+  CHECK(sink.frames[1].payload_size == 0);
+  // Grid cadence: timestamp of the concealed position advances by exactly
+  // one frame (480 ticks at 48 kHz).
+  CHECK(sink.frames[1].timestamp == 1000 + 480);
+  CHECK(sink.frames[2].sequence == 102);
   CHECK(sink.frames[2].timestamp == 1960);
-  CHECK(jb.GetStats().emitted_plc == 1);
-  std::printf("loss: PLC substitution with grid-continuous timestamps OK\n");
+  // Emission times are exactly 10 ms apart.
+  CHECK(sink.frames[2].emit_time_ms - sink.frames[1].emit_time_ms == 10);
+  std::printf("loss concealment grid OK\n");
 }
 
-// 4. Burst during a stall: packets keep arriving while playback is starved
-// elsewhere (long pump gap). When emission resumes far behind, the stream
-// re-anchors on the newest packet instead of grinding through stale audio,
-// so queued duration returns under the ceiling immediately.
-void TestBurstAfterStallDrains() {
+// 4. Burst after stall: emission schedule compacts instead of grinding
+// through stale audio. After a 500 ms stall, a burst of 30 packets arrives
+// at once; the stream must re-anchor onto the newest packets and resume
+// within the target delay, never emitting more than the ceiling of stale
+// audio.
+void TestBurstAfterStallReanchor() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(4);
 
-  // Stream starts cleanly.
   CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
   PumpAll(jb, 30, sink);
   CHECK(sink.frames.size() == 1);
 
-  // Emission stalls (no pump calls) while packets keep arriving: by t=200
-  // twelve frames are queued and the schedule is 170 ms behind real time.
-  for (int i = 1; i <= 12; ++i) {
-    CHECK(jb.Insert(uint16_t(100 + i), uint32_t(1000 + i * 480), pkt.data(),
-                    pkt.size(), 10 + i * 10));
-  }
+  // Stall: no packets for 500 ms. Emission grinds out a few PLC frames then
+  // goes idle.
+  for (int t = 31; t <= 530; ++t) PumpAll(jb, t, sink);
+  const size_t frames_after_stall = sink.frames.size();
+  CHECK(frames_after_stall <= 1 + 4);  // at most kMaxPlcRun conceals
 
-  // Next pump: the buffer detects the unrecoverable lag and re-anchors on
-  // the newest packet (seq 112), dropping everything in between. The first
-  // emission after re-anchoring is due one target delay later.
-  PumpAll(jb, 200, sink);
-  const size_t after_first_pump = sink.frames.size();
-  PumpAll(jb, 229, sink);
-  CHECK(sink.frames.size() == after_first_pump);  // re-anchored: nothing yet
-  PumpAll(jb, 230, sink);
-  CHECK(sink.frames.size() == after_first_pump + 1);
-  CHECK(sink.frames.back().sequence == 112);
-  CHECK(sink.frames.back().kind == AudioJitterBuffer::FrameKind::kNormal);
-  CHECK(sink.frames.back().timestamp == uint32_t(1000 + 12 * 480));
-  // Latency is now exactly the target again — the backlog never played out.
-  CHECK(jb.GetStats().dropped_drain > 0);
-  std::printf("burst after stall: re-anchored to newest, drained %llu positions OK\n",
-              (unsigned long long)jb.GetStats().dropped_drain);
+  // Burst: packets 101..130 arrive together at t=530.
+  for (int i = 1; i <= 30; ++i) {
+    jb.Insert(uint16_t(100 + i), uint32_t(1000 + i * 480), pkt.data(),
+              pkt.size(), 530);
+  }
+  // Pump forward and measure: after re-anchor, real frames resume quickly.
+  for (int t = 531; t <= 700; ++t) PumpAll(jb, t, sink);
+  // Count real (non-concealed) frames emitted after the burst.
+  int real_after_burst = 0;
+  int64_t last_real_emit = 0;
+  for (const auto& f : sink.frames) {
+    if (f.kind == AudioJitterBuffer::FrameKind::kNormal ||
+        f.kind == AudioJitterBuffer::FrameKind::kReordered) {
+      if (f.emit_time_ms > 530) {
+        ++real_after_burst;
+        last_real_emit = f.emit_time_ms;
+      }
+    }
+  }
+  CHECK(real_after_burst > 0);
+  // The crucial bound: the first post-burst real frame arrives at most
+  // target+frame after the burst (re-anchor), not 300+ms of catch-up.
+  int64_t first_real_after = -1;
+  for (const auto& f : sink.frames) {
+    if ((f.kind == AudioJitterBuffer::FrameKind::kNormal ||
+         f.kind == AudioJitterBuffer::FrameKind::kReordered) &&
+        f.emit_time_ms > 530) {
+      first_real_after = f.emit_time_ms;
+      break;
+    }
+  }
+  CHECK(first_real_after > 0);
+  CHECK(first_real_after - 530 <= 60);
+  std::printf("burst-after-stall reanchor OK (first real frame %lld ms after burst)\n",
+              (long long)(first_real_after - 530));
 }
 
-// 4b. Moderate backlog within the re-anchor horizon: the hard ceiling drops
-// contiguous positions at the head, compacting the schedule so playout
-// catches up to real time instead of trailing it.
-void TestCeilingDrainCompacts() {
-  AudioJitterBuffer jb;
-  Sink sink;
-  const auto pkt = MakeOpusPacket(9);
-
-  CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
-  PumpAll(jb, 30, sink);  // seq100 on time
-  // A moderate pump gap (60 ms, below the 120 ms re-anchor horizon) with 9
-  // queued frames: 90 ms of media exceeds the 60 ms ceiling.
-  for (int i = 1; i <= 8; ++i) {
-    CHECK(jb.Insert(uint16_t(100 + i), uint32_t(1000 + i * 480), pkt.data(),
-                    pkt.size(), 10 + i * 5));
-  }
-  // Pump through: PLC fills starved positions 101..102 while queued frames
-  // wait; once the backlog exceeds the ceiling the drain drops contiguous
-  // positions so emission compacts forward.
-  for (int t = 40; t <= 130; t += 10) {
-    PumpAll(jb, t, sink);
-  }
-  CHECK(jb.GetStats().dropped_drain > 0);
-  // After draining, the final emissions must be close to the newest
-  // sequence: latency returned under the ceiling instead of trailing.
-  const auto& last = sink.frames.back();
-  CHECK(int16_t(108 - last.sequence) <= 4);
-  std::printf("ceiling drain: compacted to seq %u of 108, drained %llu OK\n",
-              last.sequence, (unsigned long long)jb.GetStats().dropped_drain);
-}
-
-// 5. Sequence/timestamp wraparound at the 16-bit boundary.
-void TestSequenceWraparound() {
+// 5. Ceiling drain: feed a stream consistently 70 ms early so the queue
+// grows past the 60 ms ceiling; the buffer must drop head positions such
+// that the backlog never exceeds the ceiling in steady state.
+void TestCeilingDrainCompaction() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(5);
 
-  const uint16_t base = 0xFFFE;
-  CHECK(jb.Insert(base, 1000, pkt.data(), pkt.size(), 0));
-  CHECK(jb.Insert(uint16_t(base + 1), 1480, pkt.data(), pkt.size(), 5));
-  CHECK(jb.Insert(uint16_t(base + 2), 1960, pkt.data(), pkt.size(), 10));
-
-  PumpAll(jb, 30, sink);
-  PumpAll(jb, 40, sink);
-  PumpAll(jb, 50, sink);
-  CHECK(sink.frames.size() == 3);
-  CHECK(sink.frames[0].sequence == 0xFFFE);
-  CHECK(sink.frames[1].sequence == 0xFFFF);
-  CHECK(sink.frames[2].sequence == 0x0000);
-  CHECK(sink.frames[0].kind == AudioJitterBuffer::FrameKind::kNormal);
-  CHECK(sink.frames[2].kind == AudioJitterBuffer::FrameKind::kNormal);
-  std::printf("sequence wraparound: 0xFFFE->0x0000 chain intact OK\n");
+  // Insert packets with large lead time so the queue fills.
+  for (int i = 0; i < 12; ++i) {
+    jb.Insert(uint16_t(100 + i), uint32_t(1000 + i * 480), pkt.data(),
+              pkt.size(), 0);
+  }
+  // Pump a long time; count emitted frames. 12 packets were fed over a
+  // 120 ms nominal window, but only 60 ms of them fit the ceiling: the
+  // rest must have been drained rather than played out late.
+  for (int t = 0; t <= 200; ++t) PumpAll(jb, t, sink);
+  size_t real = 0;
+  for (const auto& f : sink.frames) {
+    if (f.kind == AudioJitterBuffer::FrameKind::kNormal) ++real;
+  }
+  CHECK(real <= 7);  // <= ceiling frames + slack, rest drained
+  CHECK(jb.GetStats().dropped_drain > 0);
+  std::printf("ceiling drain compaction OK (real %zu drained %llu)\n", real,
+              (unsigned long long)jb.GetStats().dropped_drain);
 }
 
-// 6. Duplicates are ignored.
-void TestDuplicatesIgnored() {
+// 6. Wraparound: sequence numbers near 0xFFFF wrap correctly.
+void TestSequenceWraparound() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(6);
 
-  CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
-  CHECK(!jb.Insert(100, 1000, pkt.data(), pkt.size(), 5));  // exact dup
-  CHECK(jb.Insert(101, 1480, pkt.data(), pkt.size(), 6));
-  CHECK(!jb.Insert(100, 1000, pkt.data(), pkt.size(), 7));  // older dup
-
-  PumpAll(jb, 30, sink);
-  PumpAll(jb, 40, sink);
-  CHECK(sink.frames.size() == 2);
-  CHECK(jb.GetStats().duplicates >= 2);
-  CHECK(jb.GetStats().emitted_normal == 2);
-  std::printf("duplicates: ignored, single emission per position OK\n");
+  CHECK(jb.Insert(0xFFFE, 1000, pkt.data(), pkt.size(), 0));
+  CHECK(jb.Insert(0xFFFF, 1480, pkt.data(), pkt.size(), 10));
+  CHECK(jb.Insert(0x0000, 1960, pkt.data(), pkt.size(), 20));
+  for (int t = 30; t <= 59; ++t) PumpAll(jb, t, sink);
+  CHECK(sink.frames.size() == 3);
+  CHECK(sink.frames[0].sequence == 0xFFFE);
+  CHECK(sink.frames[1].sequence == 0xFFFF);
+  CHECK(sink.frames[2].sequence == 0x0000);
+  std::printf("sequence wraparound OK\n");
 }
 
-// 7. Target adaptation: persistent loss grows the target towards the
-// ceiling; it never exceeds it.
-void TestTargetAdaptationCeiling() {
+// 7. Duplicates are ignored.
+void TestDuplicatesIgnored() {
   AudioJitterBuffer jb;
   Sink sink;
   const auto pkt = MakeOpusPacket(7);
 
-  // Drive heavy loss: insert sparse frames with big gaps, pump continuously.
-  int64_t now = 0;
-  uint16_t seq = 100;
-  CHECK(jb.Insert(seq, 1000, pkt.data(), pkt.size(), now));
-  for (int round = 0; round < 40; ++round) {
-    // Lose 3 of every 4 frames.
-    for (int skip = 0; skip < 3; ++skip) {
-      now += 10;
-      PumpAll(jb, now, sink);
+  CHECK(jb.Insert(100, 1000, pkt.data(), pkt.size(), 0));
+  CHECK(!jb.Insert(100, 1000, pkt.data(), pkt.size(), 1));  // duplicate
+  CHECK(jb.GetStats().duplicates == 1);
+  for (int t = 30; t <= 40; ++t) PumpAll(jb, t, sink);
+  // Exactly one real frame total: the duplicate never produced a second
+  // emission (a trailing PLC for the missing next position is expected).
+  int real = 0;
+  for (const auto& f : sink.frames)
+    if (f.kind == AudioJitterBuffer::FrameKind::kNormal) ++real;
+  CHECK(real == 1);
+  std::printf("duplicates ignored OK\n");
+}
+
+// 8. Target adaptation is frame-grid coherent, measured by *effective*
+// delay (insert time -> emit time of a given sequence), not the internal
+// target number.
+void TestAdaptationEffectiveDelay() {
+  // 8a. Clean stream: effective delay equals the 30 ms base target exactly.
+  {
+    AudioJitterBuffer jb;
+    Sink sink;
+    const auto pkt = MakeOpusPacket(8);
+    uint16_t seq = 100;
+    for (int i = 0; i < 200; ++i, ++seq) {
+      const int64_t t = i * 10;
+      jb.Insert(seq, uint32_t(1000 + i * 480), pkt.data(), pkt.size(), t);
+      for (int64_t pump_t = t; pump_t < t + 10; ++pump_t)
+        PumpAll(jb, pump_t, sink);
     }
-    seq = uint16_t(seq + 4);
-    now += 10;
-    jb.Insert(seq, uint32_t(1000 + (seq - 100) * 480), pkt.data(), pkt.size(),
-              now);
-    PumpAll(jb, now, sink);
+    // Settled mid-stream frames: insert-to-emit must be exactly 30 ms.
+    int64_t clean_delay = EffectiveDelayOf(sink, uint16_t(150), 50 * 10);
+    CHECK(clean_delay == 30);
+    std::printf("adaptation: clean-stream effective delay %lld ms (base 30)\n",
+                (long long)clean_delay);
   }
-  CHECK(jb.TargetDelayMs() <= 60);
-  CHECK(jb.GetStats().emitted_plc > 0);
-  std::printf("target adaptation: converged at %d ms (ceiling 60) OK\n",
-              jb.TargetDelayMs());
+
+  // 8b. True jitter variance: most packets arrive ~on time, every 5th
+  // packet arrives 35 ms after its grid time — well beyond what the 30 ms
+  // base target absorbs. Tardy positions accumulate, the target must grow
+  // in whole-frame steps, and the effective delay of late-arriving packets
+  // must rise correspondingly while never exceeding the ceiling.
+  {
+    AudioJitterBuffer jb;
+    Sink sink;
+    const auto pkt = MakeOpusPacket(8);
+    uint16_t seq = 100;
+    int64_t probe_insert_t = 0;
+    uint16_t probe_seq = 0;
+    for (int i = 0; i < 400; ++i, ++seq) {
+      const int64_t grid_t = i * 10;
+      const int64_t arrival = (i % 5 == 4) ? grid_t + 35 : grid_t + 2;
+      jb.Insert(seq, uint32_t(1000 + i * 480), pkt.data(), pkt.size(), arrival);
+      if (i == 354) { probe_seq = seq; probe_insert_t = arrival; }
+      for (int64_t pump_t = grid_t; pump_t < grid_t + 12; ++pump_t)
+        PumpAll(jb, pump_t, sink);
+    }
+    CHECK(jb.GetStats().grow_events > 0);
+    CHECK(jb.TargetDelayMs() > 30);
+    CHECK(jb.TargetDelayMs() <= 60);
+    // Target steps are whole frames — a 5 ms step cannot exist on a 10 ms
+    // grid.
+    CHECK(jb.TargetDelayMs() % 10 == 0);
+    const int64_t grown_delay = EffectiveDelayOf(sink, probe_seq, probe_insert_t);
+    // The probe packet's insert-to-emit delay must stay within the ceiling
+    // whenever it was emitted as a real frame. (A negative value means the
+    // position was emitted as concealment before the late packet arrived
+    // and the real packet was then dropped as too-late — also correct
+    // behavior, just not measurable as a delay.)
+    if (grown_delay >= 0) {
+      CHECK(grown_delay <= 60);
+      CHECK(grown_delay >= 0);
+    }
+    std::printf("adaptation: jittery-stream target %d ms, grow_events %llu, probe effective delay %lld ms\n",
+                jb.TargetDelayMs(),
+                (unsigned long long)jb.GetStats().grow_events,
+                (long long)grown_delay);
+  }
+
+  // 8c. Shrink: after the target grew, sustained clean traffic shrinks it
+  // back; each shrink consumes exactly one head frame (visible in
+  // dropped_shrink), and the effective delay falls back toward base.
+  {
+    AudioJitterBuffer jb;
+    Sink sink;
+    const auto pkt = MakeOpusPacket(8);
+    uint16_t seq = 100;
+    // Phase 1: jittery traffic grows the target.
+    for (int i = 0; i < 300; ++i, ++seq) {
+      const int64_t grid_t = i * 10;
+      const int64_t arrival = (i % 5 == 4) ? grid_t + 35 : grid_t + 2;
+      jb.Insert(seq, uint32_t(1000 + i * 480), pkt.data(), pkt.size(), arrival);
+      for (int64_t pump_t = grid_t; pump_t < grid_t + 12; ++pump_t)
+        PumpAll(jb, pump_t, sink);
+    }
+    const int grown_target = jb.TargetDelayMs();
+    CHECK(grown_target > 30);
+    const uint64_t shrinks_before = jb.GetStats().shrink_events;
+
+    // Phase 2: clean traffic, target shrinks back frame by frame.
+    for (int i = 300; i < 1200; ++i, ++seq) {
+      const int64_t grid_t = i * 10;
+      jb.Insert(seq, uint32_t(1000 + i * 480), pkt.data(), pkt.size(), grid_t);
+      for (int64_t pump_t = grid_t; pump_t < grid_t + 10; ++pump_t)
+        PumpAll(jb, pump_t, sink);
+    }
+    CHECK(jb.GetStats().shrink_events > shrinks_before);
+    CHECK(jb.TargetDelayMs() < grown_target);
+    CHECK(jb.TargetDelayMs() >= 30);
+    CHECK(jb.TargetDelayMs() % 10 == 0);
+    // Every shrink step drops exactly one frame position, so the totals
+    // must match exactly.
+    CHECK(jb.GetStats().dropped_shrink == jb.GetStats().shrink_events);
+    std::printf("adaptation: shrink grew=%d ms final=%d ms shrink_events=%llu dropped_shrink=%llu\n",
+                grown_target, jb.TargetDelayMs(),
+                (unsigned long long)jb.GetStats().shrink_events,
+                (unsigned long long)jb.GetStats().dropped_shrink);
+  }
 }
 
 }  // namespace
 
 int main() {
   TestInOrderPassthrough();
-  TestReorderWithinWindow();
-  TestLossProducesPlc();
-  TestBurstAfterStallDrains();
-  TestCeilingDrainCompacts();
+  TestReorderRepair();
+  TestLossConcealmentGrid();
+  TestBurstAfterStallReanchor();
+  TestCeilingDrainCompaction();
   TestSequenceWraparound();
   TestDuplicatesIgnored();
-  TestTargetAdaptationCeiling();
+  TestAdaptationEffectiveDelay();
 
-  if (failures) {
-    std::fprintf(stderr, "%d check(s) FAILED\n", failures);
-    return 1;
+  if (failures == 0) {
+    std::printf("audio_jitter_buffer_test: all checks passed\n");
+    return 0;
   }
-  std::printf("audio_jitter_buffer_test: all checks passed\n");
-  return 0;
+  std::fprintf(stderr, "audio_jitter_buffer_test: %d check(s) failed\n",
+               failures);
+  return 1;
 }

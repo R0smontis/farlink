@@ -1,3 +1,4 @@
+#include "audio_output_trim.h"
 #include "features/devices/session_device_manager.h"
 
 #include <SDL3/SDL_audio.h>
@@ -58,7 +59,10 @@ constexpr auto kFrameDeadlineTolerance = std::chrono::milliseconds(1);
 constexpr auto kKeyboardCaptureRetryDelay = std::chrono::seconds(1);
 #endif
 
+
 } // namespace
+
+
 
 SessionDeviceManager::SessionDeviceManager(GuiRuntime &owner)
     : owner_(owner),
@@ -742,30 +746,7 @@ void SessionDeviceManager::PushAudio(const std::string& remote_id,
     return;
   }
 
-  // Enforce the playback queue cap: drop the oldest whole 10 ms frames until
-  // the backlog fits. Input frames here are the decoder's 10 ms Opus output,
-  // so frame-granular trimming keeps alignment and avoids partial-frame
-  // glitches. Dropping the newest data instead would discard the freshest
-  // audio and still never shorten playback latency.
-  const int queued = SDL_GetAudioStreamQueued(stream);
-  if (queued > kAudioPlaybackQueueCapBytes) {
-    int excess = queued - kAudioPlaybackQueueCapBytes;
-    // Round up to whole frames so the trim lands on frame boundaries.
-    const int trim_frames = (excess + kAudioFrameBytes - 1) / kAudioFrameBytes;
-    int64_t trimmed = 0;
-    for (int i = 0; i < trim_frames; ++i) {
-      int got = SDL_GetAudioStreamData(stream, audio_trim_scratch_.data(),
-                                       kAudioFrameBytes);
-      if (got <= 0) break;
-      trimmed += got;
-    }
-    if (trimmed > 0) {
-      output_stream_dropped_bytes_[remote_id] += static_cast<uint64_t>(trimmed);
-      LOG_DEBUG("Audio playback backlog trimmed {} bytes for [{}] "
-                "(queued {} > cap {})",
-                trimmed, remote_id, queued, kAudioPlaybackQueueCapBytes);
-    }
-  }
+  TrimAudioStreamToCap(stream, output_stream_dropped_bytes_[remote_id]);
 }
 
 void SessionDeviceManager::UpdateInteractions() {
