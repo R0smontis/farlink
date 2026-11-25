@@ -140,6 +140,7 @@ private:
 #endif
   void ConnectFromUi(const std::string &remote_id);
   void ProcessLanConnectLaunchOption();
+  void InstallTerminationSignalHandlers();
   void DisconnectSession(const std::string &remote_id);
   void CloseDisconnectedSessions();
   void ResetPointerMotion();

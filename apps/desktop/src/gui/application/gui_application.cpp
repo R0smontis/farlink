@@ -11,6 +11,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1324,6 +1325,7 @@ int GuiApplication::Run(bool login_launch) {
   if (!InitializeSDL()) {
     return -1;
   }
+  InstallTerminationSignalHandlers();
 #if _WIN32
   const auto backend = ConfigureWindowsSlintBackend();
   if (!backend.success) {
@@ -2644,11 +2646,43 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
   });
 }
 
+namespace {
+
+// Set by the SIGTERM handler; consumed on the UI thread inside Tick.
+// sig_atomic_t is the only write-permitted type from a signal handler.
+volatile sig_atomic_t g_termination_requested = 0;
+
+void HandleTerminationSignal(int) { g_termination_requested = 1; }
+
+}  // namespace
+
+void GuiApplication::InstallTerminationSignalHandlers() {
+#if !defined(_WIN32) && !defined(__OHOS__)
+  // SDL's own SIGTERM translation only reaches pumps that call SDL_PollEvent;
+  // the macOS Slint/winit loop never does, so the stock application ignores
+  // SIGTERM entirely — kill, launchctl bootout and logout can only SIGKILL it,
+  // and every teardown (disconnect notification, lease and socket release) is
+  // skipped. Route the signal into the same exit_ path the tray's Quit uses.
+  struct sigaction action {};
+  action.sa_handler = HandleTerminationSignal;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;  // no SA_RESTART: the event loop must observe EINTR
+  if (sigaction(SIGTERM, &action, nullptr) != 0)
+    LOG_WARN("Could not install the SIGTERM handler: {}", std::strerror(errno));
+#endif
+}
+
 void GuiApplication::Tick() {
 #if _WIN32
   if (ui_) {
     ui_->session_end.Start();  // Retry a transient native-window creation failure.
     if (ui_->session_end.Ending()) exit_ = true;
+  }
+#endif
+#if !defined(_WIN32) && !defined(__OHOS__)
+  if (g_termination_requested && !exit_) {
+    LOG_INFO("SIGTERM received: shutting down through the normal quit path");
+    exit_ = true;
   }
 #endif
   if (exit_) {
@@ -5356,6 +5390,7 @@ void GuiApplication::ProcessLanConnectLaunchOption() {
   if (password && password[0] != '\0') {
     LOG_INFO("--lan-connect {} (view-only={})", endpoint, options.view_only);
     ConnectLan(address, port, std::string(password), false);
+    if (!lan_error_.empty()) LOG_WARN("--lan-connect {} failed: {}", endpoint, lan_error_);
     ui_->main->set_lan_connecting(lan_connecting_ != nullptr);
     ui_->main->set_lan_message(UiText(lan_error_));
     return;

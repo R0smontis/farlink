@@ -252,7 +252,12 @@ struct MacTrayImpl {
   }
 
   NSImage *LoadCrossDeskIcon() {
-    NSImage *icon = LoadIconFromBundleResource(@"crossdesk");
+    // Packaged builds install the icon under the fork's bundle name; the
+    // upstream spellings remain as fallbacks for unpacked development runs.
+    NSImage *icon = LoadIconFromBundleResource(@"farlink");
+    if (!icon) {
+      icon = LoadIconFromBundleResource(@"crossdesk");
+    }
     if (!icon) {
       icon = LoadIconFromBundleResource(@"crossedesk");
     }
