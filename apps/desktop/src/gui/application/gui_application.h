@@ -21,6 +21,7 @@
 
 #include "application/signal_connection_indicator.h"
 #include "features/input/game_mode_buttons.h"
+#include "features/input/game_mode_scale.h"
 #include "features/input/scroll_accumulator.h"
 #include "rendering/video_geometry.h"
 #include "runtime/cursor_state_provider.h"
@@ -151,8 +152,13 @@ private:
   // advertised supports_relative_mouse; exit always works and also fires
   // automatically on focus loss, window close, disconnect and display
   // switches. Deltas reaching SendRelativeMouseInput are already scaled to
-  // controlled-display pixels by the capturer.
+  // the wire unit by the capturer.
   void EnterGameMode(StreamView& view);
+  // Single source of the capture-scale math, shared by entry and the
+  // per-tick refresh in SyncGameMode. False means the geometry is
+  // momentarily unusable; callers keep the previous scale.
+  bool ResolveGameModeScale(const std::shared_ptr<RemoteSession>& props,
+                            GameModeScale& out);
   void ExitGameMode();
   void SendRelativeMouseInput(double dx, double dy) override;
   void SendGameModeButtonInput(int button, bool down) override;
@@ -177,6 +183,11 @@ private:
   GameModePressedButtons game_mode_pressed_buttons_;
   ScrollAccumulator game_mode_scroll_;
   int game_mode_wheel_percent_ = 100;
+  // Last scale pushed to the capturer, kept so the per-tick refresh in
+  // SyncGameMode only calls SetMouseCapturerScale when the value actually
+  // changed. UI-thread only; the capturer copies it into its own atomics.
+  double game_mode_scale_x_ = 0;
+  double game_mode_scale_y_ = 0;
 #endif
 
   void Cleanup();

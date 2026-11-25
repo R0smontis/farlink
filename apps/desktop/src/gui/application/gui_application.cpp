@@ -5702,35 +5702,12 @@ void GuiApplication::EnterGameMode(StreamView& view) {
     // gate is the only thing keeping relative input off them.
     return;
   }
+  GameModeScale scale;
+  if (!ResolveGameModeScale(props, scale)) return;
+  const double scale_x = scale.scale_x;
+  const double scale_y = scale.scale_y;
   const double width = view.window->get_video_area_width();
   const double height = view.window->get_video_area_height();
-  int video_width = 0, video_height = 0;
-  {
-    std::lock_guard lock(props->video_frame_mutex_);
-    video_width = props->video_width_;
-    video_height = props->video_height_;
-  }
-  if (!(width > 0 && height > 0) || video_width <= 0 || video_height <= 0) {
-    return;
-  }
-  // Captured deltas arrive in device points. The wire unit is resolution
-  // independent: displacement as a fraction of the controlled display's
-  // width/height, so the host conversion depends on nothing encoded —
-  // resolution adaptation can resize the stream mid-session without
-  // touching sensitivity. The controller side normalises by the rendered
-  // video rect in points (the letterboxed drawn size, per axis, so
-  // non-uniform window shapes cannot skew axes), which is the geometry the
-  // user's hand motion visually maps onto; the host multiplies by its own
-  // display size in points. scale_factor cancels out because both Slint
-  // lengths and Core Graphics deltas are in points.
-  const double fit = std::min(width / video_width, height / video_height);
-  const double drawn_width = video_width * fit;
-  const double drawn_height = video_height * fit;
-  if (drawn_width <= 0 || drawn_height <= 0) return;
-  const double sensitivity =
-      config_center_->GetMouseSensitivityPercent() / 100.0;
-  const double scale_x = sensitivity / drawn_width;
-  const double scale_y = sensitivity / drawn_height;
   // Freeze at the centre of the video surface, not wherever the toolbar
   // toggle was: scroll events and the final release must keep landing on
   // the streamed content. The capturer warps back to the original position
@@ -5749,6 +5726,8 @@ void GuiApplication::EnterGameMode(StreamView& view) {
   if (devices_.StartMouseCapturer(scale_x, scale_y, center_x,
                                   center_y) != 0)
     return;
+  game_mode_scale_x_ = scale_x;
+  game_mode_scale_y_ = scale_y;
   // Quartz warps do not post AppKit events; this posts the move so the
   // Slint hit-testing state agrees with the hardware position underneath
   // the freeze.
@@ -5764,6 +5743,31 @@ void GuiApplication::EnterGameMode(StreamView& view) {
     game_mode_target_ = props->remote_id_;
   }
   view.window->set_game_mouse_active(true);
+}
+
+// Single source of the game-mode scale math: the rendered video rect in
+// points normalises captured device-point deltas into the resolution-
+// independent wire unit, with the sensitivity setting folded in. Used both
+// at entry and by the per-tick refresh in SyncGameMode — a letterbox change
+// (window resize, fullscreen transition, remote resolution or aspect
+// change) or a sensitivity change must not keep the old normalisation,
+// which would skew the axes unequally. Returns false when the geometry is
+// momentarily unusable; callers keep the previous scale in that case.
+bool GuiApplication::ResolveGameModeScale(
+    const std::shared_ptr<RemoteSession>& props, GameModeScale& out) {
+  auto* view = FindStreamView(props->remote_id_);
+  if (!view) return false;
+  const double width = view->window->get_video_area_width();
+  const double height = view->window->get_video_area_height();
+  int video_width = 0, video_height = 0;
+  {
+    std::lock_guard lock(props->video_frame_mutex_);
+    video_width = props->video_width_;
+    video_height = props->video_height_;
+  }
+  return ComputeGameModeScale(width, height, video_width, video_height,
+                              config_center_->GetMouseSensitivityPercent(),
+                              out);
 }
 
 
@@ -5968,6 +5972,21 @@ void GuiApplication::SyncGameMode() {
   if (!GameModeCaptureShouldBeActive(pre)) {
     ExitGameMode();
     return;
+  }
+  // Refresh the capture scale against the live geometry: a letterbox change
+  // (window resize, fullscreen transition, remote resolution or aspect
+  // change) or a sensitivity change must not keep the entry-time
+  // normalisation, which would skew the axes unequally. When the geometry
+  // is momentarily unusable the previous scale stays — capture continues
+  // with slightly stale scaling rather than ending.
+  GameModeScale scale;
+  if (props && ResolveGameModeScale(props, scale)) {
+    if (scale.scale_x != game_mode_scale_x_ ||
+        scale.scale_y != game_mode_scale_y_) {
+      game_mode_scale_x_ = scale.scale_x;
+      game_mode_scale_y_ = scale.scale_y;
+      devices_.SetMouseCapturerScale(scale.scale_x, scale.scale_y);
+    }
   }
   if (auto* view = FindStreamView(game_mode_target_)) {
     view->window->set_game_mouse_active(true);
