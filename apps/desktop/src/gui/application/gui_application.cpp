@@ -5772,19 +5772,34 @@ bool GuiApplication::ResolveGameModeScale(
 
 
 void GuiApplication::ExitGameMode() {
-  // Capture the state transition atomically with the button set: the sender
-  // thread stops matching its target the moment active flips, and the
-  // buttons that were pressed at that point are exactly the ones released
-  // below.
-  std::set<int> pressed;
+  // Ordering invariant: active flips first under the mutex, then the sender
+  // thread is joined, and only then are the pressed buttons read and
+  // released. The join is what makes the release ordering correct: a sender
+  // preempted between its tracker update and its send would otherwise
+  // complete that send AFTER the release, and the host would see up-then-
+  // down — a stuck button. After the join no send is in flight and the
+  // tracker is final, so every release ordered here lands after the last
+  // possible down on the wire.
+  //
+  // The join cannot deadlock: the sender thread only ever takes
+  // game_mode_mutex_ (briefly, released before its send) and the shared
+  // session lock, and no ExitGameMode caller holds either — ReleaseControl,
+  // the display-switch and control-toggle callbacks, SyncGameMode and
+  // Cleanup all reach here lock-free; CloseRemoteSession takes the unique
+  // session lock only afterwards in DisconnectSession.
   std::string target;
   {
     std::lock_guard lock(game_mode_mutex_);
     if (!game_mode_active_) return;
     game_mode_active_ = false;
-    pressed = game_mode_pressed_buttons_.TakePressed();
     target = game_mode_target_;
     game_mode_target_.clear();
+  }
+  devices_.StopMouseCapturer();
+  std::set<int> pressed;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    pressed = game_mode_pressed_buttons_.TakePressed();
   }
   // Release buttons the capture tap reported as still pressed. This must
   // happen on every exit path — chord, focus loss, disconnect, capability
@@ -5808,7 +5823,6 @@ void GuiApplication::ExitGameMode() {
                                   : MouseFlag::middle_up;
     SendGameModeActionDirect(target, action, 0);
   }
-  devices_.StopMouseCapturer();
   if (auto* view = FindStreamView(target)) {
     view->window->set_game_mouse_active(false);
   }

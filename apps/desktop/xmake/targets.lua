@@ -200,6 +200,12 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/captured_mouse_queue_test.cpp")
 
+    target("game_mode_exit_ordering_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_exit_ordering_test.cpp")
+
     target("game_mode_scale_test")
         set_kind("binary")
         set_default(false)
