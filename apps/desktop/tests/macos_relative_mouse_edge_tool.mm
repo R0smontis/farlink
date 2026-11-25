@@ -85,6 +85,11 @@ int main() {
                               static_cast<int>(bounds.origin.y),
                               static_cast<int>(bounds.origin.x + bounds.size.width),
                               static_cast<int>(bounds.origin.y + bounds.size.height));
+  if (CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display)) {
+    info.pixel_width = static_cast<int>(CGDisplayModeGetPixelWidth(mode));
+    info.pixel_height = static_cast<int>(CGDisplayModeGetPixelHeight(mode));
+    CFRelease(mode);
+  }
 
   crossdesk::PlatformMouseController controller;
   if (controller.Init({info}) != 0) {
@@ -152,7 +157,11 @@ int main() {
   CFRelease(source);
   CFRelease(tap);
 
-  const double total_expected = kMoves * kStep;
+  const double ratio_x =
+      info.pixel_width > 0 && info.width > 0
+          ? static_cast<double>(info.width) / info.pixel_width
+          : 1.0;
+  const double total_expected = kMoves * kStep * ratio_x;
   const double observed = observed_delta_sum.load();
   const int pinned = observed_pinned_events.load();
   const int total_events = observed_total_events.load();

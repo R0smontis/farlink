@@ -91,6 +91,24 @@ class RelativeMouseMotion {
   double carry_y_ = 0;
 };
 
+// Converts wire deltas (physical pixels of the streamed video frame) into
+// the points Core Graphics injection uses. The capture pipeline encodes the
+// display at backing-store resolution — contentRect x pointPixelScale, e.g.
+// 3024 px over a 1512 pt width — so one wire pixel is ratio^-1 points with
+// ratio = point size / pixel size per axis. Applying the conversion before
+// the accumulator keeps sub-point fractions lossless instead of rounding
+// them per event. Zero or non-finite input falls back to 1:1, matching
+// displays whose backends do not report backing geometry.
+struct WirePixelToPoint {
+  static double Ratio(double pixel_extent, double point_extent) {
+    if (!(pixel_extent > 0) || !(point_extent > 0) ||
+        !std::isfinite(pixel_extent) || !std::isfinite(point_extent)) {
+      return 1.0;
+    }
+    return point_extent / pixel_extent;
+  }
+};
+
 // Maps the active drag state to the Core Graphics event type/button pair the
 // injected relative move must use. Games with a held button read dragged
 // events; plain moves must stay unpressed.

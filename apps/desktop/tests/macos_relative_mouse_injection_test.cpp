@@ -112,6 +112,57 @@ int main() {
                  "two sub-quantum motions must merge into one pixel");
   }
 
+  // Wire-pixel to point conversion: ratio is point extent over pixel extent,
+  // so a Retina backing store (3024 px over 1512 pt) halves the injected
+  // motion. Zero or non-finite inputs fall back to 1:1.
+  {
+    ok &= Expect(crossdesk::WirePixelToPoint::Ratio(3024, 1512) == 0.5,
+                 "Retina backing ratio must halve wire pixels");
+    ok &= Expect(crossdesk::WirePixelToPoint::Ratio(1512, 1512) == 1.0,
+                 "non-Retina ratio must be 1:1");
+    ok &= Expect(crossdesk::WirePixelToPoint::Ratio(0, 1512) == 1.0,
+                 "unknown pixel size must fall back to 1:1");
+    ok &= Expect(crossdesk::WirePixelToPoint::Ratio(3024, 0) == 1.0,
+                 "unknown point size must fall back to 1:1");
+    ok &= Expect(crossdesk::WirePixelToPoint::Ratio(NAN, 1512) == 1.0,
+                 "non-finite input must fall back to 1:1");
+  }
+
+  // Conversion plus accumulator: N fractional wire-pixel moves scaled into
+  // points must sum without drift at ratio 2.0, 1.5 and with unequal axes.
+  {
+    struct Case { double pixel_w, point_w, pixel_h, point_h; };
+    const Case cases[] = {
+        {3024, 1512, 1964, 982},   // ratio 2.0 both axes
+        {2268, 1512, 1473, 982},   // ratio 1.5 both axes
+        {3024, 1512, 1473, 982},   // ratio 2.0 x, 1.5 y
+    };
+    for (const auto& c : cases) {
+      crossdesk::RelativeMouseMotion motion;
+      const double rx = crossdesk::WirePixelToPoint::Ratio(c.pixel_w, c.point_w);
+      const double ry = crossdesk::WirePixelToPoint::Ratio(c.pixel_h, c.point_h);
+      double x = 100, y = 100;
+      double emitted_x = 0, emitted_y = 0;
+      constexpr int kMoves = 997;
+      double total_x = 0, total_y = 0;
+      for (int i = 1; i <= kMoves; ++i) {
+        const double wx = ((i % 5) * 0.37 - 0.5);
+        const double wy = ((i % 3) * 0.53 - 0.4);
+        total_x += wx * rx;
+        total_y += wy * ry;
+        const auto event = motion.Update(wx * rx, wy * ry, x, y, kBounds);
+        x = event.point_x;
+        y = event.point_y;
+        emitted_x += event.delta_x;
+        emitted_y += event.delta_y;
+      }
+      ok &= Expect(std::fabs(emitted_x - total_x) <= 1.0,
+                   "converted x deltas drifted over 997 moves");
+      ok &= Expect(std::fabs(emitted_y - total_y) <= 1.0,
+                   "converted y deltas drifted over 997 moves");
+    }
+  }
+
   // Extreme single-event deltas are capped instead of teleporting.
   {
     crossdesk::RelativeMouseMotion motion;

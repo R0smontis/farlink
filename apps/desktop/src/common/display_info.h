@@ -41,6 +41,13 @@ class DisplayInfo {
   int bottom = 0;
   int width = 0;
   int height = 0;
+  // Physical pixel dimensions of the captured frame for this display, when
+  // the platform backend knows them (macOS: backing-store pixels, which
+  // differ from point geometry on Retina). Zero means unknown; consumers
+  // converting stream pixels into injection units must fall back to a 1:1
+  // ratio in that case.
+  int pixel_width = 0;
+  int pixel_height = 0;
 };
 }  // namespace crossdesk
 #endif

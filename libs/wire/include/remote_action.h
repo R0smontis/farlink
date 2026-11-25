@@ -63,10 +63,11 @@ struct Mouse {
   int s;
   MouseFlag flag;
   // Relative displacement for move_relative, in physical pixels of the
-  // controlled display (not normalized): the controller cannot know the
-  // host's resolution-independent scale, and games reading raw deltas expect
-  // pixel units. Sub-pixel fractions are preserved here; the host accumulates
-  // them losslessly. Zero when absent in the wire message.
+  // streamed video frame as the controller receives it (not normalized):
+  // one unit is one pixel of the delivered frame, so the host converts into
+  // its own injection unit with the capture-side backing ratio. Sub-pixel
+  // fractions are preserved here; the host accumulates them losslessly.
+  // Zero when absent in the wire message.
   float dx;
   float dy;
 };

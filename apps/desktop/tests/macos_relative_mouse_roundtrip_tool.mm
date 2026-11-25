@@ -51,6 +51,13 @@ int main() {
                               static_cast<int>(bounds.origin.y),
                               static_cast<int>(bounds.origin.x + bounds.size.width),
                               static_cast<int>(bounds.origin.y + bounds.size.height));
+  // Populate the backing pixel dimensions exactly like the SCK capturer so
+  // the host-side conversion runs with the display's real ratio.
+  if (CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display)) {
+    info.pixel_width = static_cast<int>(CGDisplayModeGetPixelWidth(mode));
+    info.pixel_height = static_cast<int>(CGDisplayModeGetPixelHeight(mode));
+    CFRelease(mode);
+  }
 
   crossdesk::PlatformMouseController controller;
   if (controller.Init({info}) != 0) {
@@ -68,9 +75,20 @@ int main() {
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   // Deterministic sweep pattern: 10 sweeps of 100 fractional steps each,
-  // alternating direction per sweep. Total path length is ~5000px while the
-  // walk stays well inside the display, so clamping never interferes and any
-  // lost or merged motion directly unbalances the endpoint.
+  // alternating direction per sweep. Total path length is ~5000 wire px
+  // while the walk stays well inside the display, so clamping never
+  // interferes and any lost or merged motion directly unbalances the
+  // endpoint. The cursor is read back in points, so the expectation scales
+  // wire pixels by the backing ratio — on a Retina display the point
+  // travel is exactly half the wire-pixel input.
+  const double ratio_x =
+      info.pixel_width > 0 && info.width > 0
+          ? static_cast<double>(info.width) / info.pixel_width
+          : 1.0;
+  const double ratio_y =
+      info.pixel_height > 0 && info.height > 0
+          ? static_cast<double>(info.height) / info.pixel_height
+          : 1.0;
   double expected_dx = 0, expected_dy = 0;
   unsigned state = 0x12345678u;
   constexpr int kMoves = 1000;
@@ -83,8 +101,8 @@ int main() {
     const double sign = (sweep % 2 == 0) ? 1.0 : -1.0;
     const double dx = sign * magnitude;
     const double dy = sign * magnitude * 0.5;
-    expected_dx += dx;
-    expected_dy += dy;
+    expected_dx += dx * ratio_x;
+    expected_dy += dy * ratio_y;
 
     crossdesk::RemoteAction action{};
     action.type = crossdesk::ControlType::mouse;
@@ -116,10 +134,11 @@ int main() {
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);
 
-  std::printf("moves=%d expected=(%.1f,%.1f) actual=(%.1f,%.1f) "
-              "error=%.2fpx (%.2f%%) elapsed=%lldms\n",
-              kMoves, expected_dx, expected_dy, actual_dx, actual_dy, error,
-              relative_error * 100.0, static_cast<long long>(elapsed.count()));
+  std::printf("moves=%d ratio=(%.3f,%.3f) expected_pt=(%.1f,%.1f) "
+              "actual_pt=(%.1f,%.1f) error=%.2fpt (%.2f%%) elapsed=%lldms\n",
+              kMoves, ratio_x, ratio_y, expected_dx, expected_dy, actual_dx,
+              actual_dy, error, relative_error * 100.0,
+              static_cast<long long>(elapsed.count()));
   if (elapsed.count() > 3000) {
     std::fprintf(stderr, "verification exceeded the 3 second budget\n");
     return 1;
