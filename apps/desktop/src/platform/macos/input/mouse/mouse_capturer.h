@@ -1,7 +1,8 @@
 /*
- * @Author: DI JUNKUN
+ * @Author: Farlink contributors
  * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 by Farlink contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 #ifndef _MOUSE_CAPTURER_H_
@@ -23,17 +24,22 @@ using OnMouseDelta = void (*)(double, double, void*);
 // Mouse button edges observed by the capture tap. button uses the Slint
 // encoding shared with the input pipeline (left 1, right 2, middle 3).
 using OnMouseButton = void (*)(int, bool, void*);
+// Wheel rotation in the units the Slint scroll path already forwards:
+// line notches (axis 2 horizontal, axis 1 vertical) and continuous point
+// deltas, so the consumer can reproduce the existing scroll conversion.
+using OnMouseWheel = void (*)(double, double, double, double, void*);
 using OnGameModeExit = void (*)(void*);
 
-// macOS game-mode capture: a session event tap observing raw mouse deltas
-// while the cursor is hidden and frozen. Deltas are read from
+// macOS game-mode capture: a session event tap observing mouse deltas while
+// the cursor is hidden and frozen. Deltas are read from
 // kCGMouseEventDeltaX/Y rather than derived from pointer positions, so they
 // never saturate at window or screen edges.
 //
-// The cursor is locked by warping to its current position and then calling
+// The cursor is locked by warping it to the freeze point chosen by the
+// caller (the centre of the streamed video) and then calling
 // CGAssociateMouseAndMouseCursorPosition(false), instead of dissociating
-// alone: the warp parks the hardware cursor at the position the user already
-// perceives, so re-associating keeps it exactly there with zero jump and the
+// alone: the warp parks the hardware cursor at a position inside the stream
+// window, so re-associating keeps it exactly there with zero jump and the
 // freeze cannot drift from device motion that was already in flight.
 class PlatformMouseCapturer {
  public:
@@ -49,8 +55,8 @@ class PlatformMouseCapturer {
   // its original position on Unhook. scale_x/scale_y convert device points
   // into physical pixels of the controlled remote display.
   int Hook(OnMouseDelta on_delta, OnMouseButton on_button,
-           OnGameModeExit on_exit, void* user_ptr, double scale_x,
-           double scale_y, CGPoint freeze_at);
+           OnMouseWheel on_wheel, OnGameModeExit on_exit, void* user_ptr,
+           double scale_x, double scale_y, CGPoint freeze_at);
   // Restores cursor association and visibility; safe without a live Hook.
   int Unhook();
 
@@ -61,16 +67,17 @@ class PlatformMouseCapturer {
   // callbacks; they never block on UI state.
   void DeliverDelta(double raw_dx, double raw_dy);
   void DeliverButton(int button, bool down);
+  void DeliverWheel(double line_dx, double line_dy, double point_dx,
+                    double point_dy);
   void DeliverExit();
   void ReenableTap();
-  bool WithinWarpSuppression(CGEventRef event) const;
 
   GameModeExitChord exit_chord_;
 
  private:
   void RunLoopThreadMain();
   void StopRunLoop();
-  void FreezeCursorAtCurrentPosition();
+  void FreezeCursor();
   void RestoreCursor();
 
   std::mutex state_mutex_;
@@ -81,9 +88,13 @@ class PlatformMouseCapturer {
   std::atomic<bool> active_{false};
   std::atomic<bool> tap_ready_{false};
   std::atomic<bool> tap_failed_{false};
+  // Set under state_mutex_ when shutdown is requested before the run loop
+  // starts; the thread checks it before entering CFRunLoopRun.
+  bool stop_requested_ = false;
 
   OnMouseDelta on_delta_ = nullptr;
   OnMouseButton on_button_ = nullptr;
+  OnMouseWheel on_wheel_ = nullptr;
   OnGameModeExit on_exit_ = nullptr;
   void* user_ptr_ = nullptr;
   std::atomic<double> scale_x_{1.0};
@@ -94,7 +105,6 @@ class PlatformMouseCapturer {
   bool cursor_hidden_ = false;
   bool cursor_dissociated_ = false;
   CGDirectDisplayID hidden_display_ = 0;
-  std::chrono::steady_clock::time_point warp_suppress_until_{};
 };
 
 }  // namespace crossdesk
