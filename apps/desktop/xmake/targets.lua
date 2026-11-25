@@ -204,6 +204,26 @@ function setup_targets()
         set_default(false)
         add_files("apps/desktop/tests/video_callback_lifetime_test.cpp")
 
+    target("audio_jitter_buffer_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("libopus")
+        add_includedirs(
+            "deps/submodules/minirtc/src/media/audio/jitter")
+        add_files("apps/desktop/tests/audio_jitter_buffer_test.cpp",
+            "deps/submodules/minirtc/src/media/audio/jitter/audio_jitter_buffer.cpp")
+
+    -- MiniRTC-level two-endpoint LAN harness: measures direct-connection
+    -- stage timings and first-frame latency without any signaling server.
+    -- Build-only target; run manually with the machine's LAN IPv4 address.
+    target("minirtc_direct_harness")
+        set_kind("binary")
+        set_default(false)
+        add_deps("minirtc")
+        add_packages("nlohmann_json")
+        add_includedirs("deps/submodules/minirtc/src/api")
+        add_files("apps/desktop/tests/minirtc_direct_harness.cpp")
+
     target("windows_manifest_resource_test")
         set_kind("binary")
         set_default(false)

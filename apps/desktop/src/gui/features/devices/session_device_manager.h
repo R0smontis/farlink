@@ -7,6 +7,7 @@
 #ifndef _SESSION_DEVICE_MANAGER_H_
 #define _SESSION_DEVICE_MANAGER_H_
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -119,6 +120,13 @@ private:
   GuiRuntime &owner_;
   uint32_t output_device_ = 0;
   std::unordered_map<std::string, SDL_AudioStream*> output_streams_;
+  // Bookkeeping for the playback queue cap: how many bytes were trimmed from
+  // the head of each stream the last time its backlog exceeded the cap.
+  std::unordered_map<std::string, uint64_t> output_stream_dropped_bytes_;
+  // Reused scratch for draining expired playback PCM; sized for one 10 ms
+  // frame at 48 kHz s16 mono. Only touched from the audio delivery path,
+  // which GuiRuntime serializes externally.
+  std::array<uint8_t, 960> audio_trim_scratch_{};
   std::chrono::steady_clock::time_point next_audio_output_retry_{};
   ScreenCapturerFactory *screen_capturer_factory_ = nullptr;
   ScreenCapturer *screen_capturer_ = nullptr;

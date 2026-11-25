@@ -32,6 +32,27 @@ namespace crossdesk {
 namespace {
 
 constexpr uint64_t kCaptureResumeKeyFrameGapMs = 500;
+
+// Playback queue latency budget. SDL3 audio streams queue input bytes without
+// any inherent bound, so every millisecond of producer/consumer imbalance —
+// network burst, decoding hiccup, machine suspend — would otherwise become
+// permanent extra audio latency: sound drifts behind the video and never
+// catches up. The cap below bounds worst-case queued playback latency at
+// 150 ms of PCM. Combined with the receive jitter buffer's 30-60 ms target,
+// end-to-end network+playback audio latency stays inside roughly 180 ms even
+// in the worst case, and typical LAN operation sits far below that. When the
+// backlog exceeds the cap the oldest PCM is dropped in 10 ms frames, so the
+// stream stays glitch-minimal while latency returns to the budget instead of
+// accumulating unboundedly.
+constexpr int kAudioSampleRate = 48000;
+constexpr int kAudioBytesPerSampleFrame = 2;  // s16 mono
+constexpr int kAudioFrameMs = 10;
+constexpr int kAudioPlaybackQueueCapMs = 150;
+constexpr int kAudioPlaybackQueueCapBytes =
+    kAudioSampleRate * kAudioBytesPerSampleFrame * kAudioPlaybackQueueCapMs /
+    1000;
+constexpr int kAudioFrameBytes =
+    kAudioSampleRate * kAudioBytesPerSampleFrame * kAudioFrameMs / 1000;
 constexpr auto kFrameDeadlineTolerance = std::chrono::milliseconds(1);
 #if defined(_WIN32) || defined(__OHOS__)
 constexpr auto kKeyboardCaptureRetryDelay = std::chrono::seconds(1);
@@ -684,6 +705,7 @@ void SessionDeviceManager::ClearAudio(const std::string& remote_id) {
   if (found == output_streams_.end()) return;
   SDL_DestroyAudioStream(found->second);
   output_streams_.erase(found);
+  output_stream_dropped_bytes_.erase(remote_id);
   // An open SDL playback device can keep the Windows audio driver active even
   // without queued samples. Release it when no peer needs playback anymore.
   if (output_streams_.empty()) DestroyAudioOutput();
@@ -713,9 +735,36 @@ void SessionDeviceManager::PushAudio(const std::string& remote_id,
     }
     found = output_streams_.emplace(remote_id, stream).first;
   }
-  if (!SDL_PutAudioStreamData(found->second, data, static_cast<int>(size))) {
+  SDL_AudioStream* stream = found->second;
+  if (!SDL_PutAudioStreamData(stream, data, static_cast<int>(size))) {
     LOG_ERROR("Failed to push audio data: {}", SDL_GetError());
     ClearAudio(remote_id);
+    return;
+  }
+
+  // Enforce the playback queue cap: drop the oldest whole 10 ms frames until
+  // the backlog fits. Input frames here are the decoder's 10 ms Opus output,
+  // so frame-granular trimming keeps alignment and avoids partial-frame
+  // glitches. Dropping the newest data instead would discard the freshest
+  // audio and still never shorten playback latency.
+  const int queued = SDL_GetAudioStreamQueued(stream);
+  if (queued > kAudioPlaybackQueueCapBytes) {
+    int excess = queued - kAudioPlaybackQueueCapBytes;
+    // Round up to whole frames so the trim lands on frame boundaries.
+    const int trim_frames = (excess + kAudioFrameBytes - 1) / kAudioFrameBytes;
+    int64_t trimmed = 0;
+    for (int i = 0; i < trim_frames; ++i) {
+      int got = SDL_GetAudioStreamData(stream, audio_trim_scratch_.data(),
+                                       kAudioFrameBytes);
+      if (got <= 0) break;
+      trimmed += got;
+    }
+    if (trimmed > 0) {
+      output_stream_dropped_bytes_[remote_id] += static_cast<uint64_t>(trimmed);
+      LOG_DEBUG("Audio playback backlog trimmed {} bytes for [{}] "
+                "(queued {} > cap {})",
+                trimmed, remote_id, queued, kAudioPlaybackQueueCapBytes);
+    }
   }
 }
 
