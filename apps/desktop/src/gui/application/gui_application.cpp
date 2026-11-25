@@ -2496,9 +2496,13 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
       return;
     RemoteAction action{};
     action.type = ControlType::video_settings;
-    action.vs = {quality, frame_rate_index == 0 ? 30 : 60, preference};
-    if (frame_rate_index < 0 || frame_rate_index > 1 ||
-        !ValidVideoSettings(action.vs))
+    // Tiers above 60 reach the wire only when the host advertised high-frame-
+    // rate support; otherwise the request clamps to the legacy 30/60 format.
+    action.vs = {quality,
+                 NegotiatedVideoFrameRate(VideoFrameRateForIndex(frame_rate_index),
+                                          props->high_fps_supported_.load()),
+                 preference};
+    if (!ValidVideoSettings(action.vs))
       return;
     {
       std::lock_guard lock(props->video_settings_mutex_);
@@ -4139,11 +4143,12 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     }
     stream->set_video_settings_enabled(status == MiniRtcConnectionStatus::MiniRtcConnectionConnected &&
                                      props->video_settings_supported_);
+    stream->set_high_fps_supported(props->high_fps_supported_.load());
     stream->set_video_settings_feedback(UiText(
         props->video_settings_failed_
             ? localization::video_settings_failed[localization_language_index_] : ""));
     stream->set_video_quality_index(props->video_settings_.quality);
-    stream->set_frame_rate_index(props->video_settings_.frame_rate == 30 ? 0 : 1);
+    stream->set_frame_rate_index(VideoFrameRateIndex(props->video_settings_.frame_rate));
     stream->set_adaptation_policy_index(props->video_settings_.preference);
   }
   view.ObserveWindowState();
@@ -6996,6 +7001,10 @@ void GuiApplication::SyncGallery() {
         }
         if (!preview_ids.count(id) && !stream_needs_video)
           demand.fps = 0;
+        // The host only encodes high frame rates when it advertised support;
+        // clamp here so a stock peer never sees a tier it rejects.
+        demand.frame_rate = NegotiatedVideoFrameRate(
+            demand.frame_rate, props->high_fps_supported_.load());
         gallery::PreviewBandwidthDemand bandwidth;
         if (props->preview_bandwidth_supported_) {
           demand.max_bitrate_bps = 0;
