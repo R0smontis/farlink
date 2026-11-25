@@ -9,7 +9,7 @@
 #include <mutex>
 #include <utility>
 
-#include "nv12_scaler.h"
+#include "common/nv12_scaler.h"
 #include "platform/video_renderer.h"
 #include "rd_log.h"
 

@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "nv12_scaler.h"
+#include "common/nv12_scaler.h"
 #include "platform/video_renderer.h"
 #include "runtime/gui_runtime.h"
 #include "runtime/peer_event_handler.h"
