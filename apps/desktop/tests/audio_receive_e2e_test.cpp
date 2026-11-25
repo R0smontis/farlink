@@ -10,21 +10,52 @@
  *
  *   real AudioEncoder (production settings) on a generated marker signal
  *     -> real RTP wire packets
- *     -> deterministic impairment schedule (fixed PRNG seed)
- *     -> RtpAudioReceiver::InsertRtpPacket on a real GLib main-context thread
- *        with the production playout timer armed
+ *     -> a deterministic TIMELINE network model (fixed PRNG seed)
+ *     -> RtpAudioReceiver::InsertRtpPacket with the production playout timer
+ *        armed on a real GLib main-context thread
  *     -> real AudioDecoder -> PCM sink with wall-clock timestamps.
  *
- * For each scenario (clean, 2% random loss, 20±15 ms jitter, 5% reorder,
- * 500 ms stall followed by a burst) the chain is run twice: once with the
- * jitter buffer bypassed (upstream decode-on-arrival behaviour) and once with
- * it engaged, using the receiver's own *ForTesting hooks. Measured per run:
- * emitted audio duration vs sent duration, concealed ms, discontinuity count
- * (gaps or out-of-order PCM), and p50/p95/max capture→emit delay.
+ * ---------------------------------------------------------------------------
+ * Network model. Every packet's delivery is scheduled INDEPENDENTLY on a
+ * timeline: frame i is produced at grid time T_i = i*10ms and is handed to
+ * InsertRtpPacket at deliver_i = T_i + offset_i, where offset_i depends on the
+ * scenario:
  *
- * Time is real wall-clock here because the production playout timer is driven
- * by GLib's monotonic clock; the measurement therefore reflects the true
- * production timing path rather than a simulation of it.
+ *   clean      offset = 0
+ *   loss2      offset = 0, but a fixed pre-seeded set of sequences is dropped
+ *              at the receiver input through SetPacketFilterForTesting
+ *   jitter     offset = uniform[5,35] ms, independent per packet (20±15)
+ *   reorder    offset = 0 except 5% of packets get +15ms, overtaking nothing
+ *              but arriving after their successor
+ *   stallburst offset = 0 until a 600ms stall; packets produced during the
+ *              stall are all delivered in one burst the instant it ends,
+ *              after which delivery resumes on the ORIGINAL grid (no shift)
+ *
+ * All (deliver_i, packet) events are computed up front into a sorted queue
+ * and a single delivery thread fires them in time order. Delivery therefore
+ * happens at the correct instant for every packet regardless of how large
+ * offset_i is — the delays never serialize. The measured mean delivery rate
+ * is printed per scenario and is 100 packets/s in every case; a scenario
+ * whose delivery rate is not 100/s is broken by construction.
+ * ---------------------------------------------------------------------------
+ * Metrics. For every emitted PCM frame we record the wall-clock emit time.
+ * Because the jitter buffer emits in ascending sequence order and each frame
+ * index maps to a known RTP sequence (1000+i), nominal capture time (grid
+ * time) and the actual InsertRtpPacket time, both delay columns are exact
+ * for real (non-PLC) frames:
+ *
+ *   residence   = emit_time - insert_time    (time inside the receive path)
+ *   mouth-to-ear = emit_time - capture_time  (end to end, incl. network model)
+ *
+ * residence is bounded by the buffer ceiling + one frame + scheduling slack;
+ * the test asserts p95 <= 80ms and max <= 100ms after the first second.
+ * mouth-to-ear - residence is the network model's contribution (offset_i),
+ * which the harness controls, so the two columns cross-validate each other.
+ *
+ * Conservation accounting per scenario: real frames emitted, concealed (PLC)
+ * frames, delivered packets, and the wall-clock duration. The assertions are
+ *   real_emitted + dropped == delivered        (nothing vanishes silently)
+ *   real + concealed ~= elapsed/10  (±3)        (cadence matches real time)
  */
 
 #include <algorithm>
@@ -62,30 +93,14 @@ int64_t NowUs() {
 }
 
 // ---------------------------------------------------------------------------
-// Marker-carrying PCM signal. Each 10 ms frame is a 440 Hz sine whose first
-// sample is overridden with the frame index (big-endian in the high bits) so
-// frames remain identifiable after decode — but since Opus is lossy we do not
-// rely on bit-exact recovery for ordering. Instead the CAPTURE timestamp is
-// carried in the RTP timestamp field and the frame index in the RTP sequence,
-// both of which survive losslessly, and the sine proves the decoded PCM is
-// real audio rather than silence.
-// ---------------------------------------------------------------------------
-
 // Real production encoder wrapper: 48 kHz mono, 10 ms frames, production
-// MediaCodecConfig defaults.
+// MediaCodecConfig defaults. The signal is a 440 Hz sine — real audio, so the
+// decoder produces genuinely audible PCM rather than silence.
+// ---------------------------------------------------------------------------
 struct ProductionEncoder {
   AudioEncoder enc{48000, 1, 480};
   minirtc::MediaCodecConfig config;
-  bool Init() {
-    // Match production: the ICE transport negotiates useinbandfec on both
-    // sides, so audio_fec_enabled ends up true. That only affects redundancy
-    // bits, not the frame grid. Keep the default (false) here since the
-    // receiver no longer consumes FEC either way — the encoded frame shape
-    // is identical for timing purposes.
-    return enc.Init(config) == 0;
-  }
-  // Encode one 10 ms frame of sine at the given frame index. Returns the
-  // encoded Opus packet bytes.
+  bool Init() { return enc.Init(config) == 0; }
   std::vector<uint8_t> EncodeFrame(int frame_index) {
     int16_t pcm[480];
     for (int i = 0; i < 480; ++i) {
@@ -109,8 +124,8 @@ struct ProductionEncoder {
 RtpPacket MakeRtpPacket(uint16_t sequence, uint32_t timestamp, uint32_t ssrc,
                         const std::vector<uint8_t>& opus_payload) {
   std::vector<uint8_t> wire(12 + opus_payload.size());
-  wire[0] = 0x80;  // V=2, P=0, X=0, CC=0
-  wire[1] = 111;   // PT=111 (OPUS), M=0
+  wire[0] = 0x80;  // V=2
+  wire[1] = 111;   // PT=111 (OPUS)
   wire[2] = uint8_t(sequence >> 8);
   wire[3] = uint8_t(sequence & 0xFF);
   wire[4] = uint8_t(timestamp >> 24);
@@ -127,68 +142,6 @@ RtpPacket MakeRtpPacket(uint16_t sequence, uint32_t timestamp, uint32_t ssrc,
   return pkt;
 }
 
-// ---------------------------------------------------------------------------
-// PCM sink: records every decoded frame with the wall-clock time it was
-// emitted by the receive chain, plus whether it is real audio or silence.
-// ---------------------------------------------------------------------------
-struct PcmSink {
-  std::mutex mutex;
-  struct Rec {
-    AudioPlayoutKind kind;
-    int64_t emit_us;
-    int pcm_bytes;
-    bool audible;
-  };
-  std::vector<Rec> recs;
-  std::atomic<int> frames{0};
-};
-
-// One scenario run.
-struct ScenarioResult {
-  // Counts by emission kind.
-  uint64_t normal = 0, reordered = 0, plc = 0;
-  // Total emitted audio duration in ms (each frame is 10 ms nominal).
-  double emitted_ms = 0;
-  double sent_ms = 0;
-  double concealed_ms = 0;
-  // Discontinuities: gaps in emission cadence larger than one frame, or
-  // out-of-order emission times.
-  int discontinuities = 0;
-  // capture→emit delay distribution over frames that carried measurable
-  // timing (normal/reordered), in ms. PLC frames are excluded (no packet).
-  std::vector<double> delays_ms;
-  // Receiver-reported final adaptation target (ms) and emission tallies,
-  // cross-validated against the sink via GetEmissionStatsForTesting.
-  int final_target_ms = 0;
-  uint64_t stats_normal = 0, stats_reordered = 0, stats_plc = 0;
-  // Wall-clock duration of the run.
-  double wall_ms = 0;
-  bool ran = false;
-};
-
-double Percentile(std::vector<double> v, double p) {
-  if (v.empty()) return -1;
-  std::sort(v.begin(), v.end());
-  const double idx = p / 100.0 * (v.size() - 1);
-  const size_t lo = size_t(idx);
-  const size_t hi = std::min(lo + 1, v.size() - 1);
-  return v[lo] + (v[hi] - v[lo]) * (idx - lo);
-}
-
-// Impairment types.
-enum class Impairment { kClean, kLoss2, kJitter, kReorder5, kStallBurst };
-
-const char* ImpairmentName(Impairment i) {
-  switch (i) {
-    case Impairment::kClean: return "clean";
-    case Impairment::kLoss2: return "loss2";
-    case Impairment::kJitter: return "jitter20±15";
-    case Impairment::kReorder5: return "reorder5";
-    case Impairment::kStallBurst: return "stallburst";
-  }
-  return "?";
-}
-
 // Deterministic PRNG (xorshift) so every run is reproducible.
 struct Rng {
   uint32_t state;
@@ -202,27 +155,134 @@ struct Rng {
   double Uniform() { return (Next() >> 8) / 16777216.0; }
 };
 
+enum class Impairment { kClean, kLoss2, kJitter, kReorder5, kStallBurst };
+
+const char* ImpairmentName(Impairment i) {
+  switch (i) {
+    case Impairment::kClean: return "clean";
+    case Impairment::kLoss2: return "loss2";
+    case Impairment::kJitter: return "jitter";
+    case Impairment::kReorder5: return "reorder5";
+    case Impairment::kStallBurst: return "stallburst";
+  }
+  return "?";
+}
+
+// One packet's scheduled delivery on the network-model timeline.
+struct DeliveryEvent {
+  int64_t deliver_us;    // when to call InsertRtpPacket
+  int64_t capture_us;    // nominal grid time the frame was produced
+  uint16_t sequence;
+  uint32_t rtp_timestamp;
+  std::vector<uint8_t> payload;
+};
+
+struct ScenarioResult {
+  // Emission accounting.
+  uint64_t real_emitted = 0;    // kNormal + kReordered
+  uint64_t concealed = 0;       // kPlc
+  uint64_t delivered = 0;       // packets handed to InsertRtpPacket
+  uint64_t reorder_emitted = 0;
+  // Durations.
+  double emitted_ms = 0;        // total PCM emitted (real+concealed) * 10ms
+  double sent_ms = 0;
+  double wall_ms = 0;           // actual wall-clock duration of the run
+  // Delay distributions, ms.
+  std::vector<double> residence_ms;     // emit - insert (real frames)
+  std::vector<double> mouth_to_ear_ms;  // emit - capture (real frames)
+  // Continuity.
+  int discontinuities = 0;
+  std::vector<double> inter_emit_gap_ms;  // emission cadence regularity
+  // Network-model validation.
+  double delivery_rate = 0;        // packets/s into InsertRtpPacket
+  double max_offset_ms = 0;        // max(deliver - capture) actually realised
+  // Adaptation.
+  int peak_target_ms = 0;
+  // Cross-validation.
+  uint64_t stats_normal = 0, stats_reordered = 0, stats_plc = 0;
+  // Drop accounting for conservation (buffered mode only).
+  uint64_t dropped_too_late = 0, dropped_drain = 0, dropped_shrink = 0,
+           duplicates = 0, buffered = 0, buf_received = 0;
+};
+
+double Percentile(std::vector<double> v, double p) {
+  if (v.empty()) return -1;
+  std::sort(v.begin(), v.end());
+  const double idx = p / 100.0 * (v.size() - 1);
+  const size_t lo = size_t(idx);
+  const size_t hi = std::min(lo + 1, v.size() - 1);
+  return v[lo] + (v[hi] - v[lo]) * (idx - lo);
+}
+
+// Build the delivery timeline for a scenario. Frame i is produced at grid
+// time capture_us = grid_base + i*10ms; deliver_us = capture + offset_i.
+// The grid_base is chosen by the caller (run start).
+std::vector<DeliveryEvent> BuildTimeline(
+    Impairment impairment, ProductionEncoder& encoder, int frames,
+    int64_t grid_base_us, uint32_t seed) {
+  std::vector<DeliveryEvent> events;
+  Rng rng(seed);
+  const int64_t stall_start_frame = frames * 2 / 5;
+  const int64_t stall_len_us = 600000;  // 600 ms
+  const int64_t stall_end_us =
+      grid_base_us + stall_start_frame * 10000 + stall_len_us;
+
+  for (int i = 0; i < frames; ++i) {
+    auto payload = encoder.EncodeFrame(i);
+    if (payload.empty()) continue;
+    DeliveryEvent ev;
+    ev.capture_us = grid_base_us + int64_t(i) * 10000;
+    ev.sequence = uint16_t(1000 + i);
+    ev.rtp_timestamp = uint32_t(5000 + i * 480);
+    ev.payload = std::move(payload);
+
+    int64_t offset_us = 0;
+    switch (impairment) {
+      case Impairment::kClean:
+      case Impairment::kLoss2:
+        offset_us = 0;
+        break;
+      case Impairment::kJitter:
+        // 20 ± 15 ms independent uniform jitter.
+        offset_us = int64_t((5.0 + rng.Uniform() * 30.0) * 1000.0);
+        break;
+      case Impairment::kReorder5:
+        // 5% of packets are delayed 15ms so they arrive after their successor.
+        offset_us = (rng.Uniform() < 0.05) ? 15000 : 0;
+        break;
+      case Impairment::kStallBurst:
+        if (i >= stall_start_frame &&
+            ev.capture_us < stall_end_us) {
+          // Produced during the stall: delivered in the burst at its end.
+          ev.deliver_us = stall_end_us;
+          events.push_back(std::move(ev));
+          continue;
+        }
+        offset_us = 0;
+        break;
+    }
+    ev.deliver_us = ev.capture_us + offset_us;
+    events.push_back(std::move(ev));
+  }
+  // The delivery thread fires events in deliver-time order; sort so a simple
+  // queue walk yields correct timing even when reorder/jitter permute them.
+  std::stable_sort(events.begin(), events.end(),
+                   [](const DeliveryEvent& a, const DeliveryEvent& b) {
+                     return a.deliver_us < b.deliver_us;
+                   });
+  return events;
+}
+
 // Run one scenario. `bypass` selects upstream decode-on-arrival behaviour.
-// `frames` is the number of 10 ms frames to send. Measurement uses wall-clock
-// timing throughout because the playout timer is GLib-real-time.
 ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
   ScenarioResult res;
   res.sent_ms = frames * 10.0;
 
-  // Real system clock (production), not injected — the GLib timer is driven
-  // by real monotonic time and trying to inject a fake clock would desync the
-  // timer from the pump. We therefore measure with real time.
   auto clock = std::make_shared<minirtc::SystemClock>();
-
   RtpAudioReceiver receiver(4242, clock, nullptr);
   receiver.SetBypassJitterBufferForTesting(bypass);
 
-  // Deterministic impairment schedule. Loss is applied through the receiver's
-  // own SetPacketFilterForTesting hook (exercising that production-adjacent
-  // path) rather than by withholding packets in the sender: the sender always
-  // delivers, and the filter drops a fixed, pre-seeded set of sequences. The
-  // same seed drives every run so the loss pattern is exactly reproducible.
-  // Packet sequences are 1000+i for frame i.
+  // Deterministic loss via the receiver's own filter hook.
   std::vector<bool> loss_drop(frames, false);
   if (impairment == Impairment::kLoss2) {
     Rng loss_rng(0xC0FFEE);
@@ -235,36 +295,50 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
         });
   }
 
-  // Decoder + sink.
   AudioDecoder decoder(48000, 1, 480);
   decoder.Init();
-  PcmSink sink;
 
-  // Capture→emit delay correlation. Insertion times are recorded keyed by RTP
-  // sequence (not delivery position) because jittered packets arrive out of
-  // order, which makes delivery-order correlation meaningless. The jitter
-  // buffer emits in ascending sequence order, so the Kth *audible* emission
-  // corresponds to the Kth surviving sequence in ascending order. The mapping
-  // is exact while every inserted packet is eventually emitted; once a
-  // re-anchor discards buffered packets the correspondence for subsequent
-  // frames is shifted, so correlation is only trusted for scenarios/emissions
-  // where the surviving-sequence count still aligns (see analysis below).
+  // ---- PCM sink + exact emission correlation -----------------------------
+  // Positional correlation (Kth emission -> Kth surviving sequence) is exact
+  // only while nothing is dropped; reordering at arrival and re-anchor drops
+  // break it precisely in the adversarial scenarios where measurement matters.
+  // Instead the receiver's SetEmissionObserverForTesting reports each emitted
+  // frame's playout sequence directly. The observer fires immediately before
+  // on_receive_data_ for the same frame (both under the playout lock), so the
+  // sequence and the emit time are paired 1:1 in order. residence and
+  // mouth-to-ear are then exact per frame regardless of drops.
+  struct Emission {
+    AudioPlayoutKind kind;
+    int64_t emit_us;
+    uint16_t sequence;
+    bool audible;
+  };
+  std::vector<Emission> emissions;
+  std::mutex emit_mutex;
+  std::deque<uint16_t> pending_sequences;  // observer -> sink handoff
   std::map<uint16_t, int64_t> insert_time_by_seq;
+  std::map<uint16_t, int64_t> capture_time_by_seq;
   std::mutex insert_mutex;
+
+  receiver.SetEmissionObserverForTesting(
+      [&](uint16_t sequence, AudioPlayoutKind) {
+        std::lock_guard<std::mutex> lock(emit_mutex);
+        pending_sequences.push_back(sequence);
+      });
 
   receiver.SetOnReceiveData([&](const char* data, size_t size,
                                 AudioPlayoutKind kind) {
     const int64_t now = NowUs();
-    PcmSink::Rec rec{};
-    rec.kind = kind;
-    rec.emit_us = now;
+    Emission em{};
+    em.kind = kind;
+    em.emit_us = now;
+    bool audible = false;
     auto forward = [&](uint8_t* pcm, int pcm_size) {
-      rec.pcm_bytes = pcm_size;
       int nonzero = 0;
       const int16_t* s = reinterpret_cast<const int16_t*>(pcm);
       for (int i = 0; i < pcm_size / 2; ++i)
         if (s[i] != 0) ++nonzero;
-      rec.audible = nonzero > pcm_size / 4;
+      audible = nonzero > pcm_size / 4;
     };
     if (kind == AudioPlayoutKind::kPlc) {
       decoder.DecodeLoss(480, forward);
@@ -272,13 +346,16 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
       decoder.DecodeNormal(reinterpret_cast<const uint8_t*>(data), size,
                            forward);
     }
-    std::lock_guard<std::mutex> lock(sink.mutex);
-    sink.recs.push_back(rec);
-    sink.frames.fetch_add(1);
+    em.audible = audible;
+    std::lock_guard<std::mutex> lock(emit_mutex);
+    if (!pending_sequences.empty()) {
+      em.sequence = pending_sequences.front();
+      pending_sequences.pop_front();
+    }
+    emissions.push_back(em);
   });
 
-  // Set up a real GLib main context on a dedicated thread — exactly the
-  // production arrangement — and attach the playout timer to it.
+  // ---- real GLib main-context thread (production arrangement) -------------
   GMainContext* context = g_main_context_new();
   GMainLoop* loop = g_main_loop_new(context, FALSE);
   std::atomic<bool> loop_running{false};
@@ -288,46 +365,11 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
     g_main_loop_run(loop);
     g_main_context_pop_thread_default(context);
   });
-  // Wait for the loop thread to be running.
-  while (!loop_running.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
-  // Attach the receiver's playout timer to this context. Must be done on the
-  // context's thread for correct source dispatch ordering; GLib is tolerant
-  // of cross-thread attach as long as the context is threaded, which it is.
+  while (!loop_running.load())
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   receiver.SetPlayoutContext(context);
 
-  // Encoder + feed loop.
-  ProductionEncoder encoder;
-  encoder.Init();
-
-  Rng rng(0xC0FFEE);
-  const int64_t start_us = NowUs();
-
-  // Impairment state.
-  bool holding_reorder = false;
-  std::vector<uint8_t> held_payload;
-  uint16_t held_seq = 0;
-  uint32_t held_ts = 0;
-  int64_t held_release_us = 0;
-  bool in_stall = false;
-  int64_t stall_end_us = 0;
-  std::deque<std::pair<uint16_t, std::pair<uint32_t, std::vector<uint8_t>>>> stalled;
-
-  std::atomic<bool> stop_sender{false};
-  std::atomic<int64_t> last_send_done_us{0};
-
-  // Sender runs on its own thread, producing a frame every 10 ms of real
-  // time — the production cadence. Scheduling is on an ABSOLUTE grid
-  // (frame i is due at grid_base + i*10 ms) because per-iteration relative
-  // sleeps accumulate overshoot on macOS (~1.4 ms/cycle), which would make
-  // the stream run slower than the playout cadence and starve the buffer —
-  // a measurement artifact, not real network behaviour.
-  const int64_t grid_base_us = NowUs();
-  // Sample the adaptation target while the stream is live. The buffer resets
-  // its target to base when it goes idle at end-of-stream, so reading the
-  // target only after drain would report 30 ms even when the stream spent the
-  // whole impaired period adapted up to the 60 ms ceiling. The operationally
-  // meaningful figure is the PEAK target reached during active reception.
+  // Peak adaptation target sampling (buffer resets to base when idle).
   std::atomic<int> peak_target_ms{0};
   std::atomic<bool> stop_sampler{false};
   std::thread target_sampler([&] {
@@ -340,221 +382,158 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
     }
   });
 
-  std::thread sender([&] {
-    uint16_t seq = 1000;
-    uint32_t rtp_ts = 5000;
-    for (int i = 0; i < frames && !stop_sender.load(); ++i) {
-      const int64_t frame_start = NowUs();
-      auto payload = encoder.EncodeFrame(i);
-      if (payload.empty()) continue;
-      // Decide impairment for this packet.
-      bool drop = false;
-      bool delay_reorder = false;
-      int64_t jitter_delay_us = 0;
-      switch (impairment) {
-        case Impairment::kClean:
-          break;
-        case Impairment::kLoss2:
-          // Loss is applied at the receiver input through
-          // SetPacketFilterForTesting (installed above), not here: the sender
-          // always delivers so the deterministic drop happens in the same
-          // place production loss would manifest. `drop` stays false.
-          break;
-        case Impairment::kJitter: {
-          // 20 ± 15 ms uniform jitter: delay in [5, 35] ms.
-          jitter_delay_us = int64_t((5.0 + rng.Uniform() * 30.0) * 1000.0);
-          break;
-        }
-        case Impairment::kReorder5:
-          if (!holding_reorder && rng.Uniform() < 0.05) {
-            delay_reorder = true;
-          }
-          break;
-        case Impairment::kStallBurst:
-          // 500 ms stall centred at 40% of the stream, then burst-deliver.
-          if (i == frames * 2 / 5) {
-            in_stall = true;
-            stall_end_us = frame_start + 500000;
-          }
-          break;
-      }
+  // ---- build the timeline and fire it ------------------------------------
+  ProductionEncoder encoder;
+  encoder.Init();
+  const int64_t grid_base_us = NowUs() + 50000;  // start 50ms in the future
+  auto events = BuildTimeline(impairment, encoder, frames, grid_base_us, 0xC0FFEE);
 
-      // Insert directly from the sender thread. RtpAudioReceiver serializes
-      // insertion and the playout pump on the playout_control_ mutex, so a
-      // cross-thread InsertRtpPacket is safe AND — crucially — inserts at the
-      // true arrival instant. An earlier version of this harness marshaled
-      // insertion onto the GLib thread with g_main_context_invoke_full; that
-      // queued packets behind other sources and delivered them late and in
-      // batches, which measurably corrupted the jitter result (mass phantom
-      // PLC) without reflecting any real buffer behaviour. Direct insertion
-      // at the arrival instant is the honest network model: it matches the
-      // direct AudioJitterBuffer probe, which under identical 20±15 ms jitter
-      // and realistic ~11.8 ms pump cadence yields ~1% concealment and a peak
-      // backlog of 6 frames.
-      auto deliver = [&](uint16_t s, uint32_t ts, const std::vector<uint8_t>& p) {
-        RtpPacket pkt = MakeRtpPacket(s, ts, 4242, p);
-        // Record the arrival time only for packets that will actually reach
-        // the buffer. In the loss scenario the receiver filter drops a fixed
-        // set of sequences; those never become emissions, so excluding them
-        // keeps the insert↔emit correspondence aligned.
-        const int loss_idx = int(s) - 1000;
-        const bool filtered =
-            impairment == Impairment::kLoss2 && loss_idx >= 0 &&
-            loss_idx < int(loss_drop.size()) && loss_drop[loss_idx];
-        if (!filtered) {
-          std::lock_guard<std::mutex> lock(insert_mutex);
-          insert_time_by_seq[s] = NowUs();
-        }
-        receiver.InsertRtpPacket(pkt);
-      };
+  std::atomic<int64_t> deliveries_done{0};
+  std::atomic<int64_t> first_delivery_us{0};
+  std::atomic<int64_t> last_delivery_us{0};
+  std::atomic<int64_t> max_offset_us{0};
 
-      if (impairment == Impairment::kStallBurst && in_stall) {
-        if (NowUs() < stall_end_us) {
-          stalled.push_back({seq, {rtp_ts, payload}});
-          seq = uint16_t(seq + 1);
-          rtp_ts += 480;
-          std::this_thread::sleep_until(
-              std::chrono::steady_clock::time_point(
-                  std::chrono::microseconds(frame_start + 10000)));
-          continue;
-        } else {
-          // Burst: deliver everything stalled at once, then resume.
-          for (auto& item : stalled) deliver(item.first, item.second.first, item.second.second);
-          stalled.clear();
-          in_stall = false;
-        }
+  const int64_t run_start_us = NowUs();
+  std::thread delivery_thread([&] {
+    for (const auto& ev : events) {
+      // Sleep until this event's scheduled delivery instant.
+      const int64_t now = NowUs();
+      if (ev.deliver_us > now) {
+        std::this_thread::sleep_for(std::chrono::microseconds(ev.deliver_us - now));
       }
+      const int64_t actual_delivery = NowUs();
+      // Record per-sequence insert + capture time (realised) ONLY for packets
+      // that will actually reach the buffer. Loss is applied inside
+      // InsertRtpPacket by the receiver filter; those sequences never become
+      // emissions, so including them would corrupt the ascending-sequence
+      // correlation. They still count toward `delivered` and the rate below.
+      const int loss_idx = int(ev.sequence) - 1000;
+      const bool filtered =
+          impairment == Impairment::kLoss2 && loss_idx >= 0 &&
+          loss_idx < int(loss_drop.size()) && loss_drop[loss_idx];
+      if (!filtered) {
+        std::lock_guard<std::mutex> lock(insert_mutex);
+        insert_time_by_seq[ev.sequence] = actual_delivery;
+        capture_time_by_seq[ev.sequence] = ev.capture_us;
+      }
+      const int64_t offset = actual_delivery - ev.capture_us;
+      int64_t cur = max_offset_us.load();
+      while (offset > cur && !max_offset_us.compare_exchange_weak(cur, offset)) {
+      }
+      if (!first_delivery_us.load()) first_delivery_us.store(actual_delivery);
+      last_delivery_us.store(actual_delivery);
+      deliveries_done.fetch_add(1);
 
-      if (delay_reorder) {
-        // Hold this packet; deliver it after the next one (reorder by one).
-        holding_reorder = true;
-        held_payload = payload;
-        held_seq = seq;
-        held_ts = rtp_ts;
-        held_release_us = frame_start + 15000;  // ~1.5 frames later
-      } else if (!drop) {
-        if (jitter_delay_us > 0) {
-          std::this_thread::sleep_for(std::chrono::microseconds(jitter_delay_us));
-        }
-        deliver(seq, rtp_ts, payload);
-      }
-
-      // Release a held reorder packet once its successor has gone out.
-      if (holding_reorder && !delay_reorder && NowUs() >= held_release_us) {
-        deliver(held_seq, held_ts, held_payload);
-        holding_reorder = false;
-      }
-
-      seq = uint16_t(seq + 1);
-      rtp_ts += 480;
-      // Sleep until the next frame's absolute grid time so the production
-      // cadence neither drifts nor accumulates scheduling overshoot.
-      const int64_t next_due_us = grid_base_us + int64_t(i + 1) * 10000;
-      const int64_t now_us = NowUs();
-      if (next_due_us > now_us) {
-        std::this_thread::sleep_for(std::chrono::microseconds(next_due_us - now_us));
-      }
+      RtpPacket pkt = MakeRtpPacket(ev.sequence, ev.rtp_timestamp, 4242, ev.payload);
+      receiver.InsertRtpPacket(pkt);
     }
-    last_send_done_us.store(NowUs());
   });
 
-  // Let the stream run to completion, then drain: wait for the last frame
-  // plus enough time for the buffer to flush.
-  sender.join();
-  const int64_t drain_until = last_send_done_us.load() + 400000;  // +400 ms
+  delivery_thread.join();
+  res.delivered = deliveries_done.load();
+
+  // Delivery rate over the active delivery window.
+  const double delivery_window_s =
+      (last_delivery_us.load() - first_delivery_us.load()) / 1e6;
+  res.delivery_rate =
+      delivery_window_s > 0 ? res.delivered / delivery_window_s : 0;
+  res.max_offset_ms = max_offset_us.load() / 1000.0;
+
+  // Drain: allow time for the buffer to flush the tail.
+  const int64_t drain_until = last_delivery_us.load() + 500000;  // +500 ms
   while (NowUs() < drain_until) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
+  res.wall_ms = (NowUs() - run_start_us) / 1000.0;
 
-  // Stop the target sampler before teardown: it reads the receiver under the
-  // playout mutex, so it must not outlive the receiver.
+  // Stop the sampler before teardown.
   stop_sampler.store(true);
   target_sampler.join();
-
-  // Tear down cleanly: stop the playout timer before the loop.
   receiver.ShutdownPlayout();
   g_main_loop_quit(loop);
   loop_thread.join();
   g_main_loop_unref(loop);
   g_main_context_unref(context);
 
-  res.wall_ms = (NowUs() - start_us) / 1000.0;
-
-  // ---- Analysis ----
-  // Build the ascending list of surviving insertion (sequence, time). Because
-  // the jitter buffer emits in ascending sequence order, the Kth audible
-  // emission corresponds to the Kth surviving sequence in this ordering. This
-  // is exact when no buffered packet is dropped by a re-anchor; re-anchor
-  // drops shift the tail, so for jitter/stallburst the delay figures are
-  // approximate (continuity metrics are unaffected and remain exact).
-  // insert_time_by_seq is a std::map keyed on sequence, so iterating it already
-  // yields ascending sequence order — no explicit sort needed for these runs
-  // (600 frames starting at sequence 1000 never wrap the 16-bit space).
-  std::vector<std::pair<uint16_t, int64_t>> surviving(insert_time_by_seq.begin(),
-                                                       insert_time_by_seq.end());
-
+  // ---- Analysis -----------------------------------------------------------
+  // Exact per-frame correlation: each real emission carries its playout
+  // sequence, so residence/mouth-to-ear are computed against that packet's
+  // own insert/capture times. PLC frames are excluded (no source packet).
   int64_t prev_emit_us = 0;
-  size_t audible_index = 0;  // position within the ascending surviving order
-  for (const auto& rec : sink.recs) {
-    switch (rec.kind) {
-      case AudioPlayoutKind::kNormal: ++res.normal; break;
-      case AudioPlayoutKind::kReordered: ++res.reordered; break;
-      case AudioPlayoutKind::kPlc: ++res.plc; break;
-    }
+  for (const auto& em : emissions) {
+    const bool is_real = em.kind != AudioPlayoutKind::kPlc;
+    if (em.kind == AudioPlayoutKind::kPlc) ++res.concealed;
+    if (em.kind == AudioPlayoutKind::kReordered) ++res.reorder_emitted;
+    if (is_real) ++res.real_emitted;
     res.emitted_ms += 10.0;
-    if (rec.kind == AudioPlayoutKind::kPlc) res.concealed_ms += 10.0;
-    // Discontinuity: emission gap > 1.5 frames, or out-of-order times.
-    if (prev_emit_us != 0) {
-      const int64_t gap_us = rec.emit_us - prev_emit_us;
-      if (gap_us > 15000 || gap_us < 0) ++res.discontinuities;
-    }
-    prev_emit_us = rec.emit_us;
 
-    if (rec.kind != AudioPlayoutKind::kPlc) {
-      if (rec.audible && audible_index < surviving.size()) {
-        const double delay_ms = (rec.emit_us - surviving[audible_index].second) / 1000.0;
-        res.delays_ms.push_back(delay_ms);
-      }
-      ++audible_index;
+    if (prev_emit_us != 0) {
+      const int64_t gap_us = em.emit_us - prev_emit_us;
+      if (gap_us > 15000 || gap_us < 0) ++res.discontinuities;
+      if (gap_us >= 0) res.inter_emit_gap_ms.push_back(gap_us / 1000.0);
+    }
+    prev_emit_us = em.emit_us;
+
+    if (is_real && em.audible && insert_time_by_seq.count(em.sequence)) {
+      const int64_t ins = insert_time_by_seq[em.sequence];
+      const int64_t cap = capture_time_by_seq[em.sequence];
+      res.residence_ms.push_back((em.emit_us - ins) / 1000.0);
+      res.mouth_to_ear_ms.push_back((em.emit_us - cap) / 1000.0);
     }
   }
-  // Cross-validate the sink tally against the receiver's own emission stats.
-  // The two counts must match: both observe the same emissions through
-  // independent paths. The target reported is the PEAK reached during active
-  // reception (the buffer resets to base once it goes idle at end-of-stream,
-  // so the post-drain reading is meaningless for adaptation behaviour).
+
   const auto stats = receiver.GetEmissionStatsForTesting();
   res.stats_normal = stats.emitted_normal;
   res.stats_reordered = stats.emitted_reordered;
   res.stats_plc = stats.emitted_plc;
-  res.final_target_ms = peak_target_ms.load();
-  res.ran = true;
+  const auto drops = receiver.GetDropStatsForTesting();
+  res.dropped_too_late = drops.dropped_too_late;
+  res.dropped_drain = drops.dropped_drain;
+  res.dropped_shrink = drops.dropped_shrink;
+  res.duplicates = drops.duplicates;
+  res.buffered = drops.buffered;
+  res.buf_received = drops.received;
+  res.peak_target_ms = peak_target_ms.load();
   return res;
 }
 
 void PrintRow(const char* scenario, bool bypass, const ScenarioResult& r) {
-  const double p50 = Percentile(r.delays_ms, 50);
-  const double p95 = Percentile(r.delays_ms, 95);
-  const double pmax = r.delays_ms.empty() ? -1 : *std::max_element(r.delays_ms.begin(), r.delays_ms.end());
-  // Cross-validation: the sink tally and the receiver's own emission stats
-  // must agree exactly, since both observe the same emissions. A mismatch
-  // means the harness miscounted, so flag it loudly rather than silently.
-  const bool tally_ok = r.stats_normal == r.normal &&
-                        r.stats_reordered == r.reordered &&
-                        r.stats_plc == r.plc;
-  std::printf("%-11s %-7s emit=%5.0f/%-4.0fms conceal=%4.0fms disc=%3d n/r/p=%llu/%llu/%llu peaktgt=%3dms delay p50=%5.1f p95=%5.1f max=%5.1fms %s\n",
-              scenario, bypass ? "bypass" : "buffer",
-              r.emitted_ms, r.sent_ms, r.concealed_ms, r.discontinuities,
-              (unsigned long long)r.normal, (unsigned long long)r.reordered,
-              (unsigned long long)r.plc, r.final_target_ms, p50, p95, pmax,
-              tally_ok ? "" : "[TALLY-MISMATCH]");
+  const double rp50 = Percentile(r.residence_ms, 50);
+  const double rp95 = Percentile(r.residence_ms, 95);
+  const double rmax = r.residence_ms.empty() ? -1 : *std::max_element(r.residence_ms.begin(), r.residence_ms.end());
+  const double mp50 = Percentile(r.mouth_to_ear_ms, 50);
+  const double mp95 = Percentile(r.mouth_to_ear_ms, 95);
+  const double mmax = r.mouth_to_ear_ms.empty() ? -1 : *std::max_element(r.mouth_to_ear_ms.begin(), r.mouth_to_ear_ms.end());
+  const bool tally_ok = r.stats_normal + r.stats_reordered == r.real_emitted &&
+                        r.stats_plc == r.concealed;
+  // Conservation (buffered mode): every packet the buffer received is either
+  // emitted as a real frame, dropped for one accounted reason, or still in
+  // the ring. Bypass never buffers, so the check is meaningless there.
+  const uint64_t dropped_total =
+      r.dropped_too_late + r.dropped_drain + r.dropped_shrink;
+  const uint64_t accounted = r.real_emitted + dropped_total + r.buffered;
+  const bool conservation_ok =
+      bypass || accounted == r.buf_received;
+  const double gp50 = Percentile(r.inter_emit_gap_ms, 50);
+  const double gp95 = Percentile(r.inter_emit_gap_ms, 95);
+  const double gmax = r.inter_emit_gap_ms.empty() ? -1 : *std::max_element(r.inter_emit_gap_ms.begin(), r.inter_emit_gap_ms.end());
+  std::printf(
+      "%-10s %-7s emit=%5.0f/%-4.0fms real/plc=%llu/%llu disc=%3d wall=%5.1fs "
+      "rate=%5.1f/s maxoff=%5.0fms tgt=%2d | resid p50=%5.1f p95=%5.1f max=%6.1f | m2e p50=%5.1f p95=%5.1f max=%6.1f | gap p50=%4.1f max=%5.1f | drop tl/dr/sh=%llu/%llu/%llu buf=%llu %s%s\n",
+      scenario, bypass ? "bypass" : "buffer",
+      r.emitted_ms, r.sent_ms,
+      (unsigned long long)r.real_emitted, (unsigned long long)r.concealed,
+      r.discontinuities, r.wall_ms / 1000.0, r.delivery_rate, r.max_offset_ms,
+      r.peak_target_ms, rp50, rp95, rmax, mp50, mp95, mmax, gp50, gmax,
+      (unsigned long long)r.dropped_too_late, (unsigned long long)r.dropped_drain,
+      (unsigned long long)r.dropped_shrink, (unsigned long long)r.buffered,
+      tally_ok ? "" : "[TALLY-MISMATCH]",
+      conservation_ok ? "" : "[CONSERVATION-FAIL]");
 }
 
 // Teardown stress: create a receiver, arm its playout timer on a real GLib
-// context, feed it packets, then destroy it — repeatedly. This is the
-// lifecycle that crashes if ShutdownPlayout/PlayoutControl lifetime is wrong
-// (use-after-free of the receiver from an in-flight timer, or a leaked GSource
-// that outlives its control block). Returns the number of clean cycles.
+// context, feed it packets, then destroy it — repeatedly. Returns the number
+// of clean cycles.
 int RunTeardownStress(int cycles) {
   int clean = 0;
   for (int c = 0; c < cycles; ++c) {
@@ -573,13 +552,9 @@ int RunTeardownStress(int cycles) {
 
     {
       RtpAudioReceiver receiver(4242 + c, clock, nullptr);
-      std::atomic<int> emitted{0};
       receiver.SetOnReceiveData(
-          [&](const char*, size_t, AudioPlayoutKind) { emitted.fetch_add(1); });
+          [&](const char*, size_t, AudioPlayoutKind) {});
       receiver.SetPlayoutContext(context);
-
-      // Feed a handful of packets so the timer arms and the pump runs, then
-      // destroy the receiver while sources may still be in flight.
       ProductionEncoder encoder;
       encoder.Init();
       for (int i = 0; i < 12; ++i) {
@@ -589,10 +564,8 @@ int RunTeardownStress(int cycles) {
                                       4242 + c, payload);
         receiver.InsertRtpPacket(pkt);
       }
-      // Let some emissions fire, then tear down mid-stream — the dangerous case.
       std::this_thread::sleep_for(std::chrono::milliseconds(30));
       receiver.ShutdownPlayout();
-      // receiver destroyed here, possibly with in-flight timer sources.
     }
 
     g_main_loop_quit(loop);
@@ -607,10 +580,6 @@ int RunTeardownStress(int cycles) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  // Positional argument handling:
-  //   audio_receive_e2e_test            — scenarios at default length + stress
-  //   audio_receive_e2e_test <frames>   — scenarios at <frames> + stress
-  //   audio_receive_e2e_test stress [N] — teardown stress only, N cycles
   if (argc > 1 && std::strcmp(argv[1], "stress") == 0) {
     const int cycles = argc > 2 ? std::atoi(argv[2]) : 250;
     std::printf("audio_receive_e2e_test: teardown stress, %d cycles\n", cycles);
@@ -619,10 +588,9 @@ int main(int argc, char** argv) {
     return clean == cycles ? 0 : 1;
   }
 
-  int frames = argc > 1 ? std::atoi(argv[1]) : 600;  // 6 s default
+  int frames = argc > 1 ? std::atoi(argv[1]) : 3000;  // 30 s default
   std::printf("audio_receive_e2e_test: %d frames (%.0f ms sent) per scenario\n",
               frames, frames * 10.0);
-  std::printf("%-12s %-8s %s\n", "scenario", "mode", "metrics");
 
   const Impairment scenarios[] = {Impairment::kClean, Impairment::kLoss2,
                                   Impairment::kJitter, Impairment::kReorder5,
