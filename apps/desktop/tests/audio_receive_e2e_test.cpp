@@ -155,7 +155,7 @@ struct Rng {
   double Uniform() { return (Next() >> 8) / 16777216.0; }
 };
 
-enum class Impairment { kClean, kLoss2, kJitter, kReorder5, kStallBurst };
+enum class Impairment { kClean, kLoss2, kJitter, kReorder5, kStallBurst, kLateAnchor };
 
 const char* ImpairmentName(Impairment i) {
   switch (i) {
@@ -164,6 +164,7 @@ const char* ImpairmentName(Impairment i) {
     case Impairment::kJitter: return "jitter";
     case Impairment::kReorder5: return "reorder5";
     case Impairment::kStallBurst: return "stallburst";
+    case Impairment::kLateAnchor: return "lateanchor";
   }
   return "?";
 }
@@ -202,7 +203,16 @@ struct ScenarioResult {
   uint64_t stats_normal = 0, stats_reordered = 0, stats_plc = 0;
   // Drop accounting for conservation (buffered mode only).
   uint64_t dropped_too_late = 0, dropped_drain = 0, dropped_shrink = 0,
-           duplicates = 0, buffered = 0, buf_received = 0;
+           converge_drops = 0, duplicates = 0, buffered = 0, buf_received = 0;
+  // Time-windowed residence (ms), bucketed by the frame's position in the
+  // stream relative to stream start. early = first 2 s, steady = 10-30 s.
+  // The reviewer requires these split because a late anchor inflates the
+  // early window but must heal by the steady window.
+  std::vector<double> residence_early_ms;   // frames emitted in seconds 0-2
+  std::vector<double> residence_steady_ms;  // frames emitted in seconds 10-30
+  std::vector<double> m2e_steady_ms;
+  int concealed_steady = 0;
+  int discontinuities_steady = 0;
 };
 
 double Percentile(std::vector<double> v, double p) {
@@ -242,6 +252,12 @@ std::vector<DeliveryEvent> BuildTimeline(
       case Impairment::kLoss2:
         offset_us = 0;
         break;
+      case Impairment::kLateAnchor:
+        // The first packet of the stream arrives 40 ms late (a busy receiver
+        // at session start); everything after is exactly on grid. Before the
+        // convergence fix this pinned the whole session at target+40 ms.
+        offset_us = (i == 0) ? 40000 : 0;
+        break;
       case Impairment::kJitter:
         // 20 ± 15 ms independent uniform jitter.
         offset_us = int64_t((5.0 + rng.Uniform() * 30.0) * 1000.0);
@@ -264,6 +280,22 @@ std::vector<DeliveryEvent> BuildTimeline(
     ev.deliver_us = ev.capture_us + offset_us;
     events.push_back(std::move(ev));
   }
+  if (impairment == Impairment::kLateAnchor) {
+    // Packet 0 is +40 ms, the rest on grid. Physically this is the receiver
+    // pipeline being busy at session start: the first packet is processed
+    // 40 ms after capture, and because the stream is ordered the buffer still
+    // sees packet 0 first. Enforce sequence-order delivery by clamping each
+    // event's delivery to be no earlier than its predecessor's — so the
+    // packets produced during the 40 ms startup window arrive in an ordered
+    // burst right after packet 0 rather than overtaking it (which would let
+    // the buffer anchor on an on-time packet 1 and defeat the scenario).
+    int64_t prev = 0;
+    for (auto& ev : events) {
+      if (ev.deliver_us < prev) ev.deliver_us = prev;
+      prev = ev.deliver_us;
+    }
+  }
+
   // The delivery thread fires events in deliver-time order; sort so a simple
   // queue walk yields correct timing even when reorder/jitter permute them.
   std::stable_sort(events.begin(), events.end(),
@@ -495,8 +527,26 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
     if (is_real && em.audible && insert_time_by_seq.count(em.sequence)) {
       const int64_t ins = insert_time_by_seq[em.sequence];
       const int64_t cap = capture_time_by_seq[em.sequence];
-      res.residence_ms.push_back((em.emit_us - ins) / 1000.0);
-      res.mouth_to_ear_ms.push_back((em.emit_us - cap) / 1000.0);
+      const double resid = (em.emit_us - ins) / 1000.0;
+      const double m2e = (em.emit_us - cap) / 1000.0;
+      res.residence_ms.push_back(resid);
+      res.mouth_to_ear_ms.push_back(m2e);
+      // Window by stream position (capture-grid seconds since stream start):
+      // early = first 2 s, steady = 10-30 s. Uses the grid, not wall clock, so
+      // the window reflects which part of the stream the frame belongs to.
+      const double stream_s = (cap - grid_base_us) / 1e6;
+      if (stream_s < 2.0) res.residence_early_ms.push_back(resid);
+      if (stream_s >= 10.0) {
+        res.residence_steady_ms.push_back(resid);
+        res.m2e_steady_ms.push_back(m2e);
+      }
+    }
+    // Steady-state concealment: PLC frames carry their playout sequence, so
+    // their stream position is recoverable the same way (sequence 1000+i is
+    // grid position i*10ms). Count those in the 10-30 s steady window.
+    if (em.kind == AudioPlayoutKind::kPlc && em.sequence >= 1000) {
+      const double stream_s = (int64_t(em.sequence - 1000) * 10000) / 1e6;
+      if (stream_s >= 10.0) ++res.concealed_steady;
     }
   }
 
@@ -508,6 +558,7 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
   res.dropped_too_late = drops.dropped_too_late;
   res.dropped_drain = drops.dropped_drain;
   res.dropped_shrink = drops.dropped_shrink;
+  res.converge_drops = drops.converge_drops;
   res.duplicates = drops.duplicates;
   res.buffered = drops.buffered;
   res.buf_received = drops.received;
@@ -528,25 +579,36 @@ void PrintRow(const char* scenario, bool bypass, const ScenarioResult& r) {
   // emitted as a real frame, dropped for one accounted reason, or still in
   // the ring. Bypass never buffers, so the check is meaningless there.
   const uint64_t dropped_total =
-      r.dropped_too_late + r.dropped_drain + r.dropped_shrink;
+      r.dropped_too_late + r.dropped_drain + r.dropped_shrink + r.converge_drops;
   const uint64_t accounted = r.real_emitted + dropped_total + r.buffered;
   const bool conservation_ok =
       bypass || accounted == r.buf_received;
   const double gp50 = Percentile(r.inter_emit_gap_ms, 50);
-  const double gp95 = Percentile(r.inter_emit_gap_ms, 95);
   const double gmax = r.inter_emit_gap_ms.empty() ? -1 : *std::max_element(r.inter_emit_gap_ms.begin(), r.inter_emit_gap_ms.end());
+  // Steady-state (10-30 s) windows.
+  const double sp50 = Percentile(r.residence_steady_ms, 50);
+  const double sp95 = Percentile(r.residence_steady_ms, 95);
+  const double ep50 = Percentile(r.residence_early_ms, 50);
   std::printf(
       "%-10s %-7s emit=%5.0f/%-4.0fms real/plc=%llu/%llu disc=%3d wall=%5.1fs "
-      "rate=%5.1f/s maxoff=%5.0fms tgt=%2d | resid p50=%5.1f p95=%5.1f max=%6.1f | m2e p50=%5.1f p95=%5.1f max=%6.1f | gap p50=%4.1f max=%5.1f | drop tl/dr/sh=%llu/%llu/%llu buf=%llu %s%s\n",
+      "rate=%5.1f/s maxoff=%5.0fms tgt=%2d | resid p50=%5.1f p95=%5.1f max=%6.1f | m2e p50=%5.1f p95=%5.1f max=%6.1f | gap p50=%4.1f max=%5.1f | drop tl/dr/sh/cv=%llu/%llu/%llu/%llu buf=%llu %s%s\n",
       scenario, bypass ? "bypass" : "buffer",
       r.emitted_ms, r.sent_ms,
       (unsigned long long)r.real_emitted, (unsigned long long)r.concealed,
       r.discontinuities, r.wall_ms / 1000.0, r.delivery_rate, r.max_offset_ms,
       r.peak_target_ms, rp50, rp95, rmax, mp50, mp95, mmax, gp50, gmax,
       (unsigned long long)r.dropped_too_late, (unsigned long long)r.dropped_drain,
-      (unsigned long long)r.dropped_shrink, (unsigned long long)r.buffered,
+      (unsigned long long)r.dropped_shrink, (unsigned long long)r.converge_drops,
+      (unsigned long long)r.buffered,
       tally_ok ? "" : "[TALLY-MISMATCH]",
       conservation_ok ? "" : "[CONSERVATION-FAIL]");
+  // Steady-state line: the window the reviewer's acceptance criteria apply to.
+  if (!bypass) {
+    std::printf(
+        "%-10s %-7s STEADY(10-30s) resid p50=%5.1f p95=%5.1f  early(0-2s) resid p50=%5.1f  concealed_steady=%d  drain=%llu converge=%llu\n",
+        scenario, "ss", sp50, sp95, ep50, r.concealed_steady,
+        (unsigned long long)r.dropped_drain, (unsigned long long)r.converge_drops);
+  }
 }
 
 // Teardown stress: create a receiver, arm its playout timer on a real GLib
@@ -612,7 +674,7 @@ int main(int argc, char** argv) {
 
   const Impairment scenarios[] = {Impairment::kClean, Impairment::kLoss2,
                                   Impairment::kJitter, Impairment::kReorder5,
-                                  Impairment::kStallBurst};
+                                  Impairment::kStallBurst, Impairment::kLateAnchor};
   for (const auto imp : scenarios) {
     auto bypass = RunScenario(imp, true, frames);
     PrintRow(ImpairmentName(imp), true, bypass);
