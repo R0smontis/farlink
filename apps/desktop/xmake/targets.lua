@@ -169,6 +169,25 @@ function setup_targets()
         add_includedirs("apps/desktop/src/platform/macos/input")
         add_files("apps/desktop/tests/macos_keyboard_modifier_state_test.cpp")
 
+    target("macos_relative_mouse_injection_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src/platform/macos/input")
+        add_files("apps/desktop/tests/macos_relative_mouse_injection_test.cpp")
+
+    if is_os("macosx") then
+        target("macos_relative_mouse_roundtrip_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_relative_mouse_roundtrip_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+    end
+
     target("cursor_position_test")
         set_kind("binary")
         set_default(false)
@@ -469,6 +488,7 @@ function setup_targets()
             add_syslinks("Wtsapi32", {public = true})
         elseif is_os("macosx") then
             add_files("apps/desktop/src/platform/macos/input/mouse/*.cpp",
+                "apps/desktop/src/platform/macos/input/mouse/*.mm",
                 "apps/desktop/src/platform/macos/input/keyboard/*.cpp",
                 "apps/desktop/src/platform/macos/input/device_controller_factory.cpp")
             add_includedirs("apps/desktop/src/platform/macos/input/mouse",

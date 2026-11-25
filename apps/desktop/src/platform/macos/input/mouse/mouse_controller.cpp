@@ -1,5 +1,6 @@
 #include "mouse_controller.h"
 #include "../mac_injected_event.h"
+#include "relative_mouse_injection.h"
 
 #include <remote_action.h>
 
@@ -135,6 +136,73 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
     return -1;
   }
 
+  if (remote_action.m.flag == MouseFlag::move_relative) {
+    relative_mode_active_ = true;
+    // Injected positions do not apply atomically, so reading the cursor back
+    // inside a burst returns a stale location and swallows motion. While the
+    // stream is live the tracked anchor is authoritative; it is resynced to
+    // the physical cursor whenever injection has been idle long enough for
+    // local input devices or earlier absolute positioning to have moved it.
+    double base_x = 0, base_y = 0;
+    const auto now = std::chrono::steady_clock::now();
+    if (relative_anchor_valid_ &&
+        now - relative_anchor_time_ < kRelativeAnchorMaxAge) {
+      base_x = relative_anchor_x_;
+      base_y = relative_anchor_y_;
+    } else {
+      const auto cursor = CGEventCreate(nullptr);
+      if (!cursor) return -1;
+      const auto current = CGEventGetLocation(cursor);
+      CFRelease(cursor);
+      base_x = current.x;
+      base_y = current.y;
+      // A fresh anchor must not carry rounding debt from a different
+      // coordinate frame.
+      relative_motion_.Reset();
+    }
+    const RelativeMouseMotion::Bounds bounds{
+        static_cast<double>(display_info.left),
+        static_cast<double>(display_info.top),
+        static_cast<double>(display_info.right),
+        static_cast<double>(display_info.bottom)};
+    const auto motion = relative_motion_.Update(
+        remote_action.m.dx, remote_action.m.dy, base_x, base_y, bounds);
+    if (motion.delta_x == 0 && motion.delta_y == 0) return 0;
+    const auto drag = RelativeMoveEventType(
+        left_dragging_ ? RelativeDragState::left
+        : right_dragging_ ? RelativeDragState::right
+                          : RelativeDragState::none);
+    CGEventRef move_event = CGEventCreateMouseEvent(
+        NULL, static_cast<CGEventType>(drag.event_type),
+        CGPointMake(motion.point_x, motion.point_y),
+        static_cast<CGMouseButton>(drag.mouse_button));
+    if (!move_event) return -1;
+    // Games reading raw deltas consume these fields; the integer part of the
+    // displacement moved the cursor above while the fraction stays in the
+    // accumulator, so both views of the motion agree losslessly.
+    CGEventSetIntegerValueField(move_event, kCGMouseEventDeltaX,
+                                motion.delta_x);
+    CGEventSetIntegerValueField(move_event, kCGMouseEventDeltaY,
+                                motion.delta_y);
+    CGEventSetIntegerValueField(move_event, kCGEventSourceUserData,
+                                kCrossDeskInjectedEvent);
+    CGEventPost(kCGHIDEventTap, move_event);
+    CFRelease(move_event);
+    relative_anchor_x_ = motion.point_x;
+    relative_anchor_y_ = motion.point_y;
+    relative_anchor_time_ = now;
+    relative_anchor_valid_ = true;
+    return 0;
+  }
+  // An absolute move ends relative positioning; clicks and the wheel keep
+  // whatever mode the most recent move established. Any non-relative event
+  // also invalidates the tracked anchor: absolute moves reposition through
+  // the physical cursor, so the next relative burst must resync from it.
+  if (remote_action.m.flag == MouseFlag::move) {
+    relative_mode_active_ = false;
+    relative_anchor_valid_ = false;
+  }
+
   const double normalized_x =
       std::clamp(static_cast<double>(remote_action.m.x), 0.0, 1.0);
   const double normalized_y =
@@ -153,13 +221,24 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
   const double mouse_pos_y = std::clamp(
       display_info.top + normalized_y * display_info.height,
       static_cast<double>(display_info.top), max_y);
-  const int tracked_mouse_pos_x = static_cast<int>(std::lround(mouse_pos_x));
-  const int tracked_mouse_pos_y = static_cast<int>(std::lround(mouse_pos_y));
+  CGPoint mouse_point = CGPointMake(mouse_pos_x, mouse_pos_y);
+  double effective_pos_x = mouse_pos_x;
+  double effective_pos_y = mouse_pos_y;
+  if (relative_mode_active_) {
+    if (const auto cursor = CGEventCreate(nullptr)) {
+      const auto current = CGEventGetLocation(cursor);
+      CFRelease(cursor);
+      effective_pos_x = current.x;
+      effective_pos_y = current.y;
+      mouse_point = CGPointMake(effective_pos_x, effective_pos_y);
+    }
+  }
+  const int tracked_mouse_pos_x = static_cast<int>(std::lround(effective_pos_x));
+  const int tracked_mouse_pos_y = static_cast<int>(std::lround(effective_pos_y));
 
   CGEventRef mouse_event = nullptr;
   CGEventType mouse_type;
   CGMouseButton mouse_button;
-  CGPoint mouse_point = CGPointMake(mouse_pos_x, mouse_pos_y);
   int click_state = 1;
 
   switch (remote_action.m.flag) {

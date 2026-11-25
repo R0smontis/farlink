@@ -46,10 +46,20 @@ RemoteInputDispatcher::Result RemoteInputDispatcher::Push(
   if (stopping_ || !connected_.count(id)) return Result::rejected;
   if (!completion && IsMove(action) && !pending_.empty()) {
     auto& last = pending_.back();
-    if (!last.completion && last.id == id && last.IsInput() && IsMove(*last.action)) {
-      last.action = action;
-      last.queued_at = Clock::now();
-      return Result::coalesced;
+    if (!last.completion && last.id == id && last.IsInput() &&
+        last.action->m.flag == action.m.flag) {
+      if (IsMove(*last.action)) {
+        if (action.m.flag == MouseFlag::move_relative) {
+          // Relative motion has no latest-wins position to keep: every delta
+          // matters, so coalescing sums losslessly in the wire's own units.
+          last.action->m.dx += action.m.dx;
+          last.action->m.dy += action.m.dy;
+        } else {
+          last.action = action;
+        }
+        last.queued_at = Clock::now();
+        return Result::coalesced;
+      }
     }
   }
   if (pending_counts_[id] >= kMaxPendingPerController) {
@@ -108,7 +118,9 @@ void RemoteInputDispatcher::Stop() {
 }
 
 bool RemoteInputDispatcher::IsMove(const RemoteAction& action) {
-  return action.type == ControlType::mouse && action.m.flag == MouseFlag::move;
+  return action.type == ControlType::mouse &&
+         (action.m.flag == MouseFlag::move ||
+          action.m.flag == MouseFlag::move_relative);
 }
 
 unsigned RemoteInputDispatcher::MouseUpMask(const RemoteAction& action) {
