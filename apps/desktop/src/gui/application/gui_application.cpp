@@ -5713,17 +5713,24 @@ void GuiApplication::EnterGameMode(StreamView& view) {
   if (!(width > 0 && height > 0) || video_width <= 0 || video_height <= 0) {
     return;
   }
-  // Captured deltas arrive in device points. The wire unit is physical
-  // pixels of the controlled display, and the letterboxed video inside the
-  // window maps 1:1 onto it, so the conversion factor is the video's pixels
-  // per local point. scale_factor cancels out because both Slint lengths
-  // and Core Graphics deltas are in points.
+  // Captured deltas arrive in device points. The wire unit is resolution
+  // independent: displacement as a fraction of the controlled display's
+  // width/height, so the host conversion depends on nothing encoded —
+  // resolution adaptation can resize the stream mid-session without
+  // touching sensitivity. The controller side normalises by the rendered
+  // video rect in points (the letterboxed drawn size, per axis, so
+  // non-uniform window shapes cannot skew axes), which is the geometry the
+  // user's hand motion visually maps onto; the host multiplies by its own
+  // display size in points. scale_factor cancels out because both Slint
+  // lengths and Core Graphics deltas are in points.
   const double fit = std::min(width / video_width, height / video_height);
   const double drawn_width = video_width * fit;
   const double drawn_height = video_height * fit;
   if (drawn_width <= 0 || drawn_height <= 0) return;
-  const double scale_x = video_width / drawn_width;
-  const double scale_y = video_height / drawn_height;
+  const double sensitivity =
+      config_center_->GetMouseSensitivityPercent() / 100.0;
+  const double scale_x = sensitivity / drawn_width;
+  const double scale_y = sensitivity / drawn_height;
   // Freeze at the centre of the video surface, not wherever the toolbar
   // toggle was: scroll events and the final release must keep landing on
   // the streamed content. The capturer warps back to the original position

@@ -475,8 +475,7 @@ bool SessionDeviceManager::SyncDisplayInfo() {
         display_info_list_.end(), [](const auto &a, const auto &b) {
           return a.handle == b.handle && a.name == b.name &&
                  a.is_primary == b.is_primary && a.left == b.left &&
-                 a.top == b.top && a.width == b.width && a.height == b.height &&
-                 a.pixel_width == b.pixel_width && a.pixel_height == b.pixel_height;
+                 a.top == b.top && a.width == b.width && a.height == b.height;
         });
     if (changed) display_info_list_ = displays;
   }

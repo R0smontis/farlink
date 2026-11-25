@@ -165,24 +165,19 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
         static_cast<double>(display_info.top),
         static_cast<double>(display_info.right),
         static_cast<double>(display_info.bottom)};
-    // Wire deltas are physical pixels of the streamed video frame; injection
-    // works in points. The ratio is the display's own backing scale — the
-    // same data ScreenCaptureKit encodes from — so a wire unit lands as one
-    // streamed pixel regardless of Retina scaling. The conversion runs
-    // before the accumulator, which keeps sub-point remainders lossless
-    // across events. The wire unit is defined against the delivered frame;
-    // this branch never downscales the encode, so capture size == delivered
-    // size and the backing ratio is exact. If a future encoder downscales
-    // the stream, that branch must hand the delivered-size ratio here or the
-    // two ends will disagree proportionally.
-    const double ratio_x = WirePixelToPoint::Ratio(
-        static_cast<double>(display_info.pixel_width),
-        static_cast<double>(display_info.width));
-    const double ratio_y = WirePixelToPoint::Ratio(
-        static_cast<double>(display_info.pixel_height),
-        static_cast<double>(display_info.height));
+    // Wire deltas are fractions of this display's width/height — the same
+    // resolution-independent unit the absolute path uses — so injection
+    // multiplies by the display size in points. Nothing here depends on the
+    // encoded stream's pixel dimensions: resolution adaptation can resize
+    // the video mid-session and sensitivity does not move. The conversion
+    // runs before the accumulator, which keeps sub-point remainders
+    // lossless across events.
+    const double width_pt =
+        static_cast<double>(display_info.right) - display_info.left;
+    const double height_pt =
+        static_cast<double>(display_info.bottom) - display_info.top;
     const auto motion = relative_motion_.Update(
-        remote_action.m.dx * ratio_x, remote_action.m.dy * ratio_y,
+        remote_action.m.dx * width_pt, remote_action.m.dy * height_pt,
         base_x, base_y, bounds);
     if (motion.delta_x == 0 && motion.delta_y == 0) return 0;
     const bool other_dragging = (pressed_buttons_ & 4) != 0;

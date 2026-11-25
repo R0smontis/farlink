@@ -62,11 +62,14 @@ struct Mouse {
   float y;
   int s;
   MouseFlag flag;
-  // Relative displacement for move_relative, in physical pixels of the
-  // streamed video frame as the controller receives it (not normalized):
-  // one unit is one pixel of the delivered frame, so the host converts into
-  // its own injection unit with the capture-side backing ratio. Sub-pixel
-  // fractions are preserved here; the host accumulates them losslessly.
+  // Relative displacement for move_relative as a fraction of the controlled
+  // display's width (dx) and height (dy) — the same resolution-independent
+  // spirit as the absolute x/y above it, so mid-session resolution
+  // adaptation of the encoded stream cannot change sensitivity. The
+  // controller computes local point deltas normalised by the rendered video
+  // rect in points; the host multiplies by its own display size in points
+  // for the Core Graphics point and delta fields. Sub-pixel fractions are
+  // preserved here; the host accumulates them losslessly in double.
   // Zero when absent in the wire message.
   float dx;
   float dy;

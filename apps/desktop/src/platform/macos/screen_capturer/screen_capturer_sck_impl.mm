@@ -429,16 +429,6 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
                      static_cast<int>(bounds.origin.x), static_cast<int>(bounds.origin.y),
                      static_cast<int>(bounds.origin.x + bounds.size.width),
                      static_cast<int>(bounds.origin.y + bounds.size.height));
-    // CGDisplayBounds answers in points while the capture runs in backing
-    // pixels (contentRect x pointPixelScale, e.g. 3024x1964 over a 1512x982
-    // point grid). CGDisplayPixelsWide cannot be used here: it follows the
-    // scaled point grid on Retina configurations. The display mode's pixel
-    // dimensions are the backing store the stream is encoded from.
-    if (CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display_id)) {
-      info.pixel_width = static_cast<int>(CGDisplayModeGetPixelWidth(mode));
-      info.pixel_height = static_cast<int>(CGDisplayModeGetPixelHeight(mode));
-      CFRelease(mode);
-    }
     display_info_list_.push_back(info);
     display_id_map_[display_info_list_.size() - 1] = display_id;
   }

@@ -81,14 +81,17 @@ class GameModeExitChord {
 };
 
 // Converts a captured delta (points, the post-acceleration unit
-// kCGMouseEventDeltaX/Y uses) into physical pixels of the controlled remote
-// display. The wire unit is host display pixels, so the capture side must
-// scale by the ratio between the local display's backing scale and the
-// remote video's pixel density relative to its rendering.
+// kCGMouseEventDeltaX/Y uses) into the resolution-independent wire unit:
+// displacement as a fraction of the controlled display's width/height (see
+// remote_action.h). The scale the controller hands in folds in both the
+// rendered video rect size and the sensitivity factor, so a unit of local
+// hand motion lands as the matching fraction no matter what resolution the
+// stream is encoded at.
 struct RelativeDeltaScale {
-  // scale = (remote video pixels per local point along x) — the controller
-  // computes it from the video geometry and the window scale factor. Values
-  // must be finite and positive; the caller drops the event otherwise.
+  // scale = wire fraction per local point along one axis — the controller
+  // computes it as sensitivity / rendered video rect extent in points.
+  // Values must be finite and positive; the caller drops the event
+  // otherwise.
   static bool Convert(double raw_dx, double raw_dy, double scale_x,
                       double scale_y, double& out_dx, double& out_dy) {
     if (!std::isfinite(raw_dx) || !std::isfinite(raw_dy) ||

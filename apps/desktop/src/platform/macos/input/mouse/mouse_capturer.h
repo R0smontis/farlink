@@ -19,7 +19,8 @@
 
 namespace crossdesk {
 
-// Scaled device displacement in physical pixels of the controlled display.
+// Scaled device displacement in the resolution-independent wire unit:
+// fraction of the controlled display's width/height (see remote_action.h).
 using OnMouseDelta = void (*)(double, double, void*);
 // Mouse button edges observed by the capture tap. button uses the Slint
 // encoding shared with the input pipeline (left 1, right 2, middle 3).
@@ -53,7 +54,7 @@ class PlatformMouseCapturer {
   // warps to freeze_at (the logical centre of the streamed video, so scroll
   // and hover events still land inside the stream window) and returns to
   // its original position on Unhook. scale_x/scale_y convert device points
-  // into physical pixels of the controlled remote display.
+  // into the wire unit (fraction of the controlled display per axis).
   int Hook(OnMouseDelta on_delta, OnMouseButton on_button,
            OnMouseWheel on_wheel, OnGameModeExit on_exit, void* user_ptr,
            double scale_x, double scale_y, CGPoint freeze_at);

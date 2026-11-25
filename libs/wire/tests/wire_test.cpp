@@ -233,17 +233,21 @@ int main() {
 
   crossdesk::RemoteAction relative{};
   relative.type = crossdesk::ControlType::mouse;
-  relative.m = {0.4f, 0.6f, 0, crossdesk::MouseFlag::move_relative, -12.5f, 3.25f};
+  // Normalised wire shape: small fractions of the display extent, exactly
+  // what game mode produces.
+  relative.m = {0.4f, 0.6f, 0, crossdesk::MouseFlag::move_relative,
+                -0.00195312f, 0.00063492f};
   const auto relative_json = relative.to_json();
   crossdesk::RemoteAction parsed_relative{};
   ok &= Expect(parsed_relative.from_json(relative_json) &&
                    parsed_relative.m.flag == crossdesk::MouseFlag::move_relative &&
-                   parsed_relative.m.dx == -12.5f &&
-                   parsed_relative.m.dy == 3.25f,
+                   parsed_relative.m.dx == -0.00195312f &&
+                   parsed_relative.m.dy == 0.00063492f,
                "relative mouse JSON round trip changed deltas");
-  ok &= Expect(relative_json.find("\"dx\":-12.5") != std::string::npos &&
-                   relative_json.find("\"dy\":3.25") != std::string::npos,
+  ok &= Expect(relative_json.find("\"dx\":") != std::string::npos &&
+                   relative_json.find("\"dy\":") != std::string::npos,
                "relative deltas must serialize as dedicated keys");
+
 
   // Absolute moves never carry the new keys, so legacy peers parse byte
   // identical messages to what older builds produced.
