@@ -396,10 +396,20 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
   const int64_t run_start_us = NowUs();
   std::thread delivery_thread([&] {
     for (const auto& ev : events) {
-      // Sleep until this event's scheduled delivery instant.
-      const int64_t now = NowUs();
-      if (ev.deliver_us > now) {
-        std::this_thread::sleep_for(std::chrono::microseconds(ev.deliver_us - now));
+      // Sleep until this event's scheduled delivery instant. std::this_thread::
+      // sleep_for on macOS overshoots by whole milliseconds, which over a
+      // 3000-event run starves delivery and inflates the measured delay with
+      // harness scheduling latency rather than network behaviour. Sleep coarse
+      // (leaving ~1.5ms margin) then spin-wait the remainder so injection lands
+      // within tens of microseconds of the intended network-arrival instant.
+      for (;;) {
+        const int64_t remain = ev.deliver_us - NowUs();
+        if (remain <= 0) break;
+        if (remain > 1500) {
+          std::this_thread::sleep_for(std::chrono::microseconds(remain - 1200));
+        } else {
+          std::this_thread::yield();
+        }
       }
       const int64_t actual_delivery = NowUs();
       // Record per-sequence insert + capture time (realised) ONLY for packets
