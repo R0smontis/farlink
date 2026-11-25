@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <web_clipboard_protocol.h>
+#include <video_frame_rate.h>
 #include "localization.h"
 #include "rd_log.h"
 #ifdef _WIN32
@@ -331,8 +332,14 @@ int GuiRuntime::CreateConnectionPeer() {
   // from the authorized controller and apply to its connection on this host.
   params_.video_quality = MiniRtcVideoQuality::MiniRtcVideoQualityHigh;
   params_.video_frame_rate = 60;
+  // Degradation behaviour is a pure function of the negotiated frame rate:
+  // high-frame-rate streams sacrifice resolution before frames, streams at or
+  // below 60 fps sacrifice frames before resolution. Derived here so the
+  // bootstrap default stays consistent with whatever renegotiation later
+  // applies through the same function.
   params_.video_degradation_preference =
-      MiniRtcVideoDegradationPreference::MaintainResolution;
+      static_cast<MiniRtcVideoDegradationPreference>(
+          crossdesk::DegradationPreferenceForFrameRate(params_.video_frame_rate));
   params_.on_receive_video_buffer = nullptr;
   params_.on_receive_audio_buffer = PeerEventHandler::OnReceiveAudioBuffer;
   params_.on_receive_data_buffer = PeerEventHandler::OnReceiveDataBuffer;

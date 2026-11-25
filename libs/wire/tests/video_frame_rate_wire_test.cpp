@@ -166,5 +166,21 @@ int main() {
     crossdesk::FreeRemoteAction(parsed);
   }
 
+  // Degradation preference is a pure function of the frame rate: above 60 fps
+  // the stream maintains frame rate (gives up resolution first), at or below
+  // 60 fps it maintains resolution (gives up frames first). The boundary is
+  // exact and the wire values are 0 = maintain frame rate, 1 = maintain
+  // resolution.
+  for (int high : {90, 120, 144})
+    ok &= Expect(crossdesk::DegradationPreferenceForFrameRate(high) == 0,
+                 "high frame rate did not select maintain frame rate");
+  for (int low : {30, 60})
+    ok &= Expect(crossdesk::DegradationPreferenceForFrameRate(low) == 1,
+                 "low frame rate did not select maintain resolution");
+  // 60 is the boundary and stays maintain-resolution; anything above flips.
+  ok &= Expect(crossdesk::DegradationPreferenceForFrameRate(60) == 1 &&
+                   crossdesk::DegradationPreferenceForFrameRate(61) == 0,
+               "60 fps degradation boundary moved");
+
   return ok ? 0 : 1;
 }

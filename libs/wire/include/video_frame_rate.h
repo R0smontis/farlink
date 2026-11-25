@@ -61,6 +61,22 @@ inline int VideoFrameRateForIndex(int index) {
   return kVideoFrameRateTiers[index];
 }
 
+// Single decision point for how a stream degrades under load, derived purely
+// from its negotiated frame rate. At or below 60 fps the encoder can generally
+// sustain the native desktop resolution, so spatial detail is worth preserving
+// and the stream drops frames rather than downscaling. Above 60 fps the viewer
+// explicitly chose temporal smoothness; sustaining that cadence at high
+// resolution is beyond the hardware encoder, so the stream gives up resolution
+// before it gives up frames. Returns the wire preference value (0 = maintain
+// frame rate, 1 = maintain resolution) so it can be cast straight to
+// MiniRtcVideoDegradationPreference at the library boundary. Pure function of
+// the frame rate only — every host that honours high-frame-rate negotiation
+// derives the preference here rather than hard-coding one, so the behaviour
+// stays consistent across bootstrap and renegotiation.
+inline int DegradationPreferenceForFrameRate(int frame_rate) {
+  return frame_rate > 60 ? 0 /* maintain frame rate */ : 1 /* maintain resolution */;
+}
+
 }  // namespace crossdesk
 
 #endif
