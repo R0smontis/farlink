@@ -1,7 +1,8 @@
 /*
- * @Author: DI JUNKUN
+ * @Author: Farlink contributors
  * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 by Farlink contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 #include "mouse/relative_mouse_injection.h"
@@ -66,24 +67,38 @@ int main() {
                  "irregular fractional deltas must sum losslessly");
   }
 
-  // Clamping: motion beyond the display edge must stop at the edge and must
-  // not be remembered as hidden carry, or pushing into a wall would sling
-  // the cursor back once the direction reverses.
+  // Display edge: the point pins at the bound but the deltas keep carrying
+  // the full unclamped integer motion, exactly like a physical mouse that
+  // keeps moving against the edge of the pad. Games reading
+  // kCGMouseEventDeltaX/Y must keep turning the camera; fractional carry is
+  // preserved, so reversal is not slingshot either — the accumulator only
+  // ever holds sub-pixel remainder, and N edge-pinned moves still sum to
+  // the exact input total.
   {
     crossdesk::RelativeMouseMotion motion;
     double x = 2559, y = 800;
     auto event = motion.Update(100, 0, x, y, kBounds);
     ok &= Expect(event.point_x < 2560 && event.point_x >= 2559,
-                 "clamped motion must land on the display edge");
+                 "edge motion must pin the point on the display edge");
+    ok &= Expect(event.delta_x == 100,
+                 "edge motion must not clamp the carried delta");
     const double edge = event.point_x;
-    // Keep pushing right; nothing may accumulate.
-    for (int i = 0; i < 50; ++i) event = motion.Update(100, 0, event.point_x, 800, kBounds);
+    // Keep pushing right; the point stays pinned, deltas keep flowing.
+    double emitted = 100.0;
+    constexpr int kPinned = 50;
+    for (int i = 0; i < kPinned; ++i) {
+      event = motion.Update(100, 0, event.point_x, 800, kBounds);
+      emitted += event.delta_x;
+    }
+    ok &= Expect(event.point_x == edge,
+                 "pinned motion must leave the point exactly on the edge");
+    ok &= Expect(std::fabs(emitted - 100.0 * (kPinned + 1)) <= 1.0,
+                 "pinned deltas must sum to the unclamped total within 1px");
     // Reverse with a small step: it must apply immediately, unattenuated.
     event = motion.Update(-5, 0, event.point_x, 800, kBounds);
     ok &= Expect(std::fabs(event.delta_x - -5) <= 1 &&
                      event.point_x <= edge - 4,
-                 "clamped motion must not accumulate hidden carry");
-    (void)x;
+                 "reversing off the edge must apply the delta immediately");
   }
 
   // Zero motion produces no event but keeps the sub-pixel carry.
@@ -112,29 +127,43 @@ int main() {
     const auto plain = crossdesk::RelativeMoveEventType(crossdesk::RelativeDragState::none);
     const auto left = crossdesk::RelativeMoveEventType(crossdesk::RelativeDragState::left);
     const auto right = crossdesk::RelativeMoveEventType(crossdesk::RelativeDragState::right);
+    const auto other = crossdesk::RelativeMoveEventType(crossdesk::RelativeDragState::other);
     ok &= Expect(plain.event_type == 5 && left.event_type == 6 &&
-                     right.event_type == 7 && left.mouse_button == 0 &&
-                     right.mouse_button == 1,
+                     right.event_type == 7 && other.event_type == 27 &&
+                     left.mouse_button == 0 && right.mouse_button == 1 &&
+                     other.mouse_button == 2,
                  "dragged event type mapping changed");
   }
 
   // Escape chord: Ctrl+Alt+G fires once per press, survives auto-repeat,
-  // and requires both modifiers.
+  // and requires both modifiers. The completing key-down, its repeats and
+  // the matching key-up are marked swallowed so the capturer never leaks
+  // them to the peer.
   {
     crossdesk::GameModeExitChord chord;
     ok &= Expect(!chord.Update('G', true), "G alone must not trigger the escape");
     chord.Reset();
     chord.Update(0xA2, true);   // left ctrl down
     ok &= Expect(!chord.Update('G', true), "ctrl+G without alt must not trigger");
+    ok &= Expect(!chord.SwallowsKey('G'), "no chord means nothing is swallowed");
     chord.Update(0xA4, true);   // left alt down
     ok &= Expect(chord.Update('G', true), "ctrl+alt+G must trigger the escape");
+    ok &= Expect(chord.SwallowsKey('G'),
+                 "the completing key-down must be swallowed");
     ok &= Expect(!chord.Update('G', true), "auto-repeat must not retrigger");
+    ok &= Expect(chord.SwallowsKey('G'),
+                 "auto-repeats of a held chord key must stay swallowed");
+    ok &= Expect(chord.SwallowsKey('G'),
+                 "the matching key-up must be swallowed before Update");
     chord.Update('G', false);   // release G
+    ok &= Expect(!chord.SwallowsKey('G'),
+                 "after the key-up the swallow state must clear");
     chord.Update(0xA2, false);  // release ctrl
     ok &= Expect(!chord.Update('G', true), "chord without ctrl must not trigger");
     chord.Update(0xA2, true);
     chord.Update('G', false);
     ok &= Expect(chord.Update('G', true), "a fresh press must trigger again");
+    chord.Update('G', false);
   }
 
   // Delta scaling: device points convert into display pixels; invalid scale

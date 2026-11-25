@@ -1,7 +1,8 @@
 /*
- * @Author: DI JUNKUN
+ * @Author: Farlink contributors
  * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 by Farlink contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 #ifndef _RELATIVE_MOUSE_INJECTION_H_
@@ -12,7 +13,7 @@
 
 namespace crossdesk {
 
-enum class RelativeDragState { none, left, right };
+enum class RelativeDragState { none, left, right, other };
 
 // Pure state machine turning wire displacements into Core Graphics event
 // parameters. Kept free of framework calls so the rounding and clamping
@@ -27,16 +28,19 @@ class RelativeMouseMotion {
   struct Event {
     double point_x = 0;
     double point_y = 0;
-    // Integer device deltas for kCGMouseEventDeltaX/Y. Games reading raw
-    // deltas expect pixel units and ignore fractional remainder, which stays
-    // in the accumulator instead of being dropped.
+    // Integer deltas for kCGMouseEventDeltaX/Y. These always carry the full
+    // accumulated integer motion, clamped or not: a game reading them must
+    // keep turning the camera when the host cursor is pinned at the display
+    // edge, exactly like a physical mouse that keeps moving against the edge
+    // of a mouse pad. Fractional remainder stays in the accumulator.
     int64_t delta_x = 0;
     int64_t delta_y = 0;
   };
 
-  // Clamp keeps the injected cursor inside the display it is relative to.
-  // Display bounds are exclusive on the right/bottom edge, matching the
-  // absolute injection path.
+  // Clamp keeps the injected cursor point inside the display it is relative
+  // to. Display bounds are exclusive on the right/bottom edge, matching the
+  // absolute injection path. Clamping applies to the point only, never to
+  // the delta fields.
   struct Bounds {
     double left = 0;
     double top = 0;
@@ -47,11 +51,11 @@ class RelativeMouseMotion {
   static constexpr double kMaxDeltaPerEvent = 32767.0;
 
   // Advances the cursor by the fractional displacement and returns the event
-  // parameters. |current_x/current_y| is the live cursor position read just
-  // before injection; tracking it (instead of an internal copy) means other
-  // mouse sources cannot silently desynchronise the clamp. Out-of-bounds
-  // motion is clamped away rather than accumulated: a wall in an FPS must
-  // behave like a wall, not like a stored offset.
+  // parameters. |current_x/current_y| is the tracked cursor position just
+  // before injection. The point clamps at the display bounds while the
+  // integer deltas pass through unclamped — the display edge is not game
+  // geometry, and swallowing motion there would stop camera movement in any
+  // game whose own cursor is captured or centred.
   Event Update(double dx, double dy, double current_x, double current_y,
                const Bounds& bounds) {
     carry_x_ += std::clamp(dx, -kMaxDeltaPerEvent, kMaxDeltaPerEvent);
@@ -65,22 +69,12 @@ class RelativeMouseMotion {
         std::nextafter(bounds.right, bounds.left);
     const double max_y =
         std::nextafter(bounds.bottom, bounds.top);
-    double target_x = current_x + static_cast<double>(event.delta_x);
-    double target_y = current_y + static_cast<double>(event.delta_y);
-    const double clamped_x =
+    const double target_x = current_x + static_cast<double>(event.delta_x);
+    const double target_y = current_y + static_cast<double>(event.delta_y);
+    event.point_x =
         std::clamp(target_x, bounds.left, std::max(max_x, bounds.left));
-    const double clamped_y =
+    event.point_y =
         std::clamp(target_y, bounds.top, std::max(max_y, bounds.top));
-    if (clamped_x != target_x) {
-      event.delta_x = static_cast<int64_t>(std::llround(clamped_x - current_x));
-      carry_x_ = 0;
-    }
-    if (clamped_y != target_y) {
-      event.delta_y = static_cast<int64_t>(std::llround(clamped_y - current_y));
-      carry_y_ = 0;
-    }
-    event.point_x = clamped_x;
-    event.point_y = clamped_y;
     return event;
   }
 
@@ -113,6 +107,9 @@ constexpr RelativeDragEvent RelativeMoveEventType(RelativeDragState state) {
     case RelativeDragState::right:
       // kCGEventRightMouseDragged / kCGMouseButtonRight.
       return {7, 1};
+    case RelativeDragState::other:
+      // kCGEventOtherMouseDragged / kCGMouseButtonCenter.
+      return {27, 2};
     default:
       // kCGEventMouseMoved / kCGMouseButtonLeft (button unused for moves).
       return {5, 0};
