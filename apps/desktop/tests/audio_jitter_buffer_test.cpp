@@ -621,6 +621,71 @@ void TestConvergeDoesNotFightGrow() {
       (unsigned long long)jb.GetStats().converge_drops);
 }
 
+// 16. Reorder absorption at 1 ms resolution, displacements up to 29 ms. A
+// packet displaced d ms against a 30 ms target still arrives d ms before its
+// position deadline, so reorder repair must absorb it: zero concealment of
+// reordered positions, zero target growth, zero too-late drops, for every
+// d in {15, 20, 25, 29}. Unlike the other drivers this uses a strictly
+// monotonic clock — packets are inserted only when the clock reaches their
+// arrival time and the pump steps every millisecond — because reordering is
+// exactly the case where a non-monotonic insert/pump interleaving quantises
+// arrivals to the frame tick and fabricates tardiness that the real buffer
+// never sees. (A coarser probe that re-pumped overlapping windows reported
+// phantom concealment at 25 ms; the continuous clock shows there is none.)
+void TestReorderAbsorbedUpTo29ms() {
+  for (const int disp : {15, 20, 25, 29}) {
+    AudioJitterBuffer jb;
+    const uint16_t base = 1000;
+    // Build a 5%-reordered arrival timeline over 2000 frames.
+    struct Ev {
+      uint16_t seq;
+      int64_t arr;
+    };
+    std::vector<Ev> evs;
+    unsigned int rngstate = 5;
+    auto rnd = [&]() {  // deterministic LCG in [0,1)
+      rngstate = rngstate * 1103515245u + 12345u;
+      return (rngstate >> 16) / 65536.0;
+    };
+    for (int i = 0; i < 2000; ++i) {
+      const int64_t grid = int64_t(i) * 10;
+      const int64_t arr = (rnd() < 0.05) ? grid + disp : grid;
+      evs.push_back({uint16_t(base + i), arr});
+    }
+    std::stable_sort(evs.begin(), evs.end(),
+                     [](const Ev& a, const Ev& b) { return a.arr < b.arr; });
+    const int64_t maxarr = evs.back().arr;
+    int plc = 0, reordered = 0;
+    size_t nextins = 0;
+    for (int64_t t = 0; t <= maxarr + 200; ++t) {
+      while (nextins < evs.size() && evs[nextins].arr <= t) {
+        const auto pkt = MakePacket(evs[nextins].seq);
+        jb.Insert(evs[nextins].seq, pkt.data(), pkt.size(), t);
+        ++nextins;
+      }
+      jb.Pump(t, [&](const AudioJitterBuffer::Frame& f) {
+        if (f.kind == AudioJitterBuffer::FrameKind::kPlc) ++plc;
+        if (f.kind == AudioJitterBuffer::FrameKind::kReordered) ++reordered;
+      });
+    }
+    // The only PLC in the whole run is the stream-end tail (positions beyond
+    // the final insert, which have no packet). Reordered positions themselves
+    // are always repaired, so their concealment count is zero — bounded here
+    // by a small constant for the tail, never scaling with displacement.
+    CHECK(plc <= 6);
+    CHECK(jb.GetStats().dropped_too_late == 0);
+    CHECK(jb.GetStats().grow_events == 0);
+    CHECK(jb.TargetDelayMs() == 30);
+    CHECK(reordered > 0);  // reordering really happened and was repaired
+    CheckConservation(jb, "reorder-absorbed");
+    std::printf(
+        "reorder absorbed OK (disp %d ms: target %d, grow %llu, plc %d, "
+        "reordered %d, too-late %llu)\n",
+        disp, jb.TargetDelayMs(), (unsigned long long)jb.GetStats().grow_events,
+        plc, reordered, (unsigned long long)jb.GetStats().dropped_too_late);
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -639,6 +704,7 @@ int main() {
   TestLateAnchorUnderJitter();
   TestConvergeNoFlap();
   TestConvergeDoesNotFightGrow();
+  TestReorderAbsorbedUpTo29ms();
 
   if (failures == 0) {
     std::printf("audio_jitter_buffer_test: all checks passed\n");
