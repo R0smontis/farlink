@@ -171,6 +171,7 @@ void GuiRuntime::ConnectLan(const std::string& address, unsigned port,
     lan_connecting_ = session;
     props->lan_session_ = session;
     props->remote_id_ = session->key;
+    props->InitSessionObservability(session->key);
     props->connection_status_ = MiniRtcConnectionStatus::MiniRtcConnectionConnecting;
     props->connection_auth_.Complete();
     {

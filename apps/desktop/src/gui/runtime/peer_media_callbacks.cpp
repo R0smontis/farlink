@@ -58,6 +58,12 @@ void PeerEventHandler::OnReceiveVideoBuffer(
         received_native ? received_native->width : video_frame->width,
         received_native ? received_native->height : video_frame->height,
         timing_now);
+    // Cumulative per-session observability: decoded frames entering the app.
+    // Resolution is retained for the once-per-session first-presented line.
+    props->video_latency_->RecordDecodedFrame(
+        received_native ? received_native->width : video_frame->width,
+        received_native ? received_native->height : video_frame->height);
+
     // Convert only visible thumbnails, off the UI thread. A session retains
     // one latest RGBA image, not an unbounded queue of frames.
     const int preview_width = props->gallery_preview_width_.load();
