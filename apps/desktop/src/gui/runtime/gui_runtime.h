@@ -191,6 +191,13 @@ class GuiRuntime : protected gui_detail::GuiState {
     (void)button;
     (void)down;
   }
+  virtual void SendGameModeWheelInput(double line_dx, double line_dy,
+                                      double point_dx, double point_dy) {
+    (void)line_dx;
+    (void)line_dy;
+    (void)point_dx;
+    (void)point_dy;
+  }
   virtual void RequestGameModeExit() {}
 #endif
   InputOutcome ApplyRemoteInput(const std::string& remote_id, const RemoteAction& action);

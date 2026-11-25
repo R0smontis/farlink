@@ -5833,6 +5833,40 @@ void GuiApplication::SendGameModeButtonInput(int button, bool down) {
   SendRemoteInput(action);
 }
 
+void GuiApplication::SendGameModeWheelInput(double line_dx, double line_dy,
+                                            double point_dx, double point_dy) {
+  if (!game_mode_active_ || game_mode_target_.empty()) return;
+  // Feeding the captured rotation into the same path the Slint stream
+  // window uses keeps scroll sensitivity, notch snapping and accumulation
+  // identical inside and outside game mode. Slint's winit backend counts
+  // one notch as 60 logical pixels while Core Graphics reports point deltas
+  // of 10 per notch, so the continuous values scale by 6. Line counts are
+  // the fallback for devices that post notches without point precision.
+  float delta_x = 0;
+  float delta_y = 0;
+  constexpr double kSlintPixelsPerNotch = 60.0;
+  constexpr double kCgPointsPerNotch = 10.0;
+  constexpr double kPointToSlint = kSlintPixelsPerNotch / kCgPointsPerNotch;
+  if (point_dx != 0 || point_dy != 0) {
+    delta_x = static_cast<float>(point_dx * kPointToSlint);
+    delta_y = static_cast<float>(point_dy * kPointToSlint);
+  } else {
+    delta_x = static_cast<float>(line_dx * kSlintPixelsPerNotch);
+    delta_y = static_cast<float>(line_dy * kSlintPixelsPerNotch);
+  }
+  if (delta_x == 0 && delta_y == 0) return;
+  // The frozen cursor sits at the centre of the video area; routing the
+  // scroll through that point keeps the position argument honest even
+  // though games with captured cursors ignore it.
+  float x = 0;
+  float y = 0;
+  if (auto* view = FindStreamView(game_mode_target_)) {
+    x = static_cast<float>(view->window->get_video_area_width()) / 2.0f;
+    y = static_cast<float>(view->window->get_video_area_height()) / 2.0f;
+  }
+  SendScrollInput(delta_x, delta_y, x, y);
+}
+
 void GuiApplication::RequestGameModeExit() { ExitGameMode(); }
 
 void GuiApplication::SyncGameMode() {

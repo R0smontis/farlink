@@ -1,7 +1,8 @@
 /*
- * @Author: DI JUNKUN
+ * @Author: Farlink contributors
  * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 by Farlink contributors
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 #ifndef _CAPTURED_MOUSE_QUEUE_H_
@@ -14,12 +15,16 @@
 namespace crossdesk {
 
 struct CapturedMouseEvent {
-  enum class Kind { delta, button, exit };
+  enum class Kind { delta, button, wheel, exit };
   Kind kind = Kind::delta;
   double dx = 0;
   double dy = 0;
   int button = 0;
   bool down = false;
+  // Wheel only: continuous point deltas kept alongside the notch counts in
+  // dx/dy so the consumer can reproduce the Slint scroll conversion.
+  double point_dx = 0;
+  double point_dy = 0;
 };
 
 // Single-producer (event tap thread) single-consumer (UI tick) queue for
@@ -61,6 +66,30 @@ class CapturedMouseQueue {
     event.kind = CapturedMouseEvent::Kind::button;
     event.button = button;
     event.down = down;
+    events_.push_back(event);
+  }
+
+  void PushWheel(double line_dx, double line_dy, double point_dx,
+                 double point_dy) {
+    std::lock_guard lock(mutex_);
+    // Wheel events coalesce like deltas: the scroll accumulator integrates
+    // continuous motion anyway, and ordering against clicks is preserved
+    // because only a trailing wheel absorbs.
+    if (!events_.empty() &&
+        events_.back().kind == CapturedMouseEvent::Kind::wheel) {
+      events_.back().dx += line_dx;
+      events_.back().dy += line_dy;
+      events_.back().point_dx += point_dx;
+      events_.back().point_dy += point_dy;
+      return;
+    }
+    if (events_.size() >= kMaxEvents) return;
+    CapturedMouseEvent event{};
+    event.kind = CapturedMouseEvent::Kind::wheel;
+    event.dx = line_dx;
+    event.dy = line_dy;
+    event.point_dx = point_dx;
+    event.point_dy = point_dy;
     events_.push_back(event);
   }
 

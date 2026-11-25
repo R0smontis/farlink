@@ -858,6 +858,12 @@ int SessionDeviceManager::StartMouseCapturer(double scale_x, double scale_y,
         static_cast<SessionDeviceManager*>(user_ptr)
             ->captured_mouse_inputs_.PushButton(button, down);
       },
+      [](double line_dx, double line_dy, double point_dx, double point_dy,
+         void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushWheel(line_dx, line_dy, point_dx,
+                                               point_dy);
+      },
       [](void* user_ptr) {
         static_cast<SessionDeviceManager*>(user_ptr)
             ->captured_mouse_inputs_.PushExit();
@@ -896,6 +902,10 @@ void SessionDeviceManager::DrainCapturedMouseInput() {
         break;
       case CapturedMouseEvent::Kind::button:
         owner_.SendGameModeButtonInput(event.button, event.down);
+        break;
+      case CapturedMouseEvent::Kind::wheel:
+        owner_.SendGameModeWheelInput(event.dx, event.dy, event.point_dx,
+                                      event.point_dy);
         break;
       case CapturedMouseEvent::Kind::exit:
         owner_.RequestGameModeExit();

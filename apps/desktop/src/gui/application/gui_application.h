@@ -152,6 +152,8 @@ private:
   void ExitGameMode();
   void SendRelativeMouseInput(double dx, double dy) override;
   void SendGameModeButtonInput(int button, bool down) override;
+  void SendGameModeWheelInput(double line_dx, double line_dy, double point_dx,
+                              double point_dy) override;
   void RequestGameModeExit() override;
   void SyncGameMode();
   // device-manager-facing entry points are declared on GuiRuntime instead.
