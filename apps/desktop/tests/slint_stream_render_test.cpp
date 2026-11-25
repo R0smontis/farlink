@@ -124,5 +124,47 @@ int main() {
       }
     }
   }
+
+  // --- Game-mouse control: capability gating, state feedback, callback wiring ---
+  // The game-mouse button is the user-facing surface for the relative-mouse /
+  // game mode. Verify, at the binding level the runtime drives each sync tick:
+  //   * capability gate: game_mouse_available is what reveals the button;
+  //   * state: game_mouse_active is what the runtime sets while captured;
+  //   * the toggle callback fires so the runtime can enter/exit the mode;
+  //   * the localized state string (release_game_mouse) is bound so the
+  //     button tooltip can convey the active state + escape action.
+  stream->set_game_mouse_available(false);
+  stream->set_game_mouse_active(false);
+  settle();
+  if (stream->get_game_mouse_available() || stream->get_game_mouse_active()) {
+    std::cerr << "Game-mouse properties must round-trip to false\n";
+    return 1;
+  }
+  // Capability present -> the control becomes available; state -> active.
+  stream->set_game_mouse_available(true);
+  stream->set_game_mouse_active(true);
+  settle();
+  if (!stream->get_game_mouse_available() || !stream->get_game_mouse_active()) {
+    std::cerr << "Game-mouse properties must round-trip to true\n";
+    return 1;
+  }
+  // The toggle callback is how the runtime enters/exits the mode.
+  bool game_toggled = false;
+  stream->on_toggle_game_mouse([&] { game_toggled = !game_toggled; });
+  stream->invoke_toggle_game_mouse();
+  if (!game_toggled) {
+    std::cerr << "toggle-game-mouse callback must fire\n";
+    return 1;
+  }
+  // The escape/state string must round-trip so the tooltip can show it. The
+  // localized strings live on the StreamStrings global, exactly where
+  // ui_localization writes them.
+  auto &stream_strings = stream->global<crossdesk::ui::StreamStrings>();
+  stream_strings.set_release_game_mouse(slint::SharedString("Release Game Mouse (Ctrl+Alt+G)"));
+  if (std::string(stream_strings.get_release_game_mouse()) != "Release Game Mouse (Ctrl+Alt+G)") {
+    std::cerr << "release-game-mouse string must round-trip\n";
+    return 1;
+  }
+  std::cout << "Game-mouse control binding passed.\n";
   std::cout << "Stream stats retained-buffer rendering passed.\n";
 }

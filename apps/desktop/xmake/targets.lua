@@ -298,6 +298,13 @@ function setup_targets()
         set_default(false)
         add_files("apps/desktop/tests/connection_status_protocol_test.cpp")
 
+    target("config_video_codec_roundtrip_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("nlohmann_json")
+        add_deps("config_center")
+        add_files("apps/desktop/tests/config_video_codec_roundtrip_test.cpp")
+
     target("video_callback_lifetime_test")
         set_kind("binary")
         set_default(false)

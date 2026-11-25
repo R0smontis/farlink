@@ -11903,6 +11903,18 @@
       "fr": "Souris de jeu",
       "es": "Ratón de juego",
       "pt-BR": "Mouse de jogo"
+    },
+    "释放游戏鼠标": {
+      "zh-Hans": "释放游戏鼠标 (Ctrl+Alt+G)",
+      "en": "Release Game Mouse (Ctrl+Alt+G)",
+      "ru": "Отпустить игровую мышь (Ctrl+Alt+G)",
+      "zh-Hant": "釋放遊戲滑鼠 (Ctrl+Alt+G)",
+      "ja": "ゲームマウスを解放 (Ctrl+Alt+G)",
+      "ko": "게임 마우스 해제 (Ctrl+Alt+G)",
+      "de": "Spielmaus freigeben (Ctrl+Alt+G)",
+      "fr": "Relâcher la souris de jeu (Ctrl+Alt+G)",
+      "es": "Soltar el ratón de juego (Ctrl+Alt+G)",
+      "pt-BR": "Soltar o mouse de jogo (Ctrl+Alt+G)"
     }
   },
   "desktop": {
@@ -12025,6 +12037,7 @@
     "control_mouse": "控制鼠标",
     "release_mouse": "释放鼠标",
     "game_mouse": "游戏鼠标",
+    "release_game_mouse": "释放游戏鼠标",
     "audio_capture": "播放声音",
     "mute": "静音",
     "send_shortcut": "发送组合键",
@@ -12983,7 +12996,8 @@
       "可使用文件传输窗口发送文件。",
       "本端地址",
       "对端地址",
-      "游戏鼠标"
+      "游戏鼠标",
+      "释放游戏鼠标"
     ],
     "android": [
       " · 已完成",

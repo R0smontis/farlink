@@ -55,6 +55,7 @@ export global StreamStrings {
     in-out property <string> control-mouse: "Control Mouse";
     in-out property <string> release-mouse: "Release Mouse";
     in-out property <string> game-mouse: "Game Mouse";
+    in-out property <string> release-game-mouse: "Release Game Mouse";
     in-out property <string> audio: "Play audio";
     in-out property <string> mute: "Mute";
     in-out property <string> select-file: "Select File to Send";
@@ -701,6 +702,7 @@ export component StreamWindow inherits Window {
                 if display-button.has-hover { return display-button.tooltip-info; }
                 if root.secure-attention-supported && shortcut-button.has-hover { return shortcut-button.tooltip-info; }
                 if mouse-button.has-hover { return mouse-button.tooltip-info; }
+                if root.game-mouse-available && game-button.has-hover { return game-button.tooltip-info; }
                 if root.privacy-visible && privacy-button.has-hover { return privacy-button.tooltip-info; }
                 if video-button.has-hover { return video-button.tooltip-info; }
                 if audio-button.has-hover { return audio-button.tooltip-info; }
@@ -1372,7 +1374,7 @@ export component StreamWindow inherits Window {
                     x: mouse-button.x + root.control-button-step;
                     y: (parent.height - self.height) / 2;
                     icon: FontAwesomeIcons.gamepad; selected: root.game-mouse-active;
-                    tooltip: StreamStrings.game-mouse;
+                    tooltip: root.game-mouse-active ? StreamStrings.release-game-mouse : StreamStrings.game-mouse;
                     clicked => { root.close-control-menus(); root.toggle-game-mouse(); }
                 }
                 audio-button := ControlBarButton {

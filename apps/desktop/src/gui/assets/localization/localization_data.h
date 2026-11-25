@@ -570,6 +570,7 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"本端地址", {"本端地址", "Local endpoint", "Локальный адрес", "本端位址", "ローカルアドレス", "로컬 주소", "Lokale Adresse", "Adresse locale", "Dirección local", "Endereço local"}},
   {"对端地址", {"对端地址", "Remote endpoint", "Удалённый адрес", "對端位址", "リモートアドレス", "원격 주소", "Remote-Adresse", "Adresse distante", "Dirección remota", "Endereço remoto"}},
   {"游戏鼠标", {"游戏鼠标", "Game Mouse", "Игровая мышь", "遊戲滑鼠", "ゲームマウス", "게임 마우스", "Maus im Spielmodus", "Souris de jeu", "Ratón de juego", "Mouse de jogo"}},
+  {"释放游戏鼠标", {"释放游戏鼠标 (Ctrl+Alt+G)", "Release Game Mouse (Ctrl+Alt+G)", "Отпустить игровую мышь (Ctrl+Alt+G)", "釋放遊戲滑鼠 (Ctrl+Alt+G)", "ゲームマウスを解放 (Ctrl+Alt+G)", "게임 마우스 해제 (Ctrl+Alt+G)", "Spielmaus freigeben (Ctrl+Alt+G)", "Relâcher la souris de jeu (Ctrl+Alt+G)", "Soltar el ratón de juego (Ctrl+Alt+G)", "Soltar o mouse de jogo (Ctrl+Alt+G)"}},
 };
 
 struct NamedTranslation { const char* name; const char* literal; };
@@ -693,6 +694,7 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"control_mouse", "控制鼠标"},
   {"release_mouse", "释放鼠标"},
   {"game_mouse", "游戏鼠标"},
+  {"release_game_mouse", "释放游戏鼠标"},
   {"audio_capture", "播放声音"},
   {"mute", "静音"},
   {"send_shortcut", "发送组合键"},
@@ -1215,6 +1217,7 @@ inline constexpr const char* kSlintLiterals[] = {
   X(control_mouse) \
   X(release_mouse) \
   X(game_mouse) \
+  X(release_game_mouse) \
   X(audio_capture) \
   X(mute) \
   X(send_shortcut) \

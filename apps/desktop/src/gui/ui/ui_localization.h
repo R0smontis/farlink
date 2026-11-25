@@ -275,6 +275,7 @@ inline int ApplyStreamWindowStrings(
   strings.set_control_mouse(Text(localization::control_mouse[language]));
   strings.set_release_mouse(Text(localization::release_mouse[language]));
   strings.set_game_mouse(Text(localization::game_mouse[language]));
+  strings.set_release_game_mouse(Text(localization::release_game_mouse[language]));
   strings.set_settings(Text(localization::settings[language]));
   strings.set_mouse_sensitivity(Text(localization::mouse_sensitivity[language]));
   strings.set_wheel_sensitivity(Text(localization::wheel_sensitivity[language]));
