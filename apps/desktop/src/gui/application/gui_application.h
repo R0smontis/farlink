@@ -142,6 +142,20 @@ private:
   void SendScrollInput(float delta_x, float delta_y, float x, float y);
   void SendKeyInput(const std::string &text, bool pressed, bool control,
                     bool alt, bool shift, bool meta);
+#ifdef __APPLE__
+  // Relative-mouse game mode. Enter is capability-gated by the peer's
+  // advertised supports_relative_mouse; exit always works and also fires
+  // automatically on focus loss, window close, disconnect and display
+  // switches. Deltas reaching SendRelativeMouseInput are already scaled to
+  // controlled-display pixels by the capturer.
+  void EnterGameMode(StreamView& view);
+  void ExitGameMode();
+  void SendRelativeMouseInput(double dx, double dy) override;
+  void SendGameModeButtonInput(int button, bool down) override;
+  void RequestGameModeExit() override;
+  void SyncGameMode();
+  // device-manager-facing entry points are declared on GuiRuntime instead.
+#endif
   void Cleanup();
 
   void OpenFileDialog(const std::string& title,

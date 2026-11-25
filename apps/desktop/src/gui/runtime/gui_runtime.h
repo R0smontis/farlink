@@ -179,6 +179,20 @@ class GuiRuntime : protected gui_detail::GuiState {
   // UI thread: send mapped mouse/keyboard input to the current control target,
   // or every connected session while that target leads DeskHub group control.
   void SendRemoteInput(const RemoteAction& action, float wheel_delta = 0);
+#ifdef __APPLE__
+  // Game-mode delivery hooks invoked by the session device manager when it
+  // drains captured mouse input on the UI thread. The runtime base cannot
+  // route input itself; the GUI application implements the peer send path.
+  virtual void SendRelativeMouseInput(double dx, double dy) {
+    (void)dx;
+    (void)dy;
+  }
+  virtual void SendGameModeButtonInput(int button, bool down) {
+    (void)button;
+    (void)down;
+  }
+  virtual void RequestGameModeExit() {}
+#endif
   InputOutcome ApplyRemoteInput(const std::string& remote_id, const RemoteAction& action);
   void HandleAutomation(const std::string& remote_id, const nlohmann::json& request);
   DesktopAutomation desktop_automation_;
