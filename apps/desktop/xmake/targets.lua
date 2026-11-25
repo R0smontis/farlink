@@ -213,6 +213,52 @@ function setup_targets()
         add_files("apps/desktop/tests/audio_jitter_buffer_test.cpp",
             "deps/submodules/minirtc/src/media/audio/jitter/audio_jitter_buffer.cpp")
 
+    -- In-process end-to-end receive-path proof for the bounded audio jitter
+    -- buffer. No network: real AudioEncoder -> real RTP wire packets ->
+    -- deterministic impairment -> RtpAudioReceiver on a real GLib
+    -- main-context thread (production arrangement) -> real AudioDecoder.
+    -- Compiles the audio receive path's translation-unit closure directly
+    -- rather than linking the whole of MiniRTC, so the measurement isolates
+    -- exactly the components under test.
+    target("audio_receive_e2e_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("libopus", "libnice", "spdlog")
+        add_includedirs(
+            "deps/submodules/minirtc/src/common",
+            "deps/submodules/minirtc/src/log",
+            "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/statistics",
+            "deps/submodules/minirtc/src/rtcp",
+            "deps/submodules/minirtc/src/rtcp/rtcp_packet",
+            "deps/submodules/minirtc/src/rtcp/rtcp_sender",
+            "deps/submodules/minirtc/src/rtcp/rtp_feedback",
+            "deps/submodules/minirtc/src/rtp/rtp_packet",
+            "deps/submodules/minirtc/src/media/audio/jitter",
+            "deps/submodules/minirtc/src/media/audio/decode",
+            "deps/submodules/minirtc/src/media/audio/encode",
+            "deps/submodules/minirtc/src/media",
+            "deps/submodules/minirtc/src/transport/channel",
+            "deps/submodules/minirtc/src/frame")
+        if is_os("macosx") then
+            add_frameworks("Foundation", "CoreFoundation",
+                "SystemConfiguration", "CoreServices")
+            add_syslinks("iconv")
+        end
+        add_files("apps/desktop/tests/audio_receive_e2e_test.cpp",
+            "deps/submodules/minirtc/src/transport/channel/rtp_audio_receiver.cpp",
+            "deps/submodules/minirtc/src/media/audio/jitter/audio_jitter_buffer.cpp",
+            "deps/submodules/minirtc/src/media/audio/decode/audio_decoder.cpp",
+            "deps/submodules/minirtc/src/media/audio/encode/audio_encoder.cpp",
+            "deps/submodules/minirtc/src/rtp/rtp_packet/rtp_packet.cpp",
+            "deps/submodules/minirtc/src/statistics/io_statistics.cpp",
+            "deps/submodules/minirtc/src/common/clock/system_clock.cpp",
+            "deps/submodules/minirtc/src/rtcp/rtcp_packet/receiver_report.cpp",
+            "deps/submodules/minirtc/src/rtcp/rtcp_packet/sender_report.cpp",
+            "deps/submodules/minirtc/src/rtcp/rtcp_packet/rtcp_report_block.cpp",
+            "deps/submodules/minirtc/src/rtcp/rtcp_packet/rtcp_common_header.cpp",
+            "deps/submodules/minirtc/src/log/log.cpp")
+
     target("audio_output_trim_test")
         set_kind("binary")
         set_default(false)
