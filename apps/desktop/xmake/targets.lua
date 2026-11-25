@@ -366,6 +366,56 @@ function setup_targets()
         add_includedirs("apps/desktop/src/gui/features/devices")
         add_files("apps/desktop/tests/audio_output_trim_test.cpp")
 
+    if is_plat("macosx") then
+        target("video_toolbox_in_flight_test")
+            set_kind("binary")
+            set_default(false)
+            add_deps("minirtc")
+            add_packages("spdlog")
+            -- The test reaches into the encoder internals rather than the
+            -- public client API, so it needs the object targets' private
+            -- include roots (media/frame/common/log) in addition to the
+            -- VideoToolbox backend directory.
+            add_includedirs("deps/submodules/minirtc/src/api",
+                "deps/submodules/minirtc/src/log",
+                "deps/submodules/minirtc/src/common",
+                "deps/submodules/minirtc/src/frame",
+                "deps/submodules/minirtc/src/media",
+                "deps/submodules/minirtc/src/media/video/encode",
+                "deps/submodules/minirtc/src/media/video/encode/video_toolbox")
+            add_files("apps/desktop/tests/video_toolbox_in_flight_test.cpp")
+            add_frameworks("VideoToolbox", "CoreMedia", "CoreVideo",
+                "IOSurface", "Foundation")
+
+        target("encode_throughput_probe")
+            set_kind("binary")
+            set_default(false)
+            add_deps("minirtc")
+            add_packages("spdlog")
+            add_includedirs("deps/submodules/minirtc/src/api",
+                "deps/submodules/minirtc/src/log",
+                "deps/submodules/minirtc/src/common",
+                "deps/submodules/minirtc/src/frame",
+                "deps/submodules/minirtc/src/media",
+                "deps/submodules/minirtc/src/media/video/encode",
+                "deps/submodules/minirtc/src/media/video/encode/video_toolbox")
+            add_files("apps/desktop/tests/encode_throughput_probe.cpp")
+            add_frameworks("VideoToolbox", "CoreMedia", "CoreVideo",
+                "IOSurface", "Foundation")
+    end
+
+    target("frame_rate_harness")
+        set_kind("binary")
+        set_default(false)
+        add_deps("minirtc")
+        add_packages("nlohmann_json")
+        add_includedirs("deps/submodules/minirtc/src/api")
+        add_files("apps/desktop/tests/frame_rate_harness.cpp")
+        if is_plat("macosx") then
+            add_files("apps/desktop/tests/iosurface_frame_source.mm")
+            add_frameworks("CoreVideo", "IOSurface", "Foundation")
+        end
+
     -- MiniRTC-level two-endpoint LAN harness: measures direct-connection
     -- stage timings and first-frame latency without any signaling server.
     -- Build-only target; run manually with the machine's LAN IPv4 address.

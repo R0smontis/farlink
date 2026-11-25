@@ -340,28 +340,32 @@ component VideoSettingRow inherits StreamSettingRow {
     in property <[string]> options;
     in property <int> selected;
     in property <bool> enabled;
+    // Optional per-option availability; an empty list enables every option.
+    in property <[bool]> options-enabled: [];
     callback choose(int);
     HorizontalLayout {
         spacing: 4px;
         for option[index] in root.options: FlatSurface {
+            private property <bool> option-enabled: root.enabled &&
+                (root.options-enabled.length == 0 || (index < root.options-enabled.length && root.options-enabled[index]));
             height: 27px;
-            background: !root.enabled ? ControlStyle.disabled
+            background: !option-enabled ? ControlStyle.disabled
                 : root.selected == index ? (option-touch.pressed ? ButtonStyle.selected-pressed : option-touch.has-hover ? ButtonStyle.selected-hover : ButtonStyle.selected)
                 : option-touch.pressed ? ButtonStyle.pressed
                 : option-touch.has-hover ? ButtonStyle.hover : ButtonStyle.surface;
             border-radius: UiRadius.control;
-            outline-color: !root.enabled ? ButtonStyle.disabled-border
+            outline-color: !option-enabled ? ButtonStyle.disabled-border
                 : root.selected == index ? ButtonStyle.selected-pressed
                 : option-touch.pressed ? ButtonStyle.pressed-border
                 : option-touch.has-hover ? ButtonStyle.hover-border : ButtonStyle.border;
             animate background, outline-color { duration: 120ms; }
-            Text { text: option; color: !root.enabled ? #8b8f95
+            Text { text: option; color: !option-enabled ? #8b8f95
                     : root.selected == index ? white : #30343b;
                 font-weight: root.selected == index ? 600 : 400;
                 font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
             option-touch := TouchArea {
-                mouse-cursor: root.enabled ? pointer : default;
-                clicked => { if root.enabled { root.choose(index); } }
+                mouse-cursor: option-enabled ? pointer : default;
+                clicked => { if option-enabled { root.choose(index); } }
                 scroll-event(event) => { accept }
             }
         }
@@ -430,6 +434,7 @@ export component StreamWindow inherits Window {
     in property <int> remote-cursor-shape: 0;
     in property <bool> audio-enabled: true;
     in property <bool> video-settings-enabled: false;
+    in property <bool> high-fps-supported: false;
     in property <string> video-settings-feedback: "";
     in-out property <int> video-quality-index: 2;
     in-out property <int> frame-rate-index: 1;
@@ -1890,8 +1895,9 @@ export component StreamWindow inherits Window {
                             choose(index) => { root.change-video-settings(index, root.frame-rate-index, root.adaptation-policy-index); }
                         }
                         VideoSettingRow {
-                            label: StreamStrings.frame-rate; options: ["30 fps", "60 fps"];
+                            label: StreamStrings.frame-rate; options: ["30 fps", "60 fps", "90 fps", "120 fps", "144 fps"];
                             selected: root.frame-rate-index; enabled: root.video-settings-enabled;
+                            options-enabled: [true, true, root.high-fps-supported, root.high-fps-supported, root.high-fps-supported];
                             choose(index) => { root.change-video-settings(root.video-quality-index, index, root.adaptation-policy-index); }
                         }
                         VideoSettingRow {

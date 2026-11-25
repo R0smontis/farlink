@@ -221,10 +221,12 @@ int SessionDeviceManager::InitializeScreenCapturer() {
   last_frame_time_ = {};
   next_frame_deadline_ = {};
   ResetCaptureMetrics();
-  // Keep the shared source ready for either live rate. MiniRTC admits 30/60
-  // frames independently per viewer, so switching never restarts native
-  // capture.
-  const int fps = 60;
+  // Capture at the highest supported frame-rate tier so high-rate viewers are
+  // never starved. ScreenCaptureKit only produces frames up to the display's
+  // actual refresh and content changes, and MiniRTC admits frames per viewer
+  // at each negotiated rate, so the elevated cap does not raise the delivered
+  // rate for legacy 30/60 viewers nor restart native capture on switches.
+  const int fps = kMaxVideoFrameRate;
   LOG_INFO("Init screen capturer with {} fps", fps);
   SetDisplayInfoList({});
   registered_display_stream_count_ = 0;

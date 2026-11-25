@@ -11,6 +11,8 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 
+#include "video_frame_rate.h"
+
 namespace crossdesk {
 // Versioned independently from the interactive 30/60 FPS video settings.
 struct PreviewSubscription {
@@ -85,7 +87,7 @@ struct PreviewSubscription {
         return {};
       for (const char *key : {"fps", "quality", "frame_rate", "preference"}) {
         const auto value = json.at(key).get<int64_t>();
-        if (value < 0 || value > 60)
+        if (value < 0 || value > kMaxVideoFrameRate)
           return {};
       }
       PreviewSubscription result{static_cast<uint32_t>(id), json.at("fps"),
@@ -94,7 +96,7 @@ struct PreviewSubscription {
       if ((result.fps != 0 && result.fps != 1 && result.fps != 8 &&
            result.fps != 15 && result.fps != 60) ||
           result.quality < 0 || result.quality > 2 ||
-          (result.frame_rate != 30 && result.frame_rate != 60) ||
+          !IsValidVideoFrameRate(result.frame_rate) ||
           result.preference < 0 || result.preference > 2)
         return {};
       if (json.contains("audio")) {

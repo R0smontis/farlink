@@ -1,4 +1,5 @@
 #include <display_stream_id.h>
+#include <video_frame_rate.h>
 
 #include "rd_log.h"
 #include "runtime/gui_runtime.h"
@@ -53,8 +54,11 @@ void GuiRuntime::InitializeLan() {
     params.video_content_type = MiniRtcVideoContentType::ScreenContent;
     params.video_quality = MiniRtcVideoQuality::MiniRtcVideoQualityHigh;
     params.video_frame_rate = 60;
+    // Same frame-rate-derived degradation decision as the managed bootstrap;
+    // kept in one pure function so renegotiation applies the identical rule.
     params.video_degradation_preference =
-        MiniRtcVideoDegradationPreference::MaintainResolution;
+        static_cast<MiniRtcVideoDegradationPreference>(
+            crossdesk::DegradationPreferenceForFrameRate(params.video_frame_rate));
     params.on_receive_video_frame = PeerEventHandler::OnReceiveVideoBuffer;
     params.on_receive_audio_buffer = PeerEventHandler::OnReceiveAudioBuffer;
     params.on_receive_data_buffer = PeerEventHandler::OnReceiveDataBuffer;

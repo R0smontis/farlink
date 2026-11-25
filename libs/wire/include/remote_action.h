@@ -14,6 +14,7 @@
 
 #include <remote_cursor_shape.h>
 #include <display_resolution.h>
+#include <video_frame_rate.h>
 
 namespace crossdesk {
 
@@ -163,6 +164,9 @@ struct HostInfo {
   bool supports_deskhub_resolution;
   bool supports_deskhub_fps15;
   bool supports_deskhub_bandwidth;
+  // Optional capability; absent or false means the peer only understands the
+  // legacy 30/60 frame rates. High-rate senders must clamp to 60 without it.
+  bool supports_high_fps;
   // Optional; legacy peers keep the original single-file transfer UI.
   bool supports_file_browser;
   bool supports_file_clipboard;
@@ -202,7 +206,7 @@ struct PrivacyStatus {
 
 struct VideoSettings {
   int quality;     // 0: low, 1: medium, 2: high
-  int frame_rate;  // 30 or 60
+  int frame_rate;  // 30/60 legacy; 90/120/144 when the peer supports high fps
   int preference;  // 0: frame rate, 1: quality, 2: balanced
   uint32_t request_id;
   bool accepted;  // Only meaningful in video_settings_status.
@@ -214,7 +218,7 @@ struct VideoCodecStatus {
 
 inline bool ValidVideoSettings(const VideoSettings& settings) {
   return settings.quality >= 0 && settings.quality <= 2 &&
-         (settings.frame_rate == 30 || settings.frame_rate == 60) &&
+         IsValidVideoFrameRate(settings.frame_rate) &&
          settings.preference >= 0 && settings.preference <= 2;
 }
 

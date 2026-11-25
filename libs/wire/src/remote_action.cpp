@@ -100,6 +100,7 @@ void ResetHostInfo(HostInfo& info) {
   info.supports_deskhub_resolution = false;
   info.supports_deskhub_fps15 = false;
   info.supports_deskhub_bandwidth = false;
+  info.supports_high_fps = false;
   info.supports_file_browser = false;
   info.supports_file_clipboard = false;
   info.file_clipboard_version = 0;
@@ -352,6 +353,7 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"supports_deskhub_resolution", action.i.supports_deskhub_resolution},
           {"supports_deskhub_fps15", action.i.supports_deskhub_fps15},
           {"supports_deskhub_bandwidth", action.i.supports_deskhub_bandwidth},
+          {"supports_high_fps", action.i.supports_high_fps},
           {"supports_file_browser", action.i.supports_file_browser},
           {"supports_file_clipboard", action.i.supports_file_clipboard},
           {"file_clipboard_version", action.i.file_clipboard_version},
@@ -506,7 +508,7 @@ bool RemoteAction::FromJson(const std::string& json_string,
         for (const auto* field : {"quality", "frame_rate", "preference"}) {
           if (!settings.at(field).is_number_integer()) return false;
           const auto value = settings.at(field).get<int64_t>();
-          if (value < 0 || value > 60) return false;
+          if (value < 0 || value > kMaxVideoFrameRate) return false;
         }
         output.vs = {settings.at("quality").get<int>(),
                      settings.at("frame_rate").get<int>(),
@@ -618,6 +620,8 @@ bool RemoteAction::FromJson(const std::string& json_string,
             host_info_object.value("supports_deskhub_fps15", false);
         output.i.supports_deskhub_bandwidth =
             host_info_object.value("supports_deskhub_bandwidth", false);
+        output.i.supports_high_fps =
+            host_info_object.value("supports_high_fps", false);
         output.i.supports_file_browser =
             host_info_object.value("supports_file_browser", false);
         output.i.supports_file_clipboard =

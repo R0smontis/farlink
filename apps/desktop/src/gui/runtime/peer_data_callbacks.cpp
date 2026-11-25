@@ -222,12 +222,18 @@ void PeerEventHandler::OnReceiveDataBuffer(
     // their own demand. MiniRTC owns per-peer video/audio pause state.
     if (!previous || subscription->IsNewerThan(*previous)) {
       if (subscription->fps > 0)
+        // Degradation behaviour follows the negotiated frame rate, not the
+        // preference the controller happened to send: above 60 fps this host's
+        // encoder cannot sustain native resolution, so the stream must give up
+        // resolution before frames. Derived through the single pure function so
+        // every renegotiation (60 -> 120 -> 60) re-applies the identical rule.
         accepted = MiniRtcUpdateVideoSettings(
                        bound_peer, wire_id.data(), wire_id.size(),
                        static_cast<MiniRtcVideoQuality>(subscription->quality),
                        subscription->frame_rate,
                        static_cast<MiniRtcVideoDegradationPreference>(
-                           subscription->EncoderPreference())) == 0;
+                           crossdesk::DegradationPreferenceForFrameRate(
+                               subscription->frame_rate))) == 0;
       if (accepted && (!previous || previous->max_bitrate_bps.value_or(0) !=
                                        subscription->max_bitrate_bps.value_or(0)))
         accepted = MiniRtcUpdateVideoBitrateLimit(
@@ -350,11 +356,15 @@ void PeerEventHandler::OnReceiveDataBuffer(
         !runtime->IsAuthorizedController(remote_id))
       return;
     const auto& settings = remote_action.vs;
+    // Same frame-rate-derived degradation decision as the preview path: the
+    // negotiated frame rate, not the controller's free preference, chooses how
+    // the stream degrades. See the deskhub_preview branch above.
     remote_action.vs.accepted =
         MiniRtcUpdateVideoSettings(
             bound_peer, wire_id.data(), wire_id.size(),
             static_cast<MiniRtcVideoQuality>(settings.quality), settings.frame_rate,
-            static_cast<MiniRtcVideoDegradationPreference>(settings.preference)) == 0;
+            static_cast<MiniRtcVideoDegradationPreference>(
+                crossdesk::DegradationPreferenceForFrameRate(settings.frame_rate))) == 0;
     LOG_INFO(
         "Video settings: source={} request={} quality={} fps={} preference={} "
         "accepted={}",
@@ -515,6 +525,7 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->preview_bandwidth_supported_ = remote_action.i.supports_deskhub_bandwidth;
         props->supports_relative_mouse_ =
             remote_action.i.supports_relative_mouse;
+        props->high_fps_supported_ = remote_action.i.supports_high_fps;
         props->video_settings_supported_ =
             remote_action.i.supports_video_settings;
         if (first_advertisement && props->video_settings_supported_) {

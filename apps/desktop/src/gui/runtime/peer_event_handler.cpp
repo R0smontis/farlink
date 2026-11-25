@@ -421,6 +421,14 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         props->preview_resolution_supported_ = false;
         props->preview_fps15_supported_ = false;
         props->preview_bandwidth_supported_ = false;
+        props->high_fps_supported_ = false;
+        // supports_relative_mouse_ is a per-connection capability exactly like
+        // high_fps_supported_ above: it is advertised in BuildHostInformation
+        // and parsed into props on the control stream. It must be cleared here
+        // alongside the other capabilities, otherwise a reconnecting stock peer
+        // (which does not advertise it) would inherit the previous peer's
+        // relative-mouse capability and be offered a mode it cannot serve.
+        props->supports_relative_mouse_ = false;
         props->preview_needs_sync_ = true;
         props->preview_ack_ = 0;
         props->preview_accepted_ = false;
@@ -657,6 +665,7 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   action.i.supports_deskhub_fps15 = true;
   action.i.supports_deskhub_bandwidth = true;
   action.i.supports_relative_mouse = true;
+  action.i.supports_high_fps = true;
   action.i.supports_file_browser = UserSessionFeaturesAvailable();
 #ifndef __OHOS__
   action.i.supports_file_clipboard = UserSessionFeaturesAvailable();
