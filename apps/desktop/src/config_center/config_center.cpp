@@ -134,7 +134,15 @@ int ConfigCenter::Load() {
     ini_->SetBoolValue(section_, "desktop_realtime_rate_control", desktop_realtime_rate_control_.load());
     persist_config_migration = true;
   }
-  const long codec = ini_->GetLongValue(section_, "video_encode_format", 0);
+  // Apple hosts default to hardware HEVC when the user has never chosen a
+  // codec; the SDP negotiation still falls back to H.264 with peers that do
+  // not offer H.265. Any stored value, including an explicit H.264, wins.
+#if defined(__APPLE__)
+  const long default_codec = static_cast<long>(VIDEO_ENCODE_FORMAT::H265);
+#else
+  const long default_codec = static_cast<long>(VIDEO_ENCODE_FORMAT::H264);
+#endif
+  const long codec = ini_->GetLongValue(section_, "video_encode_format", default_codec);
   video_encode_format_ = codec >= 0 && codec <= static_cast<long>(VIDEO_ENCODE_FORMAT::H265)
       ? static_cast<VIDEO_ENCODE_FORMAT>(codec) : VIDEO_ENCODE_FORMAT::H264;
 
