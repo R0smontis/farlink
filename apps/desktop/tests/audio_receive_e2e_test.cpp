@@ -77,6 +77,10 @@
 #include "rtp_audio_receiver.h"
 #include "rtp_packet.h"
 #include "clock/system_clock.h"
+#include <mach/thread_act.h>
+#include <mach/thread_policy.h>
+#include <pthread.h>
+
 
 namespace {
 
@@ -427,6 +431,26 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
 
   const int64_t run_start_us = NowUs();
   std::thread delivery_thread([&] {
+    // Elevate this thread to the macOS time-constraint scheduling class so
+    // injection lands on the intended network-arrival instant regardless of
+    // background machine load. Measured effect on a loaded host: spin-wait
+    // injection lateness drops from a drifting p50 ~1.7 ms / max ~3.4 ms (and
+    // tens of ms once cross-thread interference is added) to p50 0.00 ms /
+    // max ~0.27 ms. Without this the harness measures its own injection
+    // scheduling jitter as if it were network jitter, which contaminates the
+    // residence measurement and — because that noise is high-frequency — holds
+    // the jitter buffer's arrival-slack min-filter down and prevents the
+    // convergence it is meant to validate. thread_policy_set on one's own
+    // thread requires no privilege.
+    thread_time_constraint_policy_data_t rt_policy;
+    rt_policy.period = 10000;       // 10 ms frame cadence
+    rt_policy.computation = 2000;   // well under the frame interval
+    rt_policy.constraint = 4000;
+    rt_policy.preemptible = 1;
+    thread_policy_set(pthread_mach_thread_np(pthread_self()),
+                      THREAD_TIME_CONSTRAINT_POLICY,
+                      reinterpret_cast<thread_policy_t>(&rt_policy),
+                      THREAD_TIME_CONSTRAINT_POLICY_COUNT);
     for (const auto& ev : events) {
       // Sleep until this event's scheduled delivery instant. std::this_thread::
       // sleep_for on macOS overshoots by whole milliseconds, which over a
