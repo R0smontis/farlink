@@ -204,6 +204,11 @@ function setup_targets()
         set_default(false)
         add_files("apps/desktop/tests/video_callback_lifetime_test.cpp")
 
+    target("encode_in_flight_contract_test")
+        set_kind("binary")
+        set_default(false)
+        add_files("apps/desktop/tests/encode_in_flight_contract_test.cpp")
+
     target("frame_rate_harness")
         set_kind("binary")
         set_default(false)
