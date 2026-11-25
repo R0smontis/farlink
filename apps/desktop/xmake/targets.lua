@@ -204,10 +204,43 @@ function setup_targets()
         set_default(false)
         add_files("apps/desktop/tests/video_callback_lifetime_test.cpp")
 
-    target("encode_in_flight_contract_test")
-        set_kind("binary")
-        set_default(false)
-        add_files("apps/desktop/tests/encode_in_flight_contract_test.cpp")
+    if is_plat("macosx") then
+        target("video_toolbox_in_flight_test")
+            set_kind("binary")
+            set_default(false)
+            add_deps("minirtc")
+            add_packages("spdlog")
+            -- The test reaches into the encoder internals rather than the
+            -- public client API, so it needs the object targets' private
+            -- include roots (media/frame/common/log) in addition to the
+            -- VideoToolbox backend directory.
+            add_includedirs("deps/submodules/minirtc/src/api",
+                "deps/submodules/minirtc/src/log",
+                "deps/submodules/minirtc/src/common",
+                "deps/submodules/minirtc/src/frame",
+                "deps/submodules/minirtc/src/media",
+                "deps/submodules/minirtc/src/media/video/encode",
+                "deps/submodules/minirtc/src/media/video/encode/video_toolbox")
+            add_files("apps/desktop/tests/video_toolbox_in_flight_test.cpp")
+            add_frameworks("VideoToolbox", "CoreMedia", "CoreVideo",
+                "IOSurface", "Foundation")
+
+        target("encode_throughput_probe")
+            set_kind("binary")
+            set_default(false)
+            add_deps("minirtc")
+            add_packages("spdlog")
+            add_includedirs("deps/submodules/minirtc/src/api",
+                "deps/submodules/minirtc/src/log",
+                "deps/submodules/minirtc/src/common",
+                "deps/submodules/minirtc/src/frame",
+                "deps/submodules/minirtc/src/media",
+                "deps/submodules/minirtc/src/media/video/encode",
+                "deps/submodules/minirtc/src/media/video/encode/video_toolbox")
+            add_files("apps/desktop/tests/encode_throughput_probe.cpp")
+            add_frameworks("VideoToolbox", "CoreMedia", "CoreVideo",
+                "IOSurface", "Foundation")
+    end
 
     target("frame_rate_harness")
         set_kind("binary")
