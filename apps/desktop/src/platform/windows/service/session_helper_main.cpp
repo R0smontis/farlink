@@ -25,6 +25,7 @@
 #include "interactive_desktop.h"
 #include "named_pipe_deadline.h"
 #include "path_manager.h"
+#include "platform/machine_identity.h"
 #include "platform/path_backend.h"
 #include "rd_log.h"
 #include "session_helper_shared.h"
@@ -142,7 +143,7 @@ struct IpcSecurityAttributes {
 void InitializeHelperLogger() {
   static std::once_flag once_flag;
   std::call_once(once_flag, []() {
-    crossdesk::PathManager path_manager("CrossDesk");
+    crossdesk::PathManager path_manager(crossdesk::platform::kMachineAppName);
     const auto initialize = [&](const std::filesystem::path& log_path) {
       if (log_path.empty() || !path_manager.CreateDirectories(log_path)) return false;
       try {
@@ -158,7 +159,7 @@ void InitializeHelperLogger() {
     if (initialize(path_manager.GetLogPath() / "session_helper")) return;
     // The ordinary session helper uses the user's token. A portable helper
     // installed in Program Files cannot append to a SYSTEM-owned capture log.
-    if (initialize(crossdesk::platform::GetLogPath("CrossDesk") /
+    if (initialize(crossdesk::platform::GetLogPath(crossdesk::platform::kMachineAppName) /
                    "session_helper")) return;
     InitLogger("logs/session_helper");
   });

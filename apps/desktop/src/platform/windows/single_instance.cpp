@@ -43,9 +43,14 @@ InstanceResult SingleInstanceGuard::TryAcquire(InstanceRole role,
     return InstanceResult::kError;
   }
   const std::string role_name = InstanceRoleName(role);
+  // Same scope rule as posix: the configuration root hash joins the mutex
+  // name so separate portable copies (distinct data roots) may run together
+  // while same-root launches collapse onto one instance.
+  const std::string scope = InstanceScopeHash();
   const std::wstring name = L"Global\\" +
       std::wstring(application_.begin(), application_.end()) + L"." + sid + L"." +
-      std::wstring(role_name.begin(), role_name.end());
+      std::wstring(role_name.begin(), role_name.end()) +
+      (scope.empty() ? L"" : L"." + std::wstring(scope.begin(), scope.end()));
   LocalFree(sid);
   // Object lifetime is the lease. No thread-owned mutex to transfer to a daemon.
   // CreateMutexW requests full access to an existing mutex, which can prevent

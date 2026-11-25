@@ -13,6 +13,7 @@
 #include "SimpleIni.h"
 #include "autostart.h"
 #include "platform/autostart_backend.h"
+#include "platform/machine_identity.h"
 #include "rd_log.h"
 #include <minirtc.h>
 
@@ -556,8 +557,9 @@ bool LegacyAutostartEnabled(const CSimpleIniA& ini) {
 }
 
 bool MigrateLoginEntry(bool restore_missing) {
-  return platform::MigrateLegacyAutostart("CrossDesk") &&
-         (!restore_missing || IsAutostartEnabled("CrossDesk") || EnableAutostart("CrossDesk"));
+  return platform::MigrateLegacyAutostart(platform::kMachineAppName) &&
+         (!restore_missing || IsAutostartEnabled(platform::kMachineAppName) ||
+          EnableAutostart(platform::kMachineAppName));
 }
 }  // namespace
 
@@ -597,12 +599,14 @@ int ConfigCenter::SetAutostart(bool enabled) {
   CommitIni(true);
   return 0;
 #else
-  const bool previous = IsAutostartEnabled("CrossDesk");
+  const bool previous = IsAutostartEnabled(platform::kMachineAppName);
   const auto configure = [](bool value) {
-    return value ? EnableAutostart("CrossDesk") : DisableAutostart("CrossDesk");
+    return value ? EnableAutostart(platform::kMachineAppName)
+                 : DisableAutostart(platform::kMachineAppName);
   };
 #if defined(__APPLE__) || (defined(__linux__) && !defined(__OHOS__))
-  if (enabled && previous && !platform::MigrateLegacyAutostart("CrossDesk")) {
+  if (enabled && previous &&
+      !platform::MigrateLegacyAutostart(platform::kMachineAppName)) {
     LOG_ERROR("Failed to migrate the existing autostart entry");
     return -1;
   }
@@ -853,7 +857,7 @@ bool ConfigCenter::IsEnableAutostart() const {
 #elif defined(__linux__) && !defined(__OHOS__)
   // Uninstalling or desktop startup settings can remove the registration while
   // leaving config.ini intact. Report the actual entry, not the saved intent.
-  return IsAutostartEnabled("CrossDesk");
+  return IsAutostartEnabled(platform::kMachineAppName);
 #else
   return enable_autostart_;
 #endif

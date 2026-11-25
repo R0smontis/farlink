@@ -1,4 +1,5 @@
 #include "platform/instance_activation.h"
+#include "platform/machine_identity.h"
 #include "platform/single_instance.h"
 
 #include <fcntl.h>
@@ -19,7 +20,7 @@
 namespace crossdesk::platform {
 namespace {
 
-constexpr std::string_view kRequest = "CrossDesk.Activate.v1";
+constexpr std::string_view kRequest = "Farlink.Activate.v1";
 constexpr std::size_t kMaxActivationToken = 4096;
 
 #if defined(__linux__)
@@ -30,8 +31,10 @@ std::string Environment(const char* name) {
 #endif
 
 std::string ActivationDirectory() {
-  // Match the single-instance guard's user scope, independent of TMPDIR/HOME.
-  return "/tmp/crossdesk-activation-" + std::to_string(geteuid());
+  // Per-user, independent of TMPDIR/HOME. Instances with different
+  // configuration roots coexist inside it: socket file names carry the scope
+  // hash, and removal only ever targets the owner's exact path.
+  return "/tmp/farlink-activation-" + std::to_string(geteuid());
 }
 
 bool PrivateDirectory(bool create, std::string& error) {
@@ -81,9 +84,13 @@ std::string ActivationPath(const std::string& application, std::string& error) {
     return {};
   }
 #endif
-  // A stable bounded name fits both Darwin and Linux sockaddr_un limits.
+  // A stable bounded name fits both Darwin and Linux sockaddr_un limits. The
+  // configuration root joins the hash input, so two instances with different
+  // data roots have distinct endpoints while same-root launches share one —
+  // matching the single-instance lease scope exactly.
   std::uint64_t hash = 14695981039346656037ull;
-  for (unsigned char byte : application + '\0' + session) {
+  for (unsigned char byte :
+       application + '\0' + session + '\0' + InstanceScopeRoot()) {
     hash ^= byte;
     hash *= 1099511628211ull;
   }

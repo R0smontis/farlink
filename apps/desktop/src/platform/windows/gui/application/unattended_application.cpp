@@ -7,6 +7,7 @@
 #include "unattended_config.h"
 #include "shared_identity.h"
 #include "platform/windows/winrt_apartment.h"
+#include "platform/machine_identity.h"
 
 namespace crossdesk {
 
@@ -20,7 +21,7 @@ int GuiApplication::RunUnattended(void* stop_event) {
   if (!ProcessIdToSessionId(GetCurrentProcessId(), &session) || session == 0)
     return 1;
 
-  path_manager_ = std::make_unique<PathManager>("CrossDesk");
+  path_manager_ = std::make_unique<PathManager>(platform::kMachineAppName);
   const auto root = UnattendedDataPath();
   std::string identity_error;
   shared_identity_ = SharedHostIdentity::AcquireHost(identity_error);

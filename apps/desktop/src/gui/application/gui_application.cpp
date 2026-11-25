@@ -52,8 +52,10 @@
 #include "features/input/pointer_motion.h"
 #include "features/input/stream_keyboard_focus.h"
 #include "filesystem_utf8.h"
+#include "app/launch_options.h"
 #include "localization.h"
 #include "platform.h"
+#include "platform/machine_identity.h"
 #ifndef __OHOS__
 #include "platform/instance_activation.h"
 #endif
@@ -1241,7 +1243,7 @@ int GuiApplication::Run(bool login_launch) {
   std::string activation_error;
   activation_receiver->Start(activation_error);
 #endif
-  path_manager_ = std::make_unique<PathManager>("CrossDesk");
+  path_manager_ = std::make_unique<PathManager>(platform::kMachineAppName);
   if (!path_manager_) {
     return -1;
   }
@@ -1359,6 +1361,7 @@ int GuiApplication::Run(bool login_launch) {
     PrepareNativeFileDialog();
 #endif
   }
+  ProcessLanConnectLaunchOption();
   slint::run_event_loop(slint::EventLoopMode::RunUntilQuit);
   Cleanup();
   return 0;
@@ -2954,6 +2957,9 @@ void GuiApplication::PollUpdateCheck() {
 #endif
   // The first tick runs after show()/event-loop startup. Poll never waits for
   // networking and all application/model changes remain on this UI thread.
+  // Self-hosted deployments point at their own signalling infrastructure and
+  // manage updates themselves; the public version service is never contacted.
+  if (config_center_->IsSelfHosted()) return;
   if (!update_checker_->Poll() ||
       update_checker_->status() == UpdateChecker::Status::Failed) {
     return;
@@ -5296,6 +5302,7 @@ void GuiApplication::ConnectFromUi(const std::string& input) {
       }
     return;
   }
+
   const std::string remote_id = CompactPeerId(input);
   if (!gallery::Workspace::ValidId(remote_id)) {
     ui_->main->set_connection_input_error(
@@ -5317,6 +5324,48 @@ void GuiApplication::ConnectFromUi(const std::string& input) {
     }
   }
   ConnectTo(remote_id, "", false);
+}
+
+void GuiApplication::ProcessLanConnectLaunchOption() {
+  const auto& options = GetLaunchOptions();
+  if (!options.lan_connect) return;
+  if (options.view_only) lan_view_only_pending_ = true;
+  const std::string endpoint = Trim(options.lan_endpoint);
+  // Validate with the same parser the UI dialog uses. Malformed input lands
+  // in the same error surface instead of reaching the transport.
+  std::string address;
+  unsigned port = 0;
+  try {
+    const auto parsed = lan::ParseEndpoint(endpoint, 52888);
+    address = parsed.first;
+    port = parsed.second;
+  } catch (const std::exception& error) {
+    LOG_WARN("--lan-connect rejected: {}", error.what());
+    ui_->main->set_connection_input_error(UiText(error.what()));
+    return;
+  }
+  if (!LanAvailable()) {
+    LOG_WARN("--lan-connect for {} dropped: LAN transport unavailable", endpoint);
+    ui_->main->set_connection_input_error(
+        UiText(lan_error_.empty() ? "Busy" : lan_error_));
+    return;
+  }
+  // The password never travels through argv. With FARLINK_LAN_PASSWORD set,
+  // connect through the exact runtime entry the UI password dialog uses.
+  const char* password = std::getenv("FARLINK_LAN_PASSWORD");
+  if (password && password[0] != '\0') {
+    LOG_INFO("--lan-connect {} (view-only={})", endpoint, options.view_only);
+    ConnectLan(address, port, std::string(password), false);
+    ui_->main->set_lan_connecting(lan_connecting_ != nullptr);
+    ui_->main->set_lan_message(UiText(lan_error_));
+    return;
+  }
+  // Without a password, open the ordinary dialog with the endpoint filled
+  // in. This is the identical code path a user triggers by typing the
+  // address into the main window: validation, remembered-password prefill
+  // and retry-after display all come from the same callback.
+  LOG_INFO("--lan-connect {}: no password in FARLINK_LAN_PASSWORD, opening the UI dialog", endpoint);
+  ui_->main->invoke_request_lan_connection(UiText(endpoint));
 }
 
 void GuiApplication::ShowStreamWindow(const std::shared_ptr<RemoteSession>& session) {

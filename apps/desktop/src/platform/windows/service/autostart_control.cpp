@@ -55,7 +55,7 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
     // Disarm the host without stopping the lock-screen service used by GUI
     // sessions. A missing service/binary must not prevent disabling startup.
     if (SetUnattendedEnabled(false) && SetCrossDeskServiceAutoStart(false) &&
-        platform::RemoveInstalledAutostart("CrossDesk")) return true;
+        platform::RemoveInstalledAutostart(platform::kMachineAppName)) return true;
     error = "Could not disable unattended startup";
     return false;
   }
@@ -65,18 +65,18 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
     error = "Could not read the unattended startup preference";
     return false;
   }
-  PathManager paths("CrossDesk");
+  PathManager paths(platform::kMachineAppName);
   const auto config = paths.GetCachePath() / "config.ini";
   if (migrate) {
     // A machine-level decision (including a later CLI disable) supersedes the
     // older per-user switch. Only an explicit legacy opt-in promotes a host.
     if (previous == false) {
-      if (platform::RemoveInstalledAutostart("CrossDesk")) return true;
+      if (platform::RemoveInstalledAutostart(platform::kMachineAppName)) return true;
       error = "Could not clean up disabled login startup";
       return false;
     }
     if (previous == true) {
-      if (!platform::MigrateLegacyAutostart("CrossDesk")) {
+      if (!platform::MigrateLegacyAutostart(platform::kMachineAppName)) {
         error = "Could not update the existing login entry";
         return false;
       }
@@ -110,7 +110,7 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
   }
   // An old credential cache may need conversion by the GUI. Preserve the
   // user's login opt-in so that login itself can finish the unattended setup.
-  if (migrate && !platform::EnableAutostart("CrossDesk", executable)) {
+  if (migrate && !platform::EnableAutostart(platform::kMachineAppName, executable)) {
     error = "Could not configure the user-session login task";
     return false;
   }
@@ -142,7 +142,7 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
   if (SetUnattendedEnabled(true) &&
       ((current && start_type == SERVICE_AUTO_START) || InstallCrossDeskService(service.wstring())) &&
       StartCrossDeskService() &&
-      (migrate || platform::EnableAutostart("CrossDesk", executable))) return true;
+      (migrate || platform::EnableAutostart(platform::kMachineAppName, executable))) return true;
 
   const bool restored_flag = SetUnattendedEnabled(previous);
   const bool restored_start = SetCrossDeskServiceAutoStart(start_type == SERVICE_AUTO_START);
