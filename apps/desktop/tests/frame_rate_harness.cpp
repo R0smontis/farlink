@@ -46,6 +46,9 @@ struct Config {
   // Feed frames as zero-copy IOSurface-backed CVPixelBuffers (the production
   // macOS capture path) instead of CPU NV12. macOS-only; ignored elsewhere.
   bool native_source = false;
+  // When > 0, raise the video bitrate ceiling so congestion control can ramp
+  // toward the LAN's real capacity instead of the default budget.
+  int max_bitrate_bps = 0;
 };
 
 struct Endpoint {
@@ -73,11 +76,23 @@ struct SharedState {
   double rtt_ms = -1;
   char video_encoder[128] = {};
   char video_decoder[128] = {};
+  // Most recently reported per-second video bitrate (max of in/outbound).
+  std::atomic<int64_t> last_video_bitrate{0};
   // Resolution of the most recent decoded frame. Because the harness reads the
   // decoded pixels, this is the resolution the encoder actually produced after
   // any adaptation downscale — not the capture resolution requested.
   std::atomic<int> decoded_width{0};
   std::atomic<int> decoded_height{0};
+  // Per-cause video admission drop counters from the sender peer's network
+  // stats reports. Reports arrive from both endpoints; the receiver's are
+  // zero, so the maximum across reports tracks the sender.
+  std::atomic<uint64_t> capture_input_frames{0};
+  std::atomic<uint64_t> rate_dropped_frames{0};
+  std::atomic<uint64_t> cwnd_dropped_frames{0};
+  std::atomic<uint64_t> pacer_rejected_frames{0};
+  std::atomic<uint64_t> encode_queue_dropped_frames{0};
+  std::atomic<uint64_t> encode_queue_dropped_pending_tasks{0};
+  std::atomic<uint64_t> encode_queue_dropped_in_flight{0};
 };
 
 SharedState g_state;
@@ -191,6 +206,7 @@ void OnNetStatus(const char*, size_t, MiniRtcTraversalMode,
   const int64_t video = std::max<int64_t>(
       static_cast<int64_t>(stats->video_outbound_stats.bitrate),
       static_cast<int64_t>(stats->video_inbound_stats.bitrate));
+  g_state.last_video_bitrate = video;
   int64_t peak = g_state.peak_video_bitrate.load();
   while (video > peak &&
          !g_state.peak_video_bitrate.compare_exchange_weak(peak, video)) {
@@ -205,6 +221,25 @@ void OnNetStatus(const char*, size_t, MiniRtcTraversalMode,
                  sizeof(g_state.video_decoder) - 1);
   }
   if (stats->rtt_ms >= 0) g_state.rtt_ms = stats->rtt_ms;
+  // Per-cause admission counters are cumulative on the sender and zero on the
+  // receiver; keep the maximum seen so the final report reflects the sender's
+  // last report even if a receiver report arrives afterwards.
+  auto track_max = [](std::atomic<uint64_t>& slot, uint64_t value) {
+    uint64_t current = slot.load();
+    while (value > current &&
+           !slot.compare_exchange_weak(current, value)) {
+    }
+  };
+  track_max(g_state.capture_input_frames, stats->video_capture_input_frames);
+  track_max(g_state.rate_dropped_frames, stats->video_rate_dropped_frames);
+  track_max(g_state.cwnd_dropped_frames, stats->video_cwnd_dropped_frames);
+  track_max(g_state.pacer_rejected_frames, stats->video_pacer_rejected_frames);
+  track_max(g_state.encode_queue_dropped_frames,
+            stats->video_encode_queue_dropped_frames);
+  track_max(g_state.encode_queue_dropped_pending_tasks,
+            stats->video_encode_queue_dropped_pending_tasks);
+  track_max(g_state.encode_queue_dropped_in_flight,
+            stats->video_encode_queue_dropped_in_flight);
 }
 
 
@@ -434,6 +469,16 @@ int RunHarness(const Config& config) {
     return 2;
   }
 
+  if (config.max_bitrate_bps > 0) {
+    // Raise the video budget ceiling so GCC can ramp toward the real path
+    // capacity (up to 100 Mbps) instead of sitting at the default start.
+    if (MiniRtcUpdateVideoBitrateLimit(sender, receiver_local.c_str(),
+                                       receiver_local.size(),
+                                       config.max_bitrate_bps) != 0) {
+      std::fprintf(stderr, "warning: bitrate limit update rejected\n");
+    }
+  }
+
   // Pre-render the cycling frame set, then warm up briefly so DTLS/SRTP/codec
   // spin-up and initial keyframe exchange settle before measurement.
   auto frameset = BuildFrameSet(config.width, config.height);
@@ -509,15 +554,42 @@ int RunHarness(const Config& config) {
   const int64_t measure_start = NowUs();
   const int64_t measure_end = measure_start + config.seconds * 1000000LL;
   const uint32_t first_sequence = sequence;
+  // Snapshot the admission counters as of the latest stats report so the
+  // final JSON can attribute drops to the measured window approximately.
+  const uint64_t counters_before[7] = {
+      g_state.capture_input_frames.load(), g_state.rate_dropped_frames.load(),
+      g_state.cwnd_dropped_frames.load(), g_state.pacer_rejected_frames.load(),
+      g_state.encode_queue_dropped_frames.load(),
+      g_state.encode_queue_dropped_pending_tasks.load(),
+      g_state.encode_queue_dropped_in_flight.load()};
   // Pace on a steadily advancing local-clock slot so per-frame work does not
   // accumulate cadence drift; the capture timestamp itself is stamped in the
   // library clock domain used only for end-to-end latency.
   const int64_t interval_us = 1000000 / config.fps;
   int64_t next_slot = NowUs();
+  // Per-second trajectory sampling: emitted on stderr with a distinct prefix
+  // so the final JSON line on stdout stays machine-consumable.
+  uint64_t last_sample_decoded = decoded_before;
+  int64_t next_sample_us = measure_start + 1000000LL;
+  int sample_index = 0;
   while (NowUs() < measure_end) {
     submit(sequence);
     ++sequence;
     next_slot += interval_us;
+    const int64_t now = NowUs();
+    if (now >= next_sample_us) {
+      const uint64_t decoded_now = g_state.decoded_frames.load();
+      const int64_t video_bitrate = g_state.last_video_bitrate.load();
+      std::fprintf(stderr,
+                   "traj t=%ds enc=%dx%d fps=%llu video_bitrate=%lld\n",
+                   ++sample_index, g_state.decoded_width.load(),
+                   g_state.decoded_height.load(),
+                   static_cast<unsigned long long>(decoded_now -
+                                                   last_sample_decoded),
+                   static_cast<long long>(video_bitrate));
+      last_sample_decoded = decoded_now;
+      next_sample_us += 1000000LL;
+    }
     const int64_t remaining = next_slot - NowUs();
     if (remaining > 0) std::this_thread::sleep_for(std::chrono::microseconds(remaining));
   }
@@ -541,12 +613,26 @@ int RunHarness(const Config& config) {
   const double delivered_fps = seconds > 0 ? delivered / seconds : 0;
 
   const char* codec_name = config.codec == MiniRtcVideoCodec::H265 ? "h265" : "h264";
+  const uint64_t counters_after[7] = {
+      g_state.capture_input_frames.load(), g_state.rate_dropped_frames.load(),
+      g_state.cwnd_dropped_frames.load(), g_state.pacer_rejected_frames.load(),
+      g_state.encode_queue_dropped_frames.load(),
+      g_state.encode_queue_dropped_pending_tasks.load(),
+      g_state.encode_queue_dropped_in_flight.load()};
   std::printf(
       "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
       "\"delivered_fps\":%.2f,\"lat_p50_ms\":%d,\"lat_p95_ms\":%d,"
       "\"lat_p99_ms\":%d,\"peak_video_bitrate\":%lld,\"rtt_ms\":%.2f,"
       "\"encode_width\":%d,\"encode_height\":%d,"
+      "\"capture_input_frames\":%llu,\"rate_dropped_frames\":%llu,"
+      "\"cwnd_dropped_frames\":%llu,\"pacer_rejected_frames\":%llu,"
+      "\"encode_queue_dropped_frames\":%llu,"
+      "\"win_capture_input\":%llu,\"win_rate_dropped\":%llu,"
+      "\"win_cwnd_dropped\":%llu,\"win_pacer_rejected\":%llu,"
+      "\"win_encode_queue_dropped\":%llu,"
+      "\"win_encode_queue_dropped_pending\":%llu,"
+      "\"win_encode_queue_dropped_in_flight\":%llu,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
@@ -555,6 +641,18 @@ int RunHarness(const Config& config) {
       static_cast<long long>(g_state.peak_video_bitrate.load()),
       g_state.rtt_ms,
       g_state.decoded_width.load(), g_state.decoded_height.load(),
+      static_cast<unsigned long long>(counters_after[0]),
+      static_cast<unsigned long long>(counters_after[1]),
+      static_cast<unsigned long long>(counters_after[2]),
+      static_cast<unsigned long long>(counters_after[3]),
+      static_cast<unsigned long long>(counters_after[4]),
+      static_cast<unsigned long long>(counters_after[0] - counters_before[0]),
+      static_cast<unsigned long long>(counters_after[1] - counters_before[1]),
+      static_cast<unsigned long long>(counters_after[2] - counters_before[2]),
+      static_cast<unsigned long long>(counters_after[3] - counters_before[3]),
+      static_cast<unsigned long long>(counters_after[4] - counters_before[4]),
+      static_cast<unsigned long long>(counters_after[5] - counters_before[5]),
+      static_cast<unsigned long long>(counters_after[6] - counters_before[6]),
       g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
 
@@ -601,6 +699,7 @@ int main(int argc, char** argv) {
         config.preference = MiniRtcVideoDegradationPreference::MaintainResolution;
     }
     else if (arg == "--native") config.native_source = true;
+    else if (arg == "--max-bitrate") config.max_bitrate_bps = std::atoi(next("--max-bitrate"));
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");
