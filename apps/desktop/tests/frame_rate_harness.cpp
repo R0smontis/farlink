@@ -572,6 +572,11 @@ int RunHarness(const Config& config) {
   uint64_t last_sample_decoded = decoded_before;
   int64_t next_sample_us = measure_start + 1000000LL;
   int sample_index = 0;
+  // Per-second delivered-fps samples feed both the stderr trajectory and the
+  // steady-state distribution metrics (p5/worst) in the final JSON: a stream
+  // that averages 108 fps but dips to 44 periodically is a different product
+  // than one holding 108 every second, and the mean alone cannot see it.
+  std::vector<uint64_t> per_second_fps;
   while (NowUs() < measure_end) {
     submit(sequence);
     ++sequence;
@@ -580,12 +585,13 @@ int RunHarness(const Config& config) {
     if (now >= next_sample_us) {
       const uint64_t decoded_now = g_state.decoded_frames.load();
       const int64_t video_bitrate = g_state.last_video_bitrate.load();
+      const uint64_t second_fps = decoded_now - last_sample_decoded;
+      per_second_fps.push_back(second_fps);
       std::fprintf(stderr,
                    "traj t=%ds enc=%dx%d fps=%llu video_bitrate=%lld\n",
                    ++sample_index, g_state.decoded_width.load(),
                    g_state.decoded_height.load(),
-                   static_cast<unsigned long long>(decoded_now -
-                                                   last_sample_decoded),
+                   static_cast<unsigned long long>(second_fps),
                    static_cast<long long>(video_bitrate));
       last_sample_decoded = decoded_now;
       next_sample_us += 1000000LL;
@@ -612,6 +618,20 @@ int RunHarness(const Config& config) {
   const double seconds = measure_duration / 1000000.0;
   const double delivered_fps = seconds > 0 ? delivered / seconds : 0;
 
+  // Distribution of the per-second delivered fps: p5 captures periodic dips
+  // that the mean hides, worst_second captures the deepest single second.
+  double fps_p5 = 0;
+  double fps_worst_second = 0;
+  if (!per_second_fps.empty()) {
+    std::vector<uint64_t> sorted_fps = per_second_fps;
+    std::sort(sorted_fps.begin(), sorted_fps.end());
+    const double rank = 0.05 * (sorted_fps.size() - 1);
+    const size_t index = static_cast<size_t>(rank + 0.5);
+    fps_p5 = static_cast<double>(
+        sorted_fps[std::min(index, sorted_fps.size() - 1)]);
+    fps_worst_second = static_cast<double>(sorted_fps.front());
+  }
+
   const char* codec_name = config.codec == MiniRtcVideoCodec::H265 ? "h265" : "h264";
   const uint64_t counters_after[7] = {
       g_state.capture_input_frames.load(), g_state.rate_dropped_frames.load(),
@@ -622,7 +642,7 @@ int RunHarness(const Config& config) {
   std::printf(
       "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
-      "\"delivered_fps\":%.2f,\"lat_p50_ms\":%d,\"lat_p95_ms\":%d,"
+      "\"delivered_fps\":%.2f,\"fps_p5\":%.1f,\"fps_worst_second\":%.1f,\"lat_p50_ms\":%d,\"lat_p95_ms\":%d,"
       "\"lat_p99_ms\":%d,\"peak_video_bitrate\":%lld,\"rtt_ms\":%.2f,"
       "\"encode_width\":%d,\"encode_height\":%d,"
       "\"capture_input_frames\":%llu,\"rate_dropped_frames\":%llu,"
@@ -636,7 +656,7 @@ int RunHarness(const Config& config) {
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
-      delivered_fps, Percentile(latencies, 50), Percentile(latencies, 95),
+      delivered_fps, fps_p5, fps_worst_second, Percentile(latencies, 50), Percentile(latencies, 95),
       Percentile(latencies, 99),
       static_cast<long long>(g_state.peak_video_bitrate.load()),
       g_state.rtt_ms,

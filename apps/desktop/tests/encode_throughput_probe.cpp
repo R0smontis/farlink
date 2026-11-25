@@ -40,6 +40,9 @@ struct Result {
   std::atomic<int> completed{0};
   std::atomic<int> max_in_flight{0};
   std::mutex mutex;
+  // Session-configuration readback captured before teardown; empty when the
+  // encoder exposes no live session.
+  std::string vt_config;
 };
 
 // Encode `frames` NV12 frames of width x height at roughly `fps`, measuring the
@@ -87,13 +90,29 @@ bool ProbeResolution(int width, int height, int fps, int frames, bool hevc,
   const int64_t interval_us = 1000000 / fps;
   int64_t next_slot = steady();
   for (int seq = 0; seq < frames; ++seq) {
-    // Scroll the luma pattern by the sequence number so consecutive frames
-    // differ; static input would let the encoder short-circuit motion
-    // estimation and overstate throughput.
-    for (int row = 0; row < height; row += 4) {
+    // The input must stress the encoder honestly: a coarse scrolling block
+    // pattern moves as one rigid translation, which the hardware motion
+    // estimator collapses into near-zero residual work, overstating
+    // throughput. Production desktop content is mixed — static regions, local
+    // text-like detail, fine high-frequency structure — so reproduce that with
+    // a gradient base, a moving sharp-edged block grid, and a per-pixel
+    // pseudo-random high-frequency component that re-randomizes every frame.
+    // Deterministic per (row, col, seq) hashing keeps generation cheap while
+    // forcing real motion-compensated residual coding on every macroblock.
+    for (int row = 0; row < height; row += 2) {
       uint8_t* yline = nv12.data() + static_cast<size_t>(row) * width;
       for (int col = 0; col < width; ++col) {
-        yline[col] = static_cast<uint8_t>(64 + (((col + row + seq * 7) >> 5) & 0x3f));
+        const int base = 64 + (((col + row) >> 5) & 0x3f);
+        const uint32_t hash = static_cast<uint32_t>(
+            (col * 2654435761u) ^ (row * 40503u) ^ (seq * 6291469u));
+        const int detail = static_cast<int>((hash >> 8) & 0x1f) - 16;
+        int value = base + detail;
+        const int bx = (col + seq * 5) >> 6;
+        const int by = (row + seq * 3) >> 6;
+        if ((((bx * 31 + by * 17) >> 2) & 7) == 0 &&
+            ((col + seq * 5) & 63) < 40 && ((row + seq * 3) & 63) < 22)
+          value = ((bx + by) & 1 ? 200 : 30) + detail;
+        yline[col] = static_cast<uint8_t>(value < 16 ? 16 : value > 235 ? 235 : value);
       }
     }
     minirtc::RawFrame frame(nv12.data(), frame_size, width, height);
@@ -126,6 +145,9 @@ bool ProbeResolution(int width, int height, int fps, int frames, bool hevc,
   while (result->completed.load() < frames && steady() < drain_deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
+  // Capture the live session configuration while the session still exists;
+  // the encoder teardown below would invalidate it.
+  result->vt_config = encoder.DumpSessionConfiguration();
   return true;
 }
 
@@ -134,6 +156,16 @@ int Percentile(std::vector<int64_t> values, int pct) {
   std::sort(values.begin(), values.end());
   size_t idx = static_cast<size_t>((pct / 100.0) * (values.size() - 1));
   return static_cast<int>(values[idx] / 1000);
+}
+
+// Percentile keeping sub-millisecond precision: returns microseconds. The
+// whole investigation lives in the 4-12ms spacing range, so integer-ms
+// rounding would hide exactly the fast/slow split being measured.
+int PercentileUs(std::vector<int64_t> values, int pct) {
+  if (values.empty()) return 0;
+  std::sort(values.begin(), values.end());
+  size_t idx = static_cast<size_t>((pct / 100.0) * (values.size() - 1));
+  return static_cast<int>(values[idx]);
 }
 
 }  // namespace
@@ -165,25 +197,68 @@ int main(int argc, char** argv) {
       lat = result.latencies_us;
       comp = result.completion_us;
     }
-    // Steady-state encoder throughput: median spacing between consecutive output
-    // completions in the middle half of the run, where the pipeline is full and
-    // spacing reflects pure encoder throughput rather than submit cadence.
-    int steady_ms = 0;
+    // True encoder throughput, isolated from submit cadence. When the encoder
+    // is the bottleneck, frames queue inside VideoToolbox and output
+    // completions reflect back-to-back hardware encode time. When the encoder
+    // is faster than the feed, completions track the (equal) submit cadence
+    // and throughput can only be reported as a lower bound. The discriminator
+    // is queueing: the submit-to-output latency of a saturated pipeline grows
+    // with pipeline depth, so encode-service-time ≈ inter-completion gap of
+    // frames whose latency exceeds one frame interval. Empirically the two
+    // regimes separate cleanly on this machine: saturated frames cluster at
+    // 35-95ms latency, cadence-fed frames at 7-15ms.
+    int steady_gap_us = 0;
+    int saturated_gap_us = 0;
+    int64_t queued_frames = 0;
     if (comp.size() > 8) {
-      std::sort(comp.begin(), comp.end());
+      // Pair completions with their latencies by index: both vectors are
+      // appended under the same mutex in each output callback, so they stay
+      // aligned frame-for-frame in callback order.
+      std::vector<std::pair<int64_t, int64_t>> pairs;
+      const size_t n = std::min(comp.size(), lat.size());
+      pairs.reserve(n);
+      for (size_t i = 0; i < n; ++i) pairs.emplace_back(comp[i], lat[i]);
+      std::sort(pairs.begin(), pairs.end(),
+                [](const auto& a, const auto& b) { return a.first < b.first; });
       std::vector<int64_t> gaps;
-      const size_t lo = comp.size() / 4, hi = comp.size() * 3 / 4;
-      for (size_t i = lo + 1; i < hi; ++i) gaps.push_back(comp[i] - comp[i - 1]);
-      steady_ms = Percentile(gaps, 50);
+      std::vector<int64_t> saturated;
+      const int64_t frame_interval_us = 1000000 / fps;
+      const size_t lo = pairs.size() / 4, hi = pairs.size() * 3 / 4;
+      for (size_t i = lo + 1; i < hi; ++i) {
+        const int64_t gap = pairs[i].first - pairs[i - 1].first;
+        gaps.push_back(gap);
+        // A frame whose latency exceeds 1.5 frame intervals was waiting in
+        // the encoder queue, so its completion spacing measures pure encode
+        // service time rather than submit cadence.
+        if (pairs[i].second > frame_interval_us * 3 / 2 &&
+            pairs[i - 1].second > frame_interval_us * 3 / 2) {
+          saturated.push_back(gap);
+          ++queued_frames;
+        }
+      }
+      steady_gap_us = PercentileUs(gaps, 50);
+      if (!saturated.empty()) saturated_gap_us = PercentileUs(saturated, 50);
     }
     std::printf(
         "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
         "\"completed\":%d,\"enc_p50_ms\":%d,\"enc_p95_ms\":%d,\"enc_p99_ms\":%d,"
-        "\"max_in_flight\":%d,\"steady_gap_ms\":%d}\n",
+        "\"max_in_flight\":%d,\"steady_gap_us\":%d,"
+        "\"saturated_gap_us\":%d,\"saturated_samples\":%lld}\n",
         w, h, fps, hevc ? "h265" : "h264", result.completed.load(),
         Percentile(lat, 50), Percentile(lat, 95), Percentile(lat, 99),
-        result.max_in_flight.load(), steady_ms);
+        result.max_in_flight.load(), steady_gap_us,
+        saturated_gap_us, static_cast<long long>(queued_frames));
     std::fflush(stdout);
+    // Session-configuration readback for the throughput-anomaly comparison:
+    // identical fields across resolutions prove VideoToolbox applies the same
+    // session config everywhere and throughput differences come from the size
+    // itself, not divergent driver-side configuration.
+    const std::string dump = result.vt_config;
+    if (!dump.empty()) {
+      std::printf("{\"width\":%d,\"height\":%d,\"vt_config\":\"%s\"}\n", w, h,
+                  dump.c_str());
+      std::fflush(stdout);
+    }
   }
   return 0;
 }
