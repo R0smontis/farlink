@@ -29,9 +29,11 @@
 #endif
 
 #include "config_center.h"
+#include "launch_options.h"
 #include "path_manager.h"
 #include "platform/autostart_backend.h"
 #include "platform/instance_activation.h"
+#include "platform/machine_identity.h"
 #include "platform/single_instance.h"
 #include "rd_log.h"
 #include "render.h"
@@ -249,6 +251,15 @@ static int ExitForExistingInstance(
     crossdesk::platform::InstanceResult result, bool interactive_launch) {
   if (interactive_launch &&
       result == crossdesk::platform::InstanceResult::kAlreadyRunning) {
+    if (crossdesk::GetLaunchOptions().lan_connect) {
+      // The running instance owns the UI. Forwarding a connect request across
+      // the activation endpoint would hide who initiated the session, so the
+      // option is dropped instead — but never silently.
+      std::cerr << "Farlink is already running; the --lan-connect request for "
+                << crossdesk::GetLaunchOptions().lan_endpoint
+                << " was dropped. Connect from the running instance's window instead."
+                << '\n';
+    }
     std::string error;
     if (!crossdesk::platform::RequestInstanceActivation(error)) {
       std::cerr << error << '\n';
@@ -266,7 +277,7 @@ static int ExitForExistingInstance(
 
 static int RunApplication(int argc, char* argv[], bool login_launch) {
   // The instance guards are held before any configuration or logger is opened.
-  auto path_manager = std::make_unique<crossdesk::PathManager>("CrossDesk");
+  auto path_manager = std::make_unique<crossdesk::PathManager>(crossdesk::platform::kMachineAppName);
   crossdesk::InitLogger(path_manager->GetLogPath().string());
 
 #ifdef _WIN32
@@ -337,11 +348,11 @@ static int RunApplication(int argc, char* argv[], bool login_launch) {
 int main(int argc, char* argv[]) {
 #if defined(__APPLE__) || (defined(__linux__) && !defined(__OHOS__))
   if (argc == 2 && std::strcmp(argv[1], "--autostart-migrate") == 0) {
-    crossdesk::PathManager paths("CrossDesk");
+    crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
     const auto config = paths.GetCachePath() / "config.ini";
     std::error_code error;
     if (!std::filesystem::exists(config, error))
-      return !error && crossdesk::platform::MigrateLegacyAutostart("CrossDesk") ? 0 : 1;
+      return !error && crossdesk::platform::MigrateLegacyAutostart(crossdesk::platform::kMachineAppName) ? 0 : 1;
     crossdesk::platform::SingleInstanceGuard client;
     std::string reason;
     const auto acquired = client.TryAcquire(crossdesk::platform::InstanceRole::kClient, reason);
@@ -384,7 +395,7 @@ int main(int argc, char* argv[]) {
   }
   auto& console = crossdesk::HeadlessConsole::Instance();
   if (argc == 2 && std::strcmp(argv[1], "--headless-help") == 0) {
-    crossdesk::PathManager paths("CrossDesk");
+    crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
     CSimpleIniA config;
     config.SetUnicode(true);
     config.LoadFile((paths.GetCachePath() / "config.ini").string().c_str());
@@ -424,13 +435,13 @@ int main(int argc, char* argv[]) {
   // Installer maintenance must not start the GUI or the process supervisor.
   if (argc == 2 && (std::strcmp(argv[1], "--autostart-migrate") == 0 ||
                     std::strcmp(argv[1], "--autostart-uninstall") == 0)) {
-    crossdesk::PathManager paths("CrossDesk");
+    crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
     crossdesk::InitLogger(paths.GetLogPath().string(),
                           "crossdesk-autostart-cli");
     const bool success =
         std::strcmp(argv[1], "--autostart-migrate") == 0
             ? crossdesk::MigrateServiceAutostart(false)
-            : crossdesk::platform::RemoveInstalledAutostart("CrossDesk");
+            : crossdesk::platform::RemoveInstalledAutostart(crossdesk::platform::kMachineAppName);
     return success ? 0 : 1;
   }
   if (argc == 2 &&
@@ -446,7 +457,7 @@ int main(int argc, char* argv[]) {
     if (!unattended_change &&
         AcquireInstance(cli_instance, crossdesk::platform::InstanceRole::kServiceCli) !=
             crossdesk::platform::InstanceResult::kAcquired) return 1;
-    crossdesk::PathManager paths("CrossDesk");
+    crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
     crossdesk::InitLogger(paths.GetLogPath().string(), "crossdesk-service-cli");
     return HandleServiceCliCommand(argv[1]);
   }
@@ -469,6 +480,12 @@ int main(int argc, char* argv[]) {
   crossdesk::platform::SingleInstanceGuard client_instance;
   const bool login_launch = HasArgument(argc, argv, "--autostart");
   const bool child = HasArgument(argc, argv, "--child");
+  if (!crossdesk::ParseLaunchOptions(argc, argv)) {
+    std::cerr << "Usage: --lan-connect <ip:port> [--view-only]\n"
+                 "The access password is read from the FARLINK_LAN_PASSWORD "
+                 "environment variable, never from the command line.\n";
+    return 1;
+  }
   if (!child) {
     const auto result = AcquireInstance(launcher_instance, InstanceRole::kLauncher);
     if (result != InstanceResult::kAcquired)
@@ -481,7 +498,7 @@ int main(int argc, char* argv[]) {
 #ifdef __linux__
   const int exit_code = crossdesk::RunWithLinuxDisplay(
       argc, argv, [&] { return RunApplication(argc, argv, login_launch); }, [&] {
-        crossdesk::PathManager paths("CrossDesk");
+        crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
         if (console.Enable(paths.GetLogPath(), paths.GetCachePath() / "config.ini")) return true;
         std::cerr << "无法初始化日志或控制台，启动失败。\n";
         return false;

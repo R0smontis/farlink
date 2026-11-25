@@ -84,6 +84,11 @@ class GuiRuntime : protected gui_detail::GuiState {
   std::unique_ptr<lan::SessionManager> lan_;
   std::string lan_error_;
   std::shared_ptr<lan::Session> lan_connecting_;
+  // One-shot flag armed by the --view-only launch option. The first LAN
+  // connection created through ConnectLan consumes it and starts with input
+  // control disabled, exactly as if the user had toggled control off before
+  // any input was captured. UI-initiated connections normally find it false.
+  bool lan_view_only_pending_ = false;
   bool lan_stopping_ = false;
   bool stopping_ = false;
   std::chrono::steady_clock::time_point shutdown_report_at_{};

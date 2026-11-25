@@ -139,6 +139,7 @@ private:
   void JoinPortableWindowsServiceInstallThread();
 #endif
   void ConnectFromUi(const std::string &remote_id);
+  void ProcessLanConnectLaunchOption();
   void DisconnectSession(const std::string &remote_id);
   void CloseDisconnectedSessions();
   void ResetPointerMotion();
