@@ -63,12 +63,6 @@ struct SharedState {
   // Peak video outbound bitrate observed over the session; the final sample is
   // often zero because the report can arrive after the stream winds down.
   std::atomic<int64_t> peak_video_bitrate{0};
-  // Exact encoded bytes observed at the receiver's on_receive_encoded_video tap,
-  // with the wall-clock time of the first and last byte. This is the ground
-  // truth encoded bitrate, independent of the io_statistics reporting path.
-  std::atomic<int64_t> encoded_bytes{0};
-  std::atomic<int64_t> first_encoded_us{0};
-  std::atomic<int64_t> last_encoded_us{0};
   double rtt_ms = -1;
   char video_encoder[128] = {};
   char video_decoder[128] = {};
@@ -113,20 +107,6 @@ void OnReceiveVideoFrame(const MiniRtcVideoFrame* frame, const char*, size_t,
   const int64_t latency =
       static_cast<int64_t>(frame->decoded_timestamp) - capture;
   g_state.latencies_us.push_back(latency);
-}
-
-int OnReceiveEncodedVideo(const uint8_t*, size_t size, int64_t timestamp_us,
-                          const char*, size_t, const char*, size_t, void*) {
-  // Sum exact encoded bytes at the receiver. The first/last byte timestamps
-  // bracket the measurement window so the encoded bitrate is bytes*8/seconds
-  // over precisely the span the stream was active.
-  g_state.encoded_bytes.fetch_add(static_cast<int64_t>(size));
-  int64_t first = g_state.first_encoded_us.load();
-  while (first == 0 &&
-         !g_state.first_encoded_us.compare_exchange_weak(first, timestamp_us)) {
-  }
-  g_state.last_encoded_us.store(timestamp_us);
-  return 0;
 }
 
 void AppendSignal(Endpoint* endpoint, const char* message, size_t size) {
@@ -273,7 +253,10 @@ MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware, in
   params.on_connection_status = OnConnectionStatus;
   params.on_net_status_report = OnNetStatus;
   params.on_receive_video_frame = OnReceiveVideoFrame;
-  params.on_receive_encoded_video = OnReceiveEncodedVideo;
+  // NOTE: on_receive_encoded_video is deliberately left unset. The library
+  // treats that callback as an H.264-only consumer and withholds H265 from
+  // codec negotiation when it is registered (minirtc_connection.cpp), which
+  // would silently disable hardware HEVC for every h265 measurement here.
   params.user_id = user_id;
   params.user_data = user_data;
   return params;
@@ -525,21 +508,12 @@ int RunHarness(const Config& config) {
   const double delivered_fps = seconds > 0 ? delivered / seconds : 0;
 
   const char* codec_name = config.codec == MiniRtcVideoCodec::H265 ? "h265" : "h264";
-  // Ground-truth encoded bitrate from the exact bytes tapped at the receiver,
-  // averaged over the span the stream was actually producing output.
-  const int64_t encoded_bytes = g_state.encoded_bytes.load();
-  const int64_t first_enc = g_state.first_encoded_us.load();
-  const int64_t last_enc = g_state.last_encoded_us.load();
-  int64_t encoded_bitrate = 0;
-  if (encoded_bytes > 0 && last_enc > first_enc) {
-    encoded_bitrate = encoded_bytes * 8 * 1000000 / (last_enc - first_enc);
-  }
   std::printf(
       "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
       "\"delivered_fps\":%.2f,\"lat_p50_ms\":%d,\"lat_p95_ms\":%d,"
       "\"lat_p99_ms\":%d,\"peak_video_bitrate\":%lld,\"rtt_ms\":%.2f,"
-      "\"encode_width\":%d,\"encode_height\":%d,\"encoded_bitrate\":%lld,"
+      "\"encode_width\":%d,\"encode_height\":%d,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
@@ -548,7 +522,6 @@ int RunHarness(const Config& config) {
       static_cast<long long>(g_state.peak_video_bitrate.load()),
       g_state.rtt_ms,
       g_state.decoded_width.load(), g_state.decoded_height.load(),
-      static_cast<long long>(encoded_bitrate),
       g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
 
