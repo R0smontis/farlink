@@ -45,8 +45,13 @@ static std::string NSErrorToString(NSError *error) {
 
   const char *description = [error.localizedDescription UTF8String];
   const char *domain = [error.domain UTF8String];
+  // The failure reason often carries the actual cause where the localized
+  // description is only a generic translation. userInfo is intentionally
+  // omitted: its multi-line formatting breaks single-line log greppability.
+  const char *reason = [error.localizedFailureReason UTF8String];
   return std::string(domain ? domain : "NSError") + ":" +
-      std::to_string(error.code) + " " + (description ? description : "");
+      std::to_string(error.code) + " " + (description ? description : "") +
+      (reason ? std::string(" reason=") + reason : "");
 }
 
 static void RetainCapturedPixelBuffer(void *owner) {
@@ -417,6 +422,19 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
   if (completed && [capture_error.domain isEqualToString:SCStreamErrorDomain] &&
       capture_error.code == SCStreamErrorUserDeclined) {
     return -1;
+  }
+
+  // Seed the retry cache with the startup enumeration while it is fresh.
+  // Startup enumerations complete in ~100ms on an idle process; session-time
+  // enumerations can take seconds, so a session starting shortly after launch
+  // should never pay for another one. The same revision keying and validity
+  // window apply, so privacy cover changes and expiry force re-enumeration
+  // exactly as they do for capture-time seeding.
+  if (completed && !capture_error && content) {
+    std::lock_guard<std::mutex> lock(lock_);
+    cached_content_ = content;
+    cached_content_revision_ = GetMacPrivacyCaptureState().revision;
+    cached_content_time_ = Clock::now();
   }
 
   std::vector<CGDirectDisplayID> display_ids;
