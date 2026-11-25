@@ -168,10 +168,12 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
     const auto motion = relative_motion_.Update(
         remote_action.m.dx, remote_action.m.dy, base_x, base_y, bounds);
     if (motion.delta_x == 0 && motion.delta_y == 0) return 0;
+    const bool other_dragging = (pressed_buttons_ & 4) != 0;
     const auto drag = RelativeMoveEventType(
         left_dragging_ ? RelativeDragState::left
         : right_dragging_ ? RelativeDragState::right
-                          : RelativeDragState::none);
+        : other_dragging ? RelativeDragState::other
+                         : RelativeDragState::none);
     CGEventRef move_event = CGEventCreateMouseEvent(
         NULL, static_cast<CGEventType>(drag.event_type),
         CGPointMake(motion.point_x, motion.point_y),
@@ -195,9 +197,11 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
     return 0;
   }
   // An absolute move ends relative positioning; clicks and the wheel keep
-  // whatever mode the most recent move established. Any non-relative event
-  // also invalidates the tracked anchor: absolute moves reposition through
-  // the physical cursor, so the next relative burst must resync from it.
+  // whatever mode the most recent move established. Only the absolute move
+  // invalidates the tracked anchor: it repositions through the physical
+  // cursor, so the next relative burst must resync from it. Clicks and wheel
+  // events do not move the cursor, and the anchor refresh below keeps them
+  // consistent with the tracked position instead.
   if (remote_action.m.flag == MouseFlag::move) {
     relative_mode_active_ = false;
     relative_anchor_valid_ = false;
@@ -225,12 +229,29 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
   double effective_pos_x = mouse_pos_x;
   double effective_pos_y = mouse_pos_y;
   if (relative_mode_active_) {
-    if (const auto cursor = CGEventCreate(nullptr)) {
+    // Inside a relative burst CGEventGetLocation still returns the
+    // pre-burst position, so a click positioned there would yank the cursor
+    // backwards. The tracked anchor is authoritative while it is valid and
+    // fresh — the same rule the move path uses; the live read is only the
+    // fallback for clicks arriving after the stream went idle.
+    bool anchored = false;
+    const auto now = std::chrono::steady_clock::now();
+    if (relative_anchor_valid_ &&
+        now - relative_anchor_time_ < kRelativeAnchorMaxAge) {
+      effective_pos_x = relative_anchor_x_;
+      effective_pos_y = relative_anchor_y_;
+      anchored = true;
+    } else if (const auto cursor = CGEventCreate(nullptr)) {
       const auto current = CGEventGetLocation(cursor);
       CFRelease(cursor);
       effective_pos_x = current.x;
       effective_pos_y = current.y;
-      mouse_point = CGPointMake(effective_pos_x, effective_pos_y);
+    }
+    mouse_point = CGPointMake(effective_pos_x, effective_pos_y);
+    if (anchored) {
+      // The click carries this position, so it becomes part of the tracked
+      // state: refresh the anchor instead of letting it go stale.
+      relative_anchor_time_ = now;
     }
   }
   const int tracked_mouse_pos_x = static_cast<int>(std::lround(effective_pos_x));
