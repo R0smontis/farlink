@@ -37,6 +37,8 @@ struct Config {
   MiniRtcVideoCodec codec = MiniRtcVideoCodec::H264;
   int seconds = 12;
   const char* address = nullptr;
+  MiniRtcVideoDegradationPreference preference =
+      MiniRtcVideoDegradationPreference::MaintainResolution;
 };
 
 struct Endpoint {
@@ -64,6 +66,11 @@ struct SharedState {
   double rtt_ms = -1;
   char video_encoder[128] = {};
   char video_decoder[128] = {};
+  // Resolution of the most recent decoded frame. Because the harness reads the
+  // decoded pixels, this is the resolution the encoder actually produced after
+  // any adaptation downscale — not the capture resolution requested.
+  std::atomic<int> decoded_width{0};
+  std::atomic<int> decoded_height{0};
 };
 
 SharedState g_state;
@@ -78,6 +85,8 @@ void OnReceiveVideoFrame(const MiniRtcVideoFrame* frame, const char*, size_t,
   // barcode gives exact frame identity, so latency pairing survives encoder
   // drops and the lossy codec alike.
   g_state.decoded_frames.fetch_add(1);
+  g_state.decoded_width.store(frame->width);
+  g_state.decoded_height.store(frame->height);
   std::vector<uint8_t> copy;
   const uint8_t* nv12 = nullptr;
   if (frame->data) {
@@ -218,7 +227,8 @@ void PumpSignals() {
   }
 }
 
-MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware) {
+MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware, int frame_rate,
+                         MiniRtcVideoDegradationPreference preference) {
   MiniRtcParams params{};
   params.use_cfg_file = false;
   params.hardware_acceleration = hardware;
@@ -228,9 +238,8 @@ MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware) {
   params.enable_srtp = true;
   params.video_content_type = MiniRtcVideoContentType::ScreenContent;
   params.video_quality = MiniRtcVideoQuality::MiniRtcVideoQualityHigh;
-  params.video_frame_rate = 144;
-  params.video_degradation_preference =
-      MiniRtcVideoDegradationPreference::MaintainResolution;
+  params.video_frame_rate = frame_rate;
+  params.video_degradation_preference = preference;
   params.desktop_encoding_mode = MiniRtcDesktopEncodingMode::LowLoad;
   params.direct_start_bitrate_bps = 20000000;
   params.relay_start_bitrate_bps = 1500000;
@@ -346,9 +355,9 @@ int RunHarness(const Config& config) {
   const std::string receiver_local = "receiver00000001";
 
   // Sender: hardware acceleration to use the real VideoToolbox encoder.
-  MiniRtcParams sender_params = MakeParams(sender_local.c_str(), nullptr, true);
+  MiniRtcParams sender_params = MakeParams(sender_local.c_str(), nullptr, true, config.fps, config.preference);
   // Receiver: decode side does not need hardware encoding.
-  MiniRtcParams receiver_params = MakeParams(receiver_local.c_str(), nullptr, true);
+  MiniRtcParams receiver_params = MakeParams(receiver_local.c_str(), nullptr, true, config.fps, config.preference);
 
   MiniRtcPeerPtr* sender =
       MiniRtcCreatePeerWithVideoCodec(&sender_params, "", config.codec);
@@ -495,13 +504,16 @@ int RunHarness(const Config& config) {
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
       "\"delivered_fps\":%.2f,\"lat_p50_ms\":%d,\"lat_p95_ms\":%d,"
       "\"lat_p99_ms\":%d,\"peak_video_bitrate\":%lld,\"rtt_ms\":%.2f,"
+      "\"encode_width\":%d,\"encode_height\":%d,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
       delivered_fps, Percentile(latencies, 50), Percentile(latencies, 95),
       Percentile(latencies, 99),
       static_cast<long long>(g_state.peak_video_bitrate.load()),
-      g_state.rtt_ms, g_state.video_encoder, g_state.video_decoder);
+      g_state.rtt_ms,
+      g_state.decoded_width.load(), g_state.decoded_height.load(),
+      g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
 
   MiniRtcCloseDirectSession(sender);
@@ -532,6 +544,15 @@ int main(int argc, char** argv) {
       config.codec = c == "h265" ? MiniRtcVideoCodec::H265 : MiniRtcVideoCodec::H264;
     } else if (arg == "--seconds") config.seconds = std::atoi(next("--seconds"));
     else if (arg == "--address") config.address = next("--address");
+    else if (arg == "--preference") {
+      const std::string p = next("--preference");
+      if (p == "maintain_frame_rate" || p == "fps")
+        config.preference = MiniRtcVideoDegradationPreference::MaintainFrameRate;
+      else if (p == "balanced")
+        config.preference = MiniRtcVideoDegradationPreference::Balanced;
+      else
+        config.preference = MiniRtcVideoDegradationPreference::MaintainResolution;
+    }
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");
