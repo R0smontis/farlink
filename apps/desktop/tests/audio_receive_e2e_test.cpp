@@ -423,6 +423,14 @@ ScenarioResult RunScenario(Impairment impairment, bool bypass, int frames) {
           loss_idx < int(loss_drop.size()) && loss_drop[loss_idx];
       if (!filtered) {
         std::lock_guard<std::mutex> lock(insert_mutex);
+        // Reference insert time is when the packet actually entered the
+        // receive path (the realised injection time). The network-model
+        // arrival instant (deliver_us) and this differ only by the injection
+        // thread's scheduling lateness, which experiment showed does not shift
+        // the residence distribution — the measured residence overhead is
+        // dominated by GLib playout-timer fire lateness downstream, not by
+        // when the insert reference is taken. Using the realised insert time
+        // keeps residence a true insert-to-emission measurement.
         insert_time_by_seq[ev.sequence] = actual_delivery;
         capture_time_by_seq[ev.sequence] = ev.capture_us;
       }
