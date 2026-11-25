@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -155,6 +156,11 @@ private:
 #ifdef __APPLE__
   std::unique_ptr<PlatformMouseCapturer> mouse_capturer_;
   CapturedMouseQueue captured_mouse_inputs_;
+  // Sender thread woken by the queue's condition variable: game-mode input
+  // reaches the transport at wake latency instead of the 16 ms UI tick.
+  std::thread game_mode_sender_thread_;
+  std::atomic<bool> game_mode_sender_stop_{false};
+  void GameModeSenderMain();
 #endif
   // Guards display_info_list_ (UI thread writes, transport threads read).
   mutable std::mutex display_info_mutex_;

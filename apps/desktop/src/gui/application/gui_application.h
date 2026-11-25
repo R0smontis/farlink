@@ -11,13 +11,16 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 
 #include <remote_action.h>
 
 #include "application/signal_connection_indicator.h"
+#include "features/input/scroll_accumulator.h"
 #include "rendering/video_geometry.h"
 #include "runtime/cursor_state_provider.h"
 #include "runtime/gui_runtime.h"
@@ -156,8 +159,25 @@ private:
                               double point_dy) override;
   void RequestGameModeExit() override;
   void SyncGameMode();
+  // Thread-safe direct send used by the game-mode hooks on the sender
+  // thread: bypasses the UI-coupled SendRemoteInput path, validates the
+  // session under the shared map lock and uses the MiniRtc entry points
+  // documented as internally synchronized.
+  void SendGameModeActionDirect(const std::string& target, RemoteAction& action,
+                                float wheel_delta);
   // device-manager-facing entry points are declared on GuiRuntime instead.
+  // Game-mode input hooks run on the device manager's sender thread, not
+  // the UI thread. This mutex protects everything they share with the UI:
+  // the pressed-button set used for exit cleanup, the wheel accumulator
+  // dedicated to game mode (the Slint scroll path cannot fire while the
+  // cursor is frozen, so the UI accumulator is never involved) and the
+  // sensitivity snapshot taken at entry.
+  std::mutex game_mode_mutex_;
+  std::set<int> game_mode_pressed_buttons_;
+  ScrollAccumulator game_mode_scroll_;
+  int game_mode_wheel_percent_ = 100;
 #endif
+
   void Cleanup();
 
   void OpenFileDialog(const std::string& title,
