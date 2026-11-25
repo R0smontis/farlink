@@ -584,6 +584,29 @@ bool PlaceMacStreamControlPointer(void* slint_view, float pixel_x, float pixel_y
   }
 }
 
+bool MacStreamViewPointToScreen(void* slint_view, float pixel_x, float pixel_y,
+                                double* screen_x, double* screen_y) {
+  @autoreleasepool {
+    NSView *view = (__bridge NSView *)slint_view;
+    NSWindow *window = view.window;
+    if (!window) return false;
+    const CGFloat scale = window.backingScaleFactor;
+    NSRect bounds = view.bounds;
+    if (NSIsEmptyRect(bounds) || scale <= 0) return false;
+    const CGFloat x = pixel_x / scale;
+    const CGFloat y = pixel_y / scale;
+    NSPoint local = NSMakePoint(NSMinX(bounds) + x,
+        view.isFlipped ? NSMinY(bounds) + y : NSMaxY(bounds) - y);
+    NSPoint client = [view convertPoint:local toView:nil];
+    NSPoint screen = [window convertPointToScreen:client];
+    NSScreen *primary = NSScreen.screens.firstObject;
+    if (!primary) return false;
+    if (screen_x) *screen_x = screen.x;
+    if (screen_y) *screen_y = NSMaxY(primary.frame) - screen.y;
+    return true;
+  }
+}
+
 bool IsStreamWindowFullscreen(void *opaque_slint_view) {
   NSView *view = (__bridge NSView *)opaque_slint_view;
   return (view.window.styleMask & NSWindowStyleMaskFullScreen) != 0;

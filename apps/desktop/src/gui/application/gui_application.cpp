@@ -48,6 +48,7 @@
 #include "features/gallery/gallery_workspace.h"
 #include "features/gallery/preview_bandwidth.h"
 #include "features/gallery/preview_resolution.h"
+#include "features/input/game_mode_capture_state.h"
 #include "features/input/pointer_motion.h"
 #include "features/input/stream_keyboard_focus.h"
 #include "filesystem_utf8.h"
@@ -2406,6 +2407,12 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
       if (index >= static_cast<int>(props->display_info_list_.size())) return;
     }
     props->selected_display_ = index;
+#ifdef __APPLE__
+    // The capture scale and the host display bounds both change with the
+    // peer's display; game mode re-enters deliberately, never implicitly.
+    if (game_mode_active_ && game_mode_target_ == props->remote_id_)
+      ExitGameMode();
+#endif
     view.window->global<ui::RemoteCursor>().invoke_reset();
     if (controlled_remote_id_ == props->remote_id_) ui_->pointer_motion = {};
     {
@@ -2486,8 +2493,23 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     }
     props->control_mouse_ = !props->control_mouse_;
     props->enable_mouse_control_ = props->control_mouse_;
+#ifdef __APPLE__
+    // Releasing mouse control ends the capture; the toggle also serves as
+    // the visible escape when the toolbar is reachable.
+    if (!props->control_mouse_) ExitGameMode();
+#endif
     SetStreamKeyboardFocus(view, true);
   });
+#ifdef __APPLE__
+  stream->on_toggle_game_mouse([this, &view] {
+    if (game_mode_active_) {
+      ExitGameMode();
+    } else {
+      SetStreamKeyboardFocus(view, true);
+      EnterGameMode(view);
+    }
+  });
+#endif
   stream->on_change_video_settings([&view](int quality, int frame_rate_index,
                                           int preference) {
     const auto& props = view.session;
@@ -2847,6 +2869,9 @@ void GuiApplication::Tick() {
   SyncStreamKeyboardFocus();
 #endif
   devices_.UpdateInteractions();
+#ifdef __APPLE__
+  SyncGameMode();
+#endif
   if (!ui_->gallery_control_id.empty()) keyboard_.SendHeartbeat(false);
   ShareLocalCursorState();
 
@@ -4081,6 +4106,13 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
               ? localization::receiving_screen[localization_language_index_]
               : std::string{}));
   stream->set_mouse_control_enabled(props->control_mouse_);
+#ifdef __APPLE__
+  stream->set_game_mouse_available(
+      props->supports_relative_mouse_.load(std::memory_order_acquire) &&
+      status == MiniRtcConnectionStatus::MiniRtcConnectionConnected);
+  stream->set_game_mouse_active(game_mode_active_ &&
+                                game_mode_target_ == props->remote_id_);
+#endif
   {
     std::lock_guard lock(props->privacy_status_mutex_);
     const auto& status = props->privacy_status_;
@@ -5435,9 +5467,16 @@ void GuiApplication::SendPointerInput(int button, int kind, float x, float y) {
   action.type = ControlType::mouse;
   action.m.x = point->x;
   action.m.y = point->y;
+  action.m.dx = 0;
+  action.m.dy = 0;
   // Slint enum order: Cancel=0, Down=1, Up=2, Move=3 and
   // Other=0, Left=1, Right=2, Middle=3.
   if (kind == 3) {
+#ifdef __APPLE__
+    // The capture tap owns motion in game mode; positional differencing
+    // saturates at window edges and must never compete with raw deltas.
+    if (game_mode_active_) return;
+#endif
     action.m.flag = MouseFlag::move;
   } else if (kind == 1) {
     if (button == 1)
@@ -5650,6 +5689,326 @@ void GuiApplication::SyncAudioPlayback() {
   }
 }
 
+#ifdef __APPLE__
+void GuiApplication::EnterGameMode(StreamView& view) {
+  const auto& props = view.session;
+  if (!props || !props->peer_ || !props->control_mouse_ ||
+      props->connection_status_.load() != MiniRtcConnectionStatus::MiniRtcConnectionConnected ||
+      controlled_remote_id_ != props->remote_id_ || game_mode_active_) {
+    return;
+  }
+  if (!props->supports_relative_mouse_.load(std::memory_order_acquire)) {
+    // Stock hosts inject unknown flags as absolute moves; the capability
+    // gate is the only thing keeping relative input off them.
+    return;
+  }
+  GameModeScale scale;
+  if (!ResolveGameModeScale(props, scale)) return;
+  const double scale_x = scale.scale_x;
+  const double scale_y = scale.scale_y;
+  const double width = view.window->get_video_area_width();
+  const double height = view.window->get_video_area_height();
+  // Freeze at the centre of the video surface, not wherever the toolbar
+  // toggle was: scroll events and the final release must keep landing on
+  // the streamed content. The capturer warps back to the original position
+  // on exit.
+  const float scale_factor = view.window->window().scale_factor();
+  double center_x = 0, center_y = 0;
+  const float center_local_x = static_cast<float>(width) / 2 * scale_factor;
+  const float center_local_y =
+      (view.window->get_video_area_top() + static_cast<float>(height) / 2) *
+      scale_factor;
+  if (!MacStreamViewPointToScreen(view.window->window().appkit_view(),
+                                  center_local_x, center_local_y, &center_x,
+                                  &center_y)) {
+    return;
+  }
+  if (devices_.StartMouseCapturer(scale_x, scale_y, center_x,
+                                  center_y) != 0)
+    return;
+  game_mode_scale_x_ = scale_x;
+  game_mode_scale_y_ = scale_y;
+  // Quartz warps do not post AppKit events; this posts the move so the
+  // Slint hit-testing state agrees with the hardware position underneath
+  // the freeze.
+  PlaceMacStreamControlPointer(view.window->window().appkit_view(),
+                               center_local_x, center_local_y);
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    game_mode_pressed_buttons_.TakePressed();
+    game_mode_scroll_ = ScrollAccumulator{};
+    game_mode_wheel_percent_ =
+        config_center_->GetWheelSensitivityPercent(props->device_preference_key_);
+    game_mode_active_ = true;
+    game_mode_target_ = props->remote_id_;
+  }
+  view.window->set_game_mouse_active(true);
+}
+
+// Single source of the game-mode scale math: the rendered video rect in
+// points normalises captured device-point deltas into the resolution-
+// independent wire unit, with the sensitivity setting folded in. Used both
+// at entry and by the per-tick refresh in SyncGameMode — a letterbox change
+// (window resize, fullscreen transition, remote resolution or aspect
+// change) or a sensitivity change must not keep the old normalisation,
+// which would skew the axes unequally. Returns false when the geometry is
+// momentarily unusable; callers keep the previous scale in that case.
+bool GuiApplication::ResolveGameModeScale(
+    const std::shared_ptr<RemoteSession>& props, GameModeScale& out) {
+  auto* view = FindStreamView(props->remote_id_);
+  if (!view) return false;
+  const double width = view->window->get_video_area_width();
+  const double height = view->window->get_video_area_height();
+  int video_width = 0, video_height = 0;
+  {
+    std::lock_guard lock(props->video_frame_mutex_);
+    video_width = props->video_width_;
+    video_height = props->video_height_;
+  }
+  return ComputeGameModeScale(width, height, video_width, video_height,
+                              config_center_->GetMouseSensitivityPercent(),
+                              out);
+}
+
+
+void GuiApplication::ExitGameMode() {
+  // Ordering invariant: active flips first under the mutex, then the sender
+  // thread is joined, and only then are the pressed buttons read and
+  // released. The join is what makes the release ordering correct: a sender
+  // preempted between its tracker update and its send would otherwise
+  // complete that send AFTER the release, and the host would see up-then-
+  // down — a stuck button. After the join no send is in flight and the
+  // tracker is final, so every release ordered here lands after the last
+  // possible down on the wire.
+  //
+  // The join cannot deadlock: the sender thread only ever takes
+  // game_mode_mutex_ (briefly, released before its send) and the shared
+  // session lock, and no ExitGameMode caller holds either — ReleaseControl,
+  // the display-switch and control-toggle callbacks, SyncGameMode and
+  // Cleanup all reach here lock-free; CloseRemoteSession takes the unique
+  // session lock only afterwards in DisconnectSession.
+  std::string target;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    if (!game_mode_active_) return;
+    game_mode_active_ = false;
+    target = game_mode_target_;
+    game_mode_target_.clear();
+  }
+  devices_.StopMouseCapturer();
+  std::set<int> pressed;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    pressed = game_mode_pressed_buttons_.TakePressed();
+  }
+  // Release buttons the capture tap reported as still pressed. This must
+  // happen on every exit path — chord, focus loss, disconnect, capability
+  // loss, quit — or the host is left with a stuck button. The send goes
+  // directly to the captured target rather than through SendRemoteInput,
+  // which derives its destination from controlled_remote_id_: on some exit
+  // paths (display switch, SyncGameMode precondition failure) control has
+  // conceptually already moved on, and the release must still reach the
+  // session the buttons were pressed on. SendGameModeActionDirect checks
+  // connectivity itself, so a session already closing simply drops the
+  // release — exactly the documented "if the session is still connected".
+  for (int button : pressed) {
+    RemoteAction action{};
+    action.type = ControlType::mouse;
+    action.m.x = ui_->pointer_x;
+    action.m.y = ui_->pointer_y;
+    action.m.dx = 0;
+    action.m.dy = 0;
+    action.m.flag = button == 1   ? MouseFlag::left_up
+                    : button == 2 ? MouseFlag::right_up
+                                  : MouseFlag::middle_up;
+    SendGameModeActionDirect(target, action, 0);
+  }
+  if (auto* view = FindStreamView(target)) {
+    view->window->set_game_mouse_active(false);
+  }
+}
+// Thread-safe game-mode send: invoked on the device manager's sender
+// thread. Validates the target under game_mode_mutex_, then sends through
+// the same MiniRtc entry points SendRemoteInput uses, holding the session
+// map shared lock the whole time — the documented safe pattern, since the
+// close path detaches peer_ under the unique lock. MiniRtcSendDataFrame /
+// MiniRtcSendReliableDataFrame are safe for cross-thread use: every layer
+// synchronizes internally (peer_connection_map shared_lock in
+// peer_connection.cpp, data_streams_mutex_ shared_lock in
+// datachannel_transport.cpp, libdatachannel's own thread-safe queueing).
+void GuiApplication::SendGameModeActionDirect(const std::string& target,
+                                              RemoteAction& action,
+                                              float wheel_delta) {
+  const bool move = action.m.flag == MouseFlag::move_relative;
+  const bool wheel = action.m.flag == MouseFlag::wheel_vertical ||
+                     action.m.flag == MouseFlag::wheel_horizontal;
+  std::string message;
+  if (wheel) {
+    // Consume before touching the session map: game_mode_mutex_ never
+    // nests inside remote_sessions_mutex_, and the accumulator here is
+    // dedicated to game mode — the Slint scroll path cannot fire while the
+    // cursor is frozen, so the UI accumulator in props->scroll_ is never
+    // involved.
+    int steps = 0;
+    {
+      std::lock_guard game_lock(game_mode_mutex_);
+      steps = game_mode_scroll_.Consume(
+          action.m.flag == MouseFlag::wheel_vertical, wheel_delta,
+          game_mode_wheel_percent_);
+    }
+    if (steps == 0) return;
+    action.m.s = steps;
+    message = action.to_json();
+  } else {
+    message = action.to_json();
+  }
+  std::shared_lock lock(remote_sessions_mutex_);
+  const auto it = remote_sessions_.find(target);
+  if (it == remote_sessions_.end()) return;
+  const auto& props = it->second;
+  if (!props || !props->peer_ || props->closing_.load() ||
+      props->connection_status_.load() != MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
+    return;
+  }
+  const int result =
+      move ? MiniRtcSendDataFrame(props->peer_, message.data(), message.size(),
+                                  props->data_label_.c_str())
+           : MiniRtcSendReliableDataFrame(props->peer_, message.data(),
+                                          message.size(),
+                                          props->mouse_label_.c_str());
+  if (result != 0) LOG_WARN("Game mode input send failed, ret={}", result);
+}
+
+
+void GuiApplication::SendRelativeMouseInput(double dx, double dy) {
+  std::string target;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    if (!game_mode_active_ || game_mode_target_.empty()) return;
+    target = game_mode_target_;
+  }
+  RemoteAction action{};
+  action.type = ControlType::mouse;
+  action.m.x = 0;
+  action.m.y = 0;
+  action.m.s = 0;
+  action.m.flag = MouseFlag::move_relative;
+  action.m.dx = static_cast<float>(dx);
+  action.m.dy = static_cast<float>(dy);
+  SendGameModeActionDirect(target, action, 0);
+}
+
+void GuiApplication::SendGameModeButtonInput(int button, bool down) {
+  std::string target;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    if (!game_mode_active_ || game_mode_target_.empty()) return;
+    if (button < 1 || button > 3) return;
+    target = game_mode_target_;
+    game_mode_pressed_buttons_.Update(button, down);
+  }
+  RemoteAction action{};
+  action.type = ControlType::mouse;
+  action.m.x = 0;
+  action.m.y = 0;
+  action.m.dx = 0;
+  action.m.dy = 0;
+  if (down) {
+    action.m.flag = button == 1   ? MouseFlag::left_down
+                    : button == 2 ? MouseFlag::right_down
+                                  : MouseFlag::middle_down;
+  } else {
+    action.m.flag = button == 1   ? MouseFlag::left_up
+                    : button == 2 ? MouseFlag::right_up
+                                  : MouseFlag::middle_up;
+  }
+  SendGameModeActionDirect(target, action, 0);
+}
+
+void GuiApplication::SendGameModeWheelInput(double line_dx, double line_dy,
+                                            double point_dx, double point_dy) {
+  std::string target;
+  {
+    std::lock_guard lock(game_mode_mutex_);
+    if (!game_mode_active_ || game_mode_target_.empty()) return;
+    target = game_mode_target_;
+  }
+  // Slint's winit backend counts one notch as 60 logical pixels while Core
+  // Graphics reports point deltas of 10 per notch, so the continuous values
+  // scale by 6. Line counts are the fallback for devices that post notches
+  // without point precision. The units here match what the Slint scroll
+  // handler feeds the accumulator, so sensitivity and notch snapping behave
+  // identically inside and outside game mode.
+  float delta_x = 0;
+  float delta_y = 0;
+  constexpr double kSlintPixelsPerNotch = 60.0;
+  constexpr double kCgPointsPerNotch = 10.0;
+  constexpr double kPointToSlint = kSlintPixelsPerNotch / kCgPointsPerNotch;
+  if (point_dx != 0 || point_dy != 0) {
+    delta_x = static_cast<float>(point_dx * kPointToSlint);
+    delta_y = static_cast<float>(point_dy * kPointToSlint);
+  } else {
+    delta_x = static_cast<float>(line_dx * kSlintPixelsPerNotch);
+    delta_y = static_cast<float>(line_dy * kSlintPixelsPerNotch);
+  }
+  if (delta_x == 0 && delta_y == 0) return;
+  const bool vertical = std::abs(delta_y) >= std::abs(delta_x);
+  RemoteAction action{};
+  action.type = ControlType::mouse;
+  action.m.x = 0;
+  action.m.y = 0;
+  action.m.flag =
+      vertical ? MouseFlag::wheel_vertical : MouseFlag::wheel_horizontal;
+  SendGameModeActionDirect(target, action, vertical ? delta_y : delta_x);
+}
+
+void GuiApplication::RequestGameModeExit() { ExitGameMode(); }
+
+void GuiApplication::SyncGameMode() {
+  if (!game_mode_active_) return;
+  // The escape paths that cannot run the capturer's callbacks — focus loss,
+  // window close, disconnect, peer display switch, privacy input block —
+  // converge here through the single pure precondition check, so no scatter
+  // of conditionals can drift out of sync.
+  auto props = FindRemoteSession(game_mode_target_);
+  GameModeCapturePreconditions pre;
+  pre.requested = true;  // game_mode_active_ implies an active request.
+  pre.stream_focused = focus_on_stream_window_ &&
+                       controlled_remote_id_ == game_mode_target_;
+  pre.connected = props && !props->closing_.load() &&
+                  props->connection_status_.load() ==
+                      MiniRtcConnectionStatus::MiniRtcConnectionConnected;
+  pre.input_allowed = !privacy_.Snapshot().input_blocked;
+  pre.peer_capable = props && props->supports_relative_mouse_.load(
+                                  std::memory_order_acquire);
+  pre.control_mouse = props && props->control_mouse_;
+  pre.capturer_active = devices_.MouseCapturerActive();
+  if (!GameModeCaptureShouldBeActive(pre)) {
+    ExitGameMode();
+    return;
+  }
+  // Refresh the capture scale against the live geometry: a letterbox change
+  // (window resize, fullscreen transition, remote resolution or aspect
+  // change) or a sensitivity change must not keep the entry-time
+  // normalisation, which would skew the axes unequally. When the geometry
+  // is momentarily unusable the previous scale stays — capture continues
+  // with slightly stale scaling rather than ending.
+  GameModeScale scale;
+  if (props && ResolveGameModeScale(props, scale)) {
+    if (scale.scale_x != game_mode_scale_x_ ||
+        scale.scale_y != game_mode_scale_y_) {
+      game_mode_scale_x_ = scale.scale_x;
+      game_mode_scale_y_ = scale.scale_y;
+      devices_.SetMouseCapturerScale(scale.scale_x, scale.scale_y);
+    }
+  }
+  if (auto* view = FindStreamView(game_mode_target_)) {
+    view->window->set_game_mouse_active(true);
+    view->window->set_game_mouse_available(true);
+  }
+}
+#endif
+
 void GuiApplication::ReleasePressedInput(bool preserve_local_ui) {
   {
     std::shared_lock lock(remote_sessions_mutex_);
@@ -5679,6 +6038,11 @@ void GuiApplication::ReleaseControl(bool preserve_local_ui) {
   ui_->releasing_input = true;
   focus_on_stream_window_ = false;
   const auto gallery_target = ui_->gallery_control_id;
+#ifdef __APPLE__
+  // Capture must end before the ordinary release pass runs: the capturer
+  // owns button state while active, and focus loss is an automatic exit.
+  ExitGameMode();
+#endif
   devices_.StopKeyboardCapturer();
   ReleasePressedInput(preserve_local_ui);
   gallery_group_control_id_.clear();
@@ -7054,6 +7418,12 @@ void GuiApplication::Cleanup() {
       std::shared_ptr<const std::function<void()>>{}, std::memory_order_release);
 #if defined(__APPLE__)
   if (ui_) ui_->video_scheduler.Stop();
+#endif
+#if defined(__APPLE__)
+  // Capture must end before session teardown: the capturer swallows mouse
+  // input system-wide, and quitting with it live would strand the user on a
+  // frozen cursor until process death released it.
+  ExitGameMode();
 #endif
   BeginShutdown();
   while (!ShutdownDrained())

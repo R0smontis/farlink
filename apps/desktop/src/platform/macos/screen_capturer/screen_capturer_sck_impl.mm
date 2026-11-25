@@ -429,7 +429,6 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
                      static_cast<int>(bounds.origin.x), static_cast<int>(bounds.origin.y),
                      static_cast<int>(bounds.origin.x + bounds.size.width),
                      static_cast<int>(bounds.origin.y + bounds.size.height));
-
     display_info_list_.push_back(info);
     display_id_map_[display_info_list_.size() - 1] = display_id;
   }

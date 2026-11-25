@@ -656,6 +656,7 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   action.i.supports_deskhub_resolution = true;
   action.i.supports_deskhub_fps15 = true;
   action.i.supports_deskhub_bandwidth = true;
+  action.i.supports_relative_mouse = true;
   action.i.supports_file_browser = UserSessionFeaturesAvailable();
 #ifndef __OHOS__
   action.i.supports_file_clipboard = UserSessionFeaturesAvailable();

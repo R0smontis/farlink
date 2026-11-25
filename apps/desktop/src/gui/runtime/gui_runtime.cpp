@@ -86,7 +86,8 @@ GuiRuntime::~GuiRuntime() {
 
 void GuiRuntime::SendRemoteInput(const RemoteAction& action, float wheel_delta) {
   const bool mouse = action.type == ControlType::mouse;
-  const bool mouse_move = mouse && action.m.flag == MouseFlag::move;
+  const bool mouse_move = mouse && (action.m.flag == MouseFlag::move ||
+                                    action.m.flag == MouseFlag::move_relative);
   if (!mouse && action.type != ControlType::keyboard &&
       action.type != ControlType::keyboard_state)
     return;

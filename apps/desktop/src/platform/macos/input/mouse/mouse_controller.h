@@ -14,6 +14,7 @@
 
 #include "device_controller.h"
 #include "display_info.h"
+#include "relative_mouse_injection.h"
 
 namespace crossdesk {
 
@@ -50,6 +51,22 @@ class PlatformMouseController final : public MouseController {
   ClickTracker left_click_tracker_;
   ClickTracker right_click_tracker_;
   ClickTracker middle_click_tracker_;
+  // Sub-pixel carry for move_relative; the two coordinate systems never mix
+  // because relative mode ends on the next absolute move.
+  RelativeMouseMotion relative_motion_;
+  // True while the session's positioning is driven by relative deltas: the
+  // controller cannot know where the cursor is, so clicks and the wheel are
+  // anchored at the live position instead of the stale normalized target.
+  bool relative_mode_active_ = false;
+  // Authoritative cursor position during a relative burst. Injected cursor
+  // moves do not apply atomically, so CGEventGetLocation read back inside a
+  // burst lags the injected positions and would swallow motion. The anchor
+  // resyncs to the physical cursor after this much injection idle time.
+  static constexpr std::chrono::milliseconds kRelativeAnchorMaxAge{500};
+  bool relative_anchor_valid_ = false;
+  double relative_anchor_x_ = 0;
+  double relative_anchor_y_ = 0;
+  std::chrono::steady_clock::time_point relative_anchor_time_{};
 };
 }  // namespace crossdesk
 #endif

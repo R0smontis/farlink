@@ -11891,6 +11891,18 @@
       "fr": "Adresse distante",
       "es": "Dirección remota",
       "pt-BR": "Endereço remoto"
+    },
+    "游戏鼠标": {
+      "zh-Hans": "游戏鼠标",
+      "en": "Game Mouse",
+      "ru": "Игровая мышь",
+      "zh-Hant": "遊戲滑鼠",
+      "ja": "ゲームマウス",
+      "ko": "게임 마우스",
+      "de": "Maus im Spielmodus",
+      "fr": "Souris de jeu",
+      "es": "Ratón de juego",
+      "pt-BR": "Mouse de jogo"
     }
   },
   "desktop": {
@@ -12012,6 +12024,7 @@
     "exit_fullscreen": "退出全屏",
     "control_mouse": "控制鼠标",
     "release_mouse": "释放鼠标",
+    "game_mouse": "游戏鼠标",
     "audio_capture": "播放声音",
     "mute": "静音",
     "send_shortcut": "发送组合键",
@@ -12969,7 +12982,8 @@
       "请检查 FUSE 安装和挂载权限。",
       "可使用文件传输窗口发送文件。",
       "本端地址",
-      "对端地址"
+      "对端地址",
+      "游戏鼠标"
     ],
     "android": [
       " · 已完成",

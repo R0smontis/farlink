@@ -88,6 +88,9 @@ struct RemoteSession {
   // Wall membership, stream-window visibility and input ownership are separate.
   std::atomic<bool> wall_managed_{false};
   std::atomic<bool> preview_subscription_supported_{false};
+  // Advertised by peers that inject move_relative correctly; stock hosts
+  // never see relative input because the controller gates game mode on this.
+  std::atomic<bool> supports_relative_mouse_{false};
   std::atomic<bool> preview_resolution_supported_{false};
   std::atomic<bool> preview_fps15_supported_{false};
   std::atomic<bool> preview_bandwidth_supported_{false};

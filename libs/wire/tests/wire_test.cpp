@@ -226,6 +226,79 @@ int main() {
                "oversized app version must not be truncated");
   crossdesk::FreeRemoteAction(advertised);
 
+  // --- Relative mouse (game mode) wire contract ---
+  ok &= Expect(static_cast<int>(crossdesk::MouseFlag::move_relative) ==
+                       static_cast<int>(crossdesk::MouseFlag::wheel_horizontal) + 1,
+               "move_relative must stay the last MouseFlag enumerator");
+
+  crossdesk::RemoteAction relative{};
+  relative.type = crossdesk::ControlType::mouse;
+  // Normalised wire shape: small fractions of the display extent, exactly
+  // what game mode produces.
+  relative.m = {0.4f, 0.6f, 0, crossdesk::MouseFlag::move_relative,
+                -0.00195312f, 0.00063492f};
+  const auto relative_json = relative.to_json();
+  crossdesk::RemoteAction parsed_relative{};
+  ok &= Expect(parsed_relative.from_json(relative_json) &&
+                   parsed_relative.m.flag == crossdesk::MouseFlag::move_relative &&
+                   parsed_relative.m.dx == -0.00195312f &&
+                   parsed_relative.m.dy == 0.00063492f,
+               "relative mouse JSON round trip changed deltas");
+  ok &= Expect(relative_json.find("\"dx\":") != std::string::npos &&
+                   relative_json.find("\"dy\":") != std::string::npos,
+               "relative deltas must serialize as dedicated keys");
+
+
+  // Absolute moves never carry the new keys, so legacy peers parse byte
+  // identical messages to what older builds produced.
+  crossdesk::RemoteAction absolute{};
+  absolute.type = crossdesk::ControlType::mouse;
+  absolute.m = {0.25f, 0.75f, 0, crossdesk::MouseFlag::move, 0, 0};
+  const auto absolute_json = absolute.to_json();
+  ok &= Expect(absolute_json.find("\"dx\"") == std::string::npos &&
+                   absolute_json.find("\"dy\"") == std::string::npos,
+               "absolute moves must not carry relative keys");
+
+  // Legacy JSON without dx/dy parses with zero deltas: pre-feature
+  // controllers produce exactly this shape.
+  crossdesk::RemoteAction legacy_mouse{};
+  ok &= Expect(legacy_mouse.from_json(
+                   "{\"type\":0,\"mouse\":{\"x\":0.5,\"y\":0.5,"
+                   "\"s\":0,\"flag\":0}}") &&
+                   legacy_mouse.m.dx == 0.0f && legacy_mouse.m.dy == 0.0f,
+               "legacy mouse JSON must default missing deltas to zero");
+
+  // Non-finite deltas can never reach injection.
+  crossdesk::RemoteAction invalid_delta{};
+  ok &= Expect(!invalid_delta.from_json(
+                   "{\"type\":0,\"mouse\":{\"x\":0.5,\"y\":0.5,"
+                   "\"s\":0,\"flag\":9,\"dx\":1e999,\"dy\":0}}"),
+               "non-finite relative deltas must be rejected");
+
+  // HostInfo capability round trip and legacy absence.
+  {
+    crossdesk::RemoteAction capable = crossdesk::MakeHostInformation(
+        "Host", {}, true, "1.5.3-20260928");
+    capable.i.supports_relative_mouse = true;
+    const auto capable_json = capable.to_json();
+    crossdesk::RemoteAction parsed_capable{};
+    ok &= Expect(parsed_capable.from_json(capable_json) &&
+                     parsed_capable.i.supports_relative_mouse,
+                 "supports_relative_mouse must survive a JSON round trip");
+    crossdesk::FreeRemoteAction(parsed_capable);
+    crossdesk::FreeRemoteAction(capable);
+    ok &= Expect(capable_json.find("supports_relative_mouse") != std::string::npos,
+                 "supports_relative_mouse must serialize into host info");
+
+    crossdesk::RemoteAction legacy_host{};
+    ok &= Expect(legacy_host.from_json(
+                     "{\"type\":3,\"host_info\":{\"host_name\":\"Old\","
+                     "\"display_num\":0,\"displays\":[]}}") &&
+                     !legacy_host.i.supports_relative_mouse,
+                 "host info without the capability must default to unsupported");
+    crossdesk::FreeRemoteAction(legacy_host);
+  }
+
   const std::string name = "example.txt";
   const std::string payload = "CrossDesk wire";
   const auto encoded = crossdesk::EncodeFileChunk(

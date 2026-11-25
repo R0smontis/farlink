@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "device_controller.h"
 #include "display_info.h"
 #include "features/input/captured_keyboard_queue.h"
+#include "features/input/captured_mouse_queue.h"
 #include "features/input/remote_mouse_buttons.h"
 #include "screen_sharing_power.h"
 #include "speaker_capture_controller.h"
@@ -30,6 +32,10 @@
 struct SDL_AudioStream;
 
 namespace crossdesk {
+
+#ifdef __APPLE__
+class PlatformMouseCapturer;
+#endif
 
 class GuiRuntime;
 class DeviceControllerFactory;
@@ -82,6 +88,19 @@ public:
   int StartKeyboardCapturer();
   int StopKeyboardCapturer();
 
+#ifdef __APPLE__
+  // Game mode captures raw mouse deltas behind a hidden, frozen cursor.
+  // scale_x/scale_y convert device points into the wire unit (fraction of
+  // the controlled display per axis) and can be refreshed while active.
+  // freeze_x/freeze_y are global Core Graphics display
+  // coordinates: the capturer warps the cursor there before freezing it.
+  int StartMouseCapturer(double scale_x, double scale_y, double freeze_x,
+                         double freeze_y);
+  int StopMouseCapturer();
+  bool MouseCapturerActive() const;
+  void SetMouseCapturerScale(double scale_x, double scale_y);
+#endif
+
   int DestroyAudioOutput();
   // Serialized by GuiRuntime::audio_delivery_mutex_. Each peer has its own
   // stream so SDL mixes simultaneous playback and muting clears only that peer.
@@ -108,6 +127,14 @@ private:
   int InitializeAudioOutput();
   unsigned ReleaseMouseButtonMask(unsigned mask);
   void DrainCapturedKeyboardInput();
+#ifdef __APPLE__
+  // One consumer on the input queue: the exit transition travels on this
+  // atomic flag instead, because a second drainer would steal and discard
+  // input — and a lost button-up is a stuck button on the host. Set on the
+  // capturer's tap thread, consumed with exchange(false) on the UI tick.
+  std::atomic<bool> game_mode_exit_requested_{false};
+  void ServiceGameModeExit();
+#endif
   bool ShouldSendCapturedFrame(std::chrono::steady_clock::time_point now,
                                int fps);
   bool ShouldCaptureCursor() const;
@@ -139,6 +166,15 @@ private:
   // Input is executed on a worker while the UI starts/stops this controller.
   std::mutex mouse_controller_mutex_;
   KeyboardCapturer *keyboard_capturer_ = nullptr;
+#ifdef __APPLE__
+  std::unique_ptr<PlatformMouseCapturer> mouse_capturer_;
+  CapturedMouseQueue captured_mouse_inputs_;
+  // Sender thread woken by the queue's condition variable: game-mode input
+  // reaches the transport at wake latency instead of the 16 ms UI tick.
+  std::thread game_mode_sender_thread_;
+  std::atomic<bool> game_mode_sender_stop_{false};
+  void GameModeSenderMain();
+#endif
   // Guards display_info_list_ (UI thread writes, transport threads read).
   mutable std::mutex display_info_mutex_;
   std::vector<DisplayInfo> display_info_list_;

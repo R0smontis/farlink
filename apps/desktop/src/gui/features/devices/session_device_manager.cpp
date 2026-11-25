@@ -1,6 +1,10 @@
 #include "audio_output_trim.h"
 #include "features/devices/session_device_manager.h"
 
+#ifdef __APPLE__
+#include "platform/macos/input/mouse/mouse_capturer.h"
+#endif
+
 #include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_init.h>
@@ -85,7 +89,15 @@ SessionDeviceManager::SessionDeviceManager(GuiRuntime &owner)
                   });
           }) {}
 
-SessionDeviceManager::~SessionDeviceManager() { speaker_capture_.Shutdown(); }
+SessionDeviceManager::~SessionDeviceManager() {
+#ifdef __APPLE__
+  // The game-mode sender thread is joinable; letting it die with the
+  // object would be std::terminate, and the capturer must restore the
+  // cursor while the object graph is still intact.
+  StopMouseCapturer();
+#endif
+  speaker_capture_.Shutdown();
+}
 
 #ifdef _WIN32
 bool SessionDeviceManager::OwnsNativeCursor() const {
@@ -858,9 +870,141 @@ void SessionDeviceManager::UpdateInteractions() {
     owner_.keyboard_.ForceReleasePressedKeys();
     StopKeyboardCapturer();
   }
+#ifdef __APPLE__
+  // Game-mode mouse capture lives and dies independently of the keyboard
+  // capturer: focus loss or privacy blocking stops keyboard capture, but
+  // the chord exit still owes the UI its state transition, and hiding the
+  // service inside the keyboard branch above would leave chord exits
+  // unhandled exactly when the keyboard capturer is down.
+  ServiceGameModeExit();
+#endif
 
   owner_.keyboard_.CheckRemoteTimeouts();
 }
+#ifdef __APPLE__
+int SessionDeviceManager::StartMouseCapturer(double scale_x, double scale_y,
+                                              double freeze_x, double freeze_y) {
+  // A previous capture that is genuinely live just needs its scale
+  // refreshed. Anything else — pass-through after the escape chord, or a
+  // capturer whose tap died — is torn down completely first: the sender
+  // thread is joinable, so assigning a new one over it would be
+  // std::terminate, and Hook must never be skipped for a tap that no
+  // longer swallows.
+  const bool live = mouse_capturer_ && mouse_capturer_->active() &&
+                    !mouse_capturer_->passthrough();
+  if (live) {
+    mouse_capturer_->SetScale(scale_x, scale_y);
+    return 0;
+  }
+  if (mouse_capturer_ &&
+      (mouse_capturer_->active() || game_mode_sender_thread_.joinable())) {
+    StopMouseCapturer();
+  }
+  if (!owner_.EnsureMacAccessibilityPermission()) return -1;
+  if (!mouse_capturer_) mouse_capturer_ = std::make_unique<PlatformMouseCapturer>();
+  captured_mouse_inputs_.Clear();
+  game_mode_exit_requested_.store(false, std::memory_order_release);
+  const int ret = mouse_capturer_->Hook(
+      [](double dx, double dy, void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushDelta(dx, dy);
+      },
+      [](int button, bool down, void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushButton(button, down);
+      },
+      [](double line_dx, double line_dy, double point_dx, double point_dy,
+         void* user_ptr) {
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->captured_mouse_inputs_.PushWheel(line_dx, line_dy, point_dx,
+                                               point_dy);
+      },
+      [](void* user_ptr) {
+        // The exit is not input: it must not flow through the single
+        // consumer queue, where a batch drain could coalesce or reorder it
+        // against real input. An atomic flag carries it to the UI tick.
+        static_cast<SessionDeviceManager*>(user_ptr)
+            ->game_mode_exit_requested_.store(true,
+                                              std::memory_order_release);
+      },
+      this, scale_x, scale_y, CGPointMake(freeze_x, freeze_y));
+  if (ret != 0) {
+    mouse_capturer_->Unhook();
+    return -1;
+  }
+  // The sender thread turns queue arrivals into transport sends at wake
+  // latency. Draining on the 16 ms UI tick instead would quantise
+  // mouse-look to frame time; the tick still handles the exit transition,
+  // which is not latency-critical.
+  game_mode_sender_stop_.store(false, std::memory_order_release);
+  game_mode_sender_thread_ = std::thread([this] { GameModeSenderMain(); });
+  LOG_INFO("Start mouse capturer (game mode)");
+  return 0;
+}
+
+void SessionDeviceManager::GameModeSenderMain() {
+  for (;;) {
+    // The timeout only bounds shutdown latency; the wakeup that matters is
+    // the push notification. There is no exit event in this queue: capture
+    // release already happened on the tap thread and the exit transition
+    // travels on game_mode_exit_requested_, so input dispatch runs until
+    // the manager stops the thread.
+    const auto events =
+        captured_mouse_inputs_.WaitAndDrain(std::chrono::milliseconds(100));
+    for (const auto& event : events) {
+      switch (event.kind) {
+        case CapturedMouseEvent::Kind::delta:
+          owner_.SendRelativeMouseInput(event.dx, event.dy);
+          break;
+        case CapturedMouseEvent::Kind::button:
+          owner_.SendGameModeButtonInput(event.button, event.down);
+          break;
+        case CapturedMouseEvent::Kind::wheel:
+          owner_.SendGameModeWheelInput(event.dx, event.dy, event.point_dx,
+                                        event.point_dy);
+          break;
+      }
+    }
+    if (game_mode_sender_stop_.load(std::memory_order_acquire)) return;
+  }
+}
+
+int SessionDeviceManager::StopMouseCapturer() {
+  if (!mouse_capturer_) return 0;
+  // Unhook first so no new input is produced while the sender drains, then
+  // stop and join the sender thread: a joinable thread outliving the
+  // manager is std::terminate, and joining before unhooking would let the
+  // tap keep feeding a consumer that is already leaving.
+  const int ret = mouse_capturer_->Unhook();
+  if (game_mode_sender_thread_.joinable()) {
+    game_mode_sender_stop_.store(true, std::memory_order_release);
+    captured_mouse_inputs_.NotifyShutdown();
+    game_mode_sender_thread_.join();
+  }
+  captured_mouse_inputs_.Clear();
+  return ret;
+}
+
+bool SessionDeviceManager::MouseCapturerActive() const {
+  return mouse_capturer_ && mouse_capturer_->active();
+}
+
+void SessionDeviceManager::SetMouseCapturerScale(double scale_x,
+                                                 double scale_y) {
+  if (mouse_capturer_) mouse_capturer_->SetScale(scale_x, scale_y);
+}
+
+void SessionDeviceManager::ServiceGameModeExit() {
+  // Input kinds are dispatched by the woken sender thread; the UI tick only
+  // consumes the exit request, which is state cleanup rather than input.
+  // exchange(false) makes the consumption atomic with the tap thread's
+  // store: a chord landing exactly here is serviced on the next tick, never
+  // lost.
+  if (game_mode_exit_requested_.exchange(false, std::memory_order_acq_rel)) {
+    owner_.RequestGameModeExit();
+  }
+}
+#endif
 
 void SessionDeviceManager::DrainCapturedKeyboardInput() {
   const auto inputs = captured_keyboard_inputs_.Drain();

@@ -569,6 +569,7 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"可使用文件传输窗口发送文件。", {"可使用文件传输窗口发送文件。", "You can send files using the file transfer window.", "Файлы можно отправить через окно передачи файлов.", "可使用檔案傳輸視窗傳送檔案。", "ファイル転送ウィンドウから送信できます。", "파일 전송 창에서 파일을 보낼 수 있습니다.", "Senden Sie Dateien über das Dateiübertragungsfenster.", "Vous pouvez envoyer les fichiers via la fenêtre de transfert.", "Puedes enviar archivos desde la ventana de transferencia.", "Você pode enviar arquivos pela janela de transferência."}},
   {"本端地址", {"本端地址", "Local endpoint", "Локальный адрес", "本端位址", "ローカルアドレス", "로컬 주소", "Lokale Adresse", "Adresse locale", "Dirección local", "Endereço local"}},
   {"对端地址", {"对端地址", "Remote endpoint", "Удалённый адрес", "對端位址", "リモートアドレス", "원격 주소", "Remote-Adresse", "Adresse distante", "Dirección remota", "Endereço remoto"}},
+  {"游戏鼠标", {"游戏鼠标", "Game Mouse", "Игровая мышь", "遊戲滑鼠", "ゲームマウス", "게임 마우스", "Maus im Spielmodus", "Souris de jeu", "Ratón de juego", "Mouse de jogo"}},
 };
 
 struct NamedTranslation { const char* name; const char* literal; };
@@ -691,6 +692,7 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"exit_fullscreen", "退出全屏"},
   {"control_mouse", "控制鼠标"},
   {"release_mouse", "释放鼠标"},
+  {"game_mouse", "游戏鼠标"},
   {"audio_capture", "播放声音"},
   {"mute", "静音"},
   {"send_shortcut", "发送组合键"},
@@ -1212,6 +1214,7 @@ inline constexpr const char* kSlintLiterals[] = {
   X(exit_fullscreen) \
   X(control_mouse) \
   X(release_mouse) \
+  X(game_mouse) \
   X(audio_capture) \
   X(mute) \
   X(send_shortcut) \

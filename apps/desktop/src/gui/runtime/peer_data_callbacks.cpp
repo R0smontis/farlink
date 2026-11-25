@@ -513,6 +513,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
             remote_action.i.supports_deskhub_resolution;
         props->preview_fps15_supported_ = remote_action.i.supports_deskhub_fps15;
         props->preview_bandwidth_supported_ = remote_action.i.supports_deskhub_bandwidth;
+        props->supports_relative_mouse_ =
+            remote_action.i.supports_relative_mouse;
         props->video_settings_supported_ =
             remote_action.i.supports_video_settings;
         if (first_advertisement && props->video_settings_supported_) {

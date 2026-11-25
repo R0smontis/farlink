@@ -11,13 +11,18 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 
 #include <remote_action.h>
 
 #include "application/signal_connection_indicator.h"
+#include "features/input/game_mode_buttons.h"
+#include "features/input/game_mode_scale.h"
+#include "features/input/scroll_accumulator.h"
 #include "rendering/video_geometry.h"
 #include "runtime/cursor_state_provider.h"
 #include "runtime/gui_runtime.h"
@@ -142,6 +147,49 @@ private:
   void SendScrollInput(float delta_x, float delta_y, float x, float y);
   void SendKeyInput(const std::string &text, bool pressed, bool control,
                     bool alt, bool shift, bool meta);
+#ifdef __APPLE__
+  // Relative-mouse game mode. Enter is capability-gated by the peer's
+  // advertised supports_relative_mouse; exit always works and also fires
+  // automatically on focus loss, window close, disconnect and display
+  // switches. Deltas reaching SendRelativeMouseInput are already scaled to
+  // the wire unit by the capturer.
+  void EnterGameMode(StreamView& view);
+  // Single source of the capture-scale math, shared by entry and the
+  // per-tick refresh in SyncGameMode. False means the geometry is
+  // momentarily unusable; callers keep the previous scale.
+  bool ResolveGameModeScale(const std::shared_ptr<RemoteSession>& props,
+                            GameModeScale& out);
+  void ExitGameMode();
+  void SendRelativeMouseInput(double dx, double dy) override;
+  void SendGameModeButtonInput(int button, bool down) override;
+  void SendGameModeWheelInput(double line_dx, double line_dy, double point_dx,
+                              double point_dy) override;
+  void RequestGameModeExit() override;
+  void SyncGameMode();
+  // Thread-safe direct send used by the game-mode hooks on the sender
+  // thread: bypasses the UI-coupled SendRemoteInput path, validates the
+  // session under the shared map lock and uses the MiniRtc entry points
+  // documented as internally synchronized.
+  void SendGameModeActionDirect(const std::string& target, RemoteAction& action,
+                                float wheel_delta);
+  // device-manager-facing entry points are declared on GuiRuntime instead.
+  // Game-mode input hooks run on the device manager's sender thread, not
+  // the UI thread. This mutex protects everything they share with the UI:
+  // the pressed-button set used for exit cleanup, the wheel accumulator
+  // dedicated to game mode (the Slint scroll path cannot fire while the
+  // cursor is frozen, so the UI accumulator is never involved) and the
+  // sensitivity snapshot taken at entry.
+  std::mutex game_mode_mutex_;
+  GameModePressedButtons game_mode_pressed_buttons_;
+  ScrollAccumulator game_mode_scroll_;
+  int game_mode_wheel_percent_ = 100;
+  // Last scale pushed to the capturer, kept so the per-tick refresh in
+  // SyncGameMode only calls SetMouseCapturerScale when the value actually
+  // changed. UI-thread only; the capturer copies it into its own atomics.
+  double game_mode_scale_x_ = 0;
+  double game_mode_scale_y_ = 0;
+#endif
+
   void Cleanup();
 
   void OpenFileDialog(const std::string& title,

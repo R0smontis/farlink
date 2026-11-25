@@ -40,6 +40,10 @@ struct InteractionState {
   std::chrono::steady_clock::time_point last_rejoin_check_time_ =
       std::chrono::steady_clock::now();
   std::string controlled_remote_id_;
+  // Relative-mouse game mode: the session whose input is captured, or empty.
+  // UI-thread only; capture device state lives in SessionDeviceManager.
+  bool game_mode_active_ = false;
+  std::string game_mode_target_;
   std::string connection_dialog_target_;
   std::string remote_client_id_;
 };

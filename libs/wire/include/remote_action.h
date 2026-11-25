@@ -48,6 +48,10 @@ enum MouseFlag {
   middle_up,
   wheel_vertical,
   wheel_horizontal,
+  // Relative displacement in host display pixels. Must stay the last
+  // enumerator: legacy hosts treat unknown flags as absolute moves, so this
+  // may only be sent to peers advertising supports_relative_mouse.
+  move_relative,
 };
 
 enum KeyFlag { key_down = 0, key_up };
@@ -58,6 +62,17 @@ struct Mouse {
   float y;
   int s;
   MouseFlag flag;
+  // Relative displacement for move_relative as a fraction of the controlled
+  // display's width (dx) and height (dy) — the same resolution-independent
+  // spirit as the absolute x/y above it, so mid-session resolution
+  // adaptation of the encoded stream cannot change sensitivity. The
+  // controller computes local point deltas normalised by the rendered video
+  // rect in points; the host multiplies by its own display size in points
+  // for the Core Graphics point and delta fields. Sub-pixel fractions are
+  // preserved here; the host accumulates them losslessly in double.
+  // Zero when absent in the wire message.
+  float dx;
+  float dy;
 };
 
 struct Key {
@@ -152,6 +167,9 @@ struct HostInfo {
   bool supports_file_browser;
   bool supports_file_clipboard;
   int file_clipboard_version;
+  // Optional capability; absent means the host injects every move as an
+  // absolute position and must never receive move_relative input.
+  bool supports_relative_mouse;
 };
 
 struct ServiceStatus {

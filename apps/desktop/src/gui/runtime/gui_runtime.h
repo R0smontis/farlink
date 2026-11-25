@@ -179,6 +179,34 @@ class GuiRuntime : protected gui_detail::GuiState {
   // UI thread: send mapped mouse/keyboard input to the current control target,
   // or every connected session while that target leads DeskHub group control.
   void SendRemoteInput(const RemoteAction& action, float wheel_delta = 0);
+#ifdef __APPLE__
+  // Game-mode delivery hooks invoked by the session device manager's sender
+  // thread — NOT the UI thread. Implementations must be thread-safe against
+  // concurrent UI work: the runtime session map is protected by
+  // remote_sessions_mutex_, and holding its shared lock while using a
+  // session's peer pointer is the established safe pattern (the close path
+  // detaches the peer under the unique lock). The sender thread is woken by
+  // the capture tap within microseconds, which is what keeps mouse-look
+  // latency off the 16 ms UI tick.
+  virtual void SendRelativeMouseInput(double dx, double dy) {
+    (void)dx;
+    (void)dy;
+  }
+  virtual void SendGameModeButtonInput(int button, bool down) {
+    (void)button;
+    (void)down;
+  }
+  virtual void SendGameModeWheelInput(double line_dx, double line_dy,
+                                      double point_dx, double point_dy) {
+    (void)line_dx;
+    (void)line_dy;
+    (void)point_dx;
+    (void)point_dy;
+  }
+  // UI-thread hook: state cleanup after the escape chord. Capture release
+  // itself already happened on the tap thread, so this never gates input.
+  virtual void RequestGameModeExit() {}
+#endif
   InputOutcome ApplyRemoteInput(const std::string& remote_id, const RemoteAction& action);
   void HandleAutomation(const std::string& remote_id, const nlohmann::json& request);
   DesktopAutomation desktop_automation_;

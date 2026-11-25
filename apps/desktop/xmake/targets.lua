@@ -169,6 +169,105 @@ function setup_targets()
         add_includedirs("apps/desktop/src/platform/macos/input")
         add_files("apps/desktop/tests/macos_keyboard_modifier_state_test.cpp")
 
+    target("macos_relative_mouse_injection_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src/platform/macos/input")
+        add_files("apps/desktop/tests/macos_relative_mouse_injection_test.cpp")
+
+    target("game_mode_capture_state_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_capture_state_test.cpp")
+
+    target("game_mode_input_latency_bench")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_input_latency_bench.cpp")
+
+    target("game_mode_buttons_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_buttons_test.cpp")
+
+
+    target("captured_mouse_queue_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/captured_mouse_queue_test.cpp")
+
+    target("game_mode_exit_ordering_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_exit_ordering_test.cpp")
+
+    target("game_mode_scale_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/game_mode_scale_test.cpp")
+    target("captured_mouse_queue_tsan_stress")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/captured_mouse_queue_tsan_stress.cpp")
+        add_cxflags("-fsanitize=thread", "-g", "-O1")
+        add_ldflags("-fsanitize=thread")
+
+    if is_os("macosx") then
+        target("macos_relative_mouse_roundtrip_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_relative_mouse_roundtrip_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_relative_mouse_edge_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_relative_mouse_edge_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_capture_sigkill_tool")
+            set_kind("binary")
+            set_default(false)
+            add_files("apps/desktop/tests/macos_capture_sigkill_tool.mm")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_chord_release_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_chord_release_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+        target("macos_capture_restart_tool")
+            set_kind("binary")
+            set_default(false)
+            add_deps("rd_log", "crossdesk_wire")
+            add_includedirs("apps/desktop/src/platform/macos/input",
+                "apps/desktop/src/device_controller", "apps/desktop/src/log",
+                "apps/desktop/src/common")
+            add_files("apps/desktop/tests/macos_capture_restart_tool.mm",
+                "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
+            add_frameworks("ApplicationServices", "CoreGraphics")
+    end
+
+
     target("cursor_position_test")
         set_kind("binary")
         set_default(false)
@@ -543,6 +642,7 @@ function setup_targets()
             add_syslinks("Wtsapi32", {public = true})
         elseif is_os("macosx") then
             add_files("apps/desktop/src/platform/macos/input/mouse/*.cpp",
+                "apps/desktop/src/platform/macos/input/mouse/*.mm",
                 "apps/desktop/src/platform/macos/input/keyboard/*.cpp",
                 "apps/desktop/src/platform/macos/input/device_controller_factory.cpp")
             add_includedirs("apps/desktop/src/platform/macos/input/mouse",
