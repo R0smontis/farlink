@@ -1,7 +1,7 @@
 /*
- * @Author: DI JUNKUN
- * @Date: 2026-11-25
- * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
+ * Copyright (c) 2026 Farlink contributors
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 // Headless two-endpoint measurement harness. Both endpoints are MiniRTC direct
