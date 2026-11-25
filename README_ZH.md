@@ -1,3 +1,5 @@
+> **Farlink 是 [CrossDesk](https://github.com/kunkundi/crossdesk) 的修改版，2026-11。修改说明见 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md)。**
+>
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk 标志：图标在左，双色文字在右" />
   <p>轻量、跨平台的远程桌面，支持电脑、浏览器、移动端和终端连接，用桌面墙集中查看与操控多台设备。</p>

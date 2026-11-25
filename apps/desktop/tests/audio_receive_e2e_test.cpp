@@ -2,7 +2,7 @@
  * @Author: Farlink contributors
  * @Date: 2026-11-25
  * Copyright (c) 2026 by Farlink contributors.
- * SPDX-License-Identifier: LGPL-3.0-only
+ * SPDX-License-Identifier: GPL-3.0-only
  *
  * In-process end-to-end receive-path proof for the bounded audio jitter
  * buffer. No network: the harness drives the REAL production chain in one
