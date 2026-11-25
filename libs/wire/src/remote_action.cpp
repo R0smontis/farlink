@@ -103,6 +103,7 @@ void ResetHostInfo(HostInfo& info) {
   info.supports_file_browser = false;
   info.supports_file_clipboard = false;
   info.file_clipboard_version = 0;
+  info.supports_relative_mouse = false;
 }
 
 void CopyHostName(HostInfo& info, const std::string& host_name) {
@@ -223,6 +224,13 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
                          {"y", action.m.y},
                          {"s", action.m.s},
                          {"flag", action.m.flag}};
+      // dx/dy are optional keys so legacy receivers (which ignore unknown
+      // keys) parse the same object as before; they are meaningful only for
+      // move_relative, which capability gating keeps off legacy hosts.
+      if (action.m.flag == MouseFlag::move_relative) {
+        object["mouse"]["dx"] = action.m.dx;
+        object["mouse"]["dy"] = action.m.dy;
+      }
       break;
     case ControlType::text_input:
       if (action.text.empty() || action.text.size() > kMaxTextInputBytes ||
@@ -346,7 +354,8 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"supports_deskhub_bandwidth", action.i.supports_deskhub_bandwidth},
           {"supports_file_browser", action.i.supports_file_browser},
           {"supports_file_clipboard", action.i.supports_file_clipboard},
-          {"file_clipboard_version", action.i.file_clipboard_version}};
+          {"file_clipboard_version", action.i.file_clipboard_version},
+          {"supports_relative_mouse", action.i.supports_relative_mouse}};
       if (!action.display_resolutions.empty())
         object["host_info"]["display_resolutions"] =
             DisplayResolutionsJson(action.display_resolutions);
@@ -394,6 +403,11 @@ bool RemoteAction::FromJson(const std::string& json_string,
         output.m.s = object.at("mouse").at("s").get<int>();
         output.m.flag = static_cast<MouseFlag>(
             object.at("mouse").at("flag").get<int>());
+        output.m.dx = object.at("mouse").value("dx", 0.0f);
+        output.m.dy = object.at("mouse").value("dy", 0.0f);
+        if (!std::isfinite(output.m.dx) || !std::isfinite(output.m.dy) ||
+            !std::isfinite(output.m.x) || !std::isfinite(output.m.y))
+          return false;
         break;
       case ControlType::text_input:
         output.text = object.at("text").get<std::string>();
@@ -609,6 +623,8 @@ bool RemoteAction::FromJson(const std::string& json_string,
         output.i.supports_file_clipboard =
             host_info_object.value("supports_file_clipboard", false);
         output.i.file_clipboard_version = host_info_object.value("file_clipboard_version", 0);
+        output.i.supports_relative_mouse =
+            host_info_object.value("supports_relative_mouse", false);
         const std::string host_name =
             host_info_object.at("host_name").get<std::string>();
         CopyHostName(output.i, host_name);
