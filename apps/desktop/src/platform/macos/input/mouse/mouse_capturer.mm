@@ -66,6 +66,11 @@ static CGEventRef MouseCaptureCallback(CGEventTapProxy proxy, CGEventType type,
     capturer->ReenableTap();
     return event;
   }
+  // The escape chord released capture on this very thread: nothing is
+  // swallowed any more, even if the UI thread never drains the exit.
+  if (capturer->passthrough()) {
+    return event;
+  }
   // Events this process injected carry the shared tag. Capturing them would
   // feed host output back into the controller on a loopback machine (and in
   // any A-controls-B-controls-C chain), so they pass through untouched like
@@ -124,21 +129,9 @@ static CGEventRef MouseCaptureCallback(CGEventTapProxy proxy, CGEventType type,
     }
     case kCGEventKeyDown:
     case kCGEventKeyUp: {
-      // Typing continues through the keyboard capturer's own tap, which
-      // forwards and suppresses keys independently; the escape chord only
-      // needs to be observed here. But the chord key itself is local: the G
-      // that completes Ctrl+Alt+G, its auto-repeats and its matching key-up
-      // must never reach the peer through the keyboard path.
       const int vk = VkFromMacKeyCode(static_cast<CGKeyCode>(
           CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)));
-      if (vk >= 0 && capturer->exit_chord_.SwallowsKey(vk)) {
-        capturer->exit_chord_.Update(vk, type == kCGEventKeyDown);
-        return nullptr;
-      }
-      if (vk >= 0 &&
-          capturer->exit_chord_.Update(vk, type == kCGEventKeyDown)) {
-        capturer->DeliverExit();
-        // The key-down that completed the chord is swallowed as well.
+      if (vk >= 0 && capturer->HandleKeyEvent(vk, type == kCGEventKeyDown)) {
         return nullptr;
       }
       return event;
@@ -191,12 +184,36 @@ void PlatformMouseCapturer::DeliverExit() {
   if (on_exit_) on_exit_(user_ptr_);
 }
 
+bool PlatformMouseCapturer::HandleKeyEvent(int vk, bool is_down) {
+  // Typing continues through the keyboard capturer's own tap, which forwards
+  // and suppresses keys independently; the escape chord only needs to be
+  // observed here. But the chord key itself is local: the G that completes
+  // Ctrl+Alt+G, its auto-repeats and its matching key-up must never reach
+  // the peer through the keyboard path.
+  if (exit_chord_.SwallowsKey(vk)) {
+    exit_chord_.Update(vk, is_down);
+    return true;
+  }
+  if (exit_chord_.Update(vk, is_down)) {
+    // Release capture synchronously on the calling (tap) thread before
+    // anything else: passthrough plus cursor restore cannot wait for the UI
+    // thread, which may be busy or hung. The queued exit is only for
+    // UI-side state cleanup.
+    ReleaseOnTapThread();
+    DeliverExit();
+    // The key-down that completed the chord is swallowed as well.
+    return true;
+  }
+  return false;
+}
+
 void PlatformMouseCapturer::ReenableTap() {
   std::lock_guard lock(state_mutex_);
   if (event_tap_) CGEventTapEnable(event_tap_, true);
 }
 
 void PlatformMouseCapturer::FreezeCursor() {
+  std::lock_guard lock(cursor_mutex_);
   CGEventRef current = CGEventCreate(nullptr);
   if (!current) return;
   restore_point_ = CGEventGetLocation(current);
@@ -226,6 +243,10 @@ void PlatformMouseCapturer::FreezeCursor() {
 }
 
 void PlatformMouseCapturer::RestoreCursor() {
+  std::lock_guard lock(cursor_mutex_);
+  // CGDisplayHideCursor is refcounted per display, so the hidden flag is
+  // what keeps paired hide/show balanced when the tap thread and Unhook
+  // both run this path.
   if (cursor_dissociated_) {
     // Return the hardware cursor to where the user originally grabbed game
     // mode before re-associating; without this warp the re-associated
@@ -239,6 +260,13 @@ void PlatformMouseCapturer::RestoreCursor() {
     CGDisplayShowCursor(hidden_display_);
     cursor_hidden_ = false;
   }
+}
+
+void PlatformMouseCapturer::ReleaseOnTapThread() {
+  // Idempotent: chord auto-repeat or a late Unhook can interleave with
+  // this in any order and the outcome is the same single restore.
+  passthrough_.store(true, std::memory_order_release);
+  RestoreCursor();
 }
 
 int PlatformMouseCapturer::Hook(OnMouseDelta on_delta, OnMouseButton on_button,
@@ -270,7 +298,11 @@ int PlatformMouseCapturer::Hook(OnMouseDelta on_delta, OnMouseButton on_button,
     stop_requested_ = false;
   }
 
-  frozen_point_ = freeze_at;
+  passthrough_.store(false, std::memory_order_release);
+  {
+    std::lock_guard lock(cursor_mutex_);
+    frozen_point_ = freeze_at;
+  }
   FreezeCursor();
   run_loop_thread_ = std::thread([this] { RunLoopThreadMain(); });
 

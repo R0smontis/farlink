@@ -71,6 +71,18 @@ class PlatformMouseCapturer {
                     double point_dy);
   void DeliverExit();
   void ReenableTap();
+  // Chord-triggered release on the tap thread itself: flips the tap into
+  // pass-through and restores the cursor immediately, so a stalled UI
+  // thread can never leave the user with a frozen, hidden, swallowed
+  // mouse. The UI-side exit still flows through DeliverExit afterwards.
+  void ReleaseOnTapThread();
+  bool passthrough() const { return passthrough_.load(std::memory_order_acquire); }
+  // Key-event half of the escape chord, factored out of the tap callback so
+  // verification can drive it directly: synthetic keyboard events do not
+  // flow through macOS session event taps, so no test can post a physical
+  // chord. Returns true when the event must be swallowed. On chord
+  // completion this runs the tap-thread release itself.
+  bool HandleKeyEvent(int vk, bool is_down);
 
   GameModeExitChord exit_chord_;
 
@@ -100,6 +112,14 @@ class PlatformMouseCapturer {
   std::atomic<double> scale_x_{1.0};
   std::atomic<double> scale_y_{1.0};
 
+  // Set on the tap thread the moment the escape chord completes: every
+  // later event passes through untouched even before the UI reacts.
+  std::atomic<bool> passthrough_{false};
+
+  // Cursor state is touched by the Hook/Unhook callers AND by the tap
+  // thread on chord release, so these fields are mutex-guarded and the
+  // restore paths are idempotent.
+  std::mutex cursor_mutex_;
   CGPoint frozen_point_{};
   CGPoint restore_point_{};
   bool cursor_hidden_ = false;
