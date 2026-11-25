@@ -27,6 +27,10 @@
 
 #include "minirtc.h"
 
+#if defined(__APPLE__)
+#include "iosurface_frame_source.h"
+#endif
+
 namespace {
 
 
@@ -39,6 +43,9 @@ struct Config {
   const char* address = nullptr;
   MiniRtcVideoDegradationPreference preference =
       MiniRtcVideoDegradationPreference::MaintainResolution;
+  // Feed frames as zero-copy IOSurface-backed CVPixelBuffers (the production
+  // macOS capture path) instead of CPU NV12. macOS-only; ignored elsewhere.
+  bool native_source = false;
 };
 
 struct Endpoint {
@@ -431,6 +438,23 @@ int RunHarness(const Config& config) {
   // spin-up and initial keyframe exchange settle before measurement.
   auto frameset = BuildFrameSet(config.width, config.height);
   const size_t frame_bytes = frameset[0].size();
+
+#if defined(__APPLE__)
+  // In native mode each pool slot is seeded with the noise of the matching
+  // frame-set slot so encode cost is identical to CPU mode; only the barcode
+  // differs per submission. The pool reproduces production's zero-copy path.
+  crossdesk::IoSurfaceFrameSource* native_source = nullptr;
+  if (config.native_source) {
+    // Frame-set slots share one noise field (they differ only by the baked
+    // shift), so a single template seeds every pool slot.
+    native_source = crossdesk::IoSurfaceFrameSource::Create(
+        config.width, config.height, kFrameSetCount, frameset[0].data());
+    if (!native_source) {
+      std::fprintf(stderr, "failed to create IOSurface frame source\n");
+      return 2;
+    }
+  }
+#endif
   const int64_t warmup_end = NowUs() + 1500000;
   uint32_t sequence = 0;
   // Each frame is submitted from one of eight persistent noise slots, stamped in
@@ -440,15 +464,24 @@ int RunHarness(const Config& config) {
   // Send instants are recorded by absolute sequence so the decoder can pair them
   // exactly via the barcode.
   auto submit = [&](uint32_t seq) {
-    auto& base = frameset[seq % kFrameSetCount];
-    StampSequence(base.data(), config.width, config.height, seq);
     const int64_t cap = MiniRtcGetSystemTimeMicros(sender);
     MiniRtcVideoFrame frame{};
-    frame.data = reinterpret_cast<const char*>(base.data());
-    frame.size = frame_bytes;
-    frame.width = config.width;
-    frame.height = config.height;
-    frame.captured_timestamp = cap;
+#if defined(__APPLE__)
+    if (native_source) {
+      // Zero-copy path: stamp the barcode into the slot's pixel buffer and hand
+      // the CVPixelBuffer over by reference, exactly as production capture does.
+      native_source->FillFrame(seq % kFrameSetCount, seq, cap, &frame);
+    } else
+#endif
+    {
+      auto& base = frameset[seq % kFrameSetCount];
+      StampSequence(base.data(), config.width, config.height, seq);
+      frame.data = reinterpret_cast<const char*>(base.data());
+      frame.size = frame_bytes;
+      frame.width = config.width;
+      frame.height = config.height;
+      frame.captured_timestamp = cap;
+    }
     MiniRtcSendVideoFrame(sender, &frame, "Display1");
     std::lock_guard<std::mutex> lock(g_state.latency_mutex);
     if (seq >= g_state.send_time_by_seq.size())
@@ -529,6 +562,11 @@ int RunHarness(const Config& config) {
   MiniRtcCloseDirectSession(receiver);
   MiniRtcDestroyPeer(&sender);
   MiniRtcDestroyPeer(&receiver);
+#if defined(__APPLE__)
+  // Destroy the pool only after the peers are gone so no encoder still holds a
+  // retained buffer the pool is about to release.
+  if (native_source) native_source->Destroy();
+#endif
   return 0;
 }
 
@@ -562,6 +600,7 @@ int main(int argc, char** argv) {
       else
         config.preference = MiniRtcVideoDegradationPreference::MaintainResolution;
     }
+    else if (arg == "--native") config.native_source = true;
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");

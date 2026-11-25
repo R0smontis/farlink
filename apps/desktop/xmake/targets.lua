@@ -216,6 +216,10 @@ function setup_targets()
         add_packages("nlohmann_json")
         add_includedirs("deps/submodules/minirtc/src/api")
         add_files("apps/desktop/tests/frame_rate_harness.cpp")
+        if is_plat("macosx") then
+            add_files("apps/desktop/tests/iosurface_frame_source.mm")
+            add_frameworks("CoreVideo", "IOSurface", "Foundation")
+        end
 
     target("windows_manifest_resource_test")
         set_kind("binary")
