@@ -857,6 +857,22 @@ SDL_DisplayID DisplayForSlintWindow(const slint::Window& window) {
   return display != 0 ? display : SDL_GetPrimaryDisplay();
 }
 
+// Refresh rate (Hz) of the display a Slint window is currently on, or 0.0 when
+// it cannot be determined (no cheap equivalent / unspecified), which callers
+// treat as "unknown, impose no restriction". Prefers the precise rational rate
+// (e.g. NTSC 60000/1001 = 59.94) and falls back to the float rate.
+double RefreshRateForSlintWindow(const slint::Window& window) {
+  const SDL_DisplayID display = DisplayForSlintWindow(window);
+  if (display == 0) return 0.0;
+  const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+  if (!mode) return 0.0;
+  if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0) {
+    return static_cast<double>(mode->refresh_rate_numerator) /
+           static_cast<double>(mode->refresh_rate_denominator);
+  }
+  return mode->refresh_rate > 0.0f ? static_cast<double>(mode->refresh_rate) : 0.0;
+}
+
 #if !defined(__APPLE__)
 window_geometry::PhysicalSize PhysicalWindowSize(const slint::Window& window,
                                                  float logical_width,
@@ -1035,6 +1051,21 @@ struct GuiApplication::StreamView {
   int chrome_attempts = 30;
 #endif
   bool was_visible = false;
+  // Cached refresh-rate constraint for the display this window is on. The
+  // display id is recomputed each sync tick (cheap); the refresh rate and the
+  // resulting max tier are only re-derived when the window moves to a different
+  // display, since SDL cannot deliver a display-change event for a winit window.
+  SDL_DisplayID stream_display = 0;
+  double stream_refresh_hz = 0.0;
+  int stream_display_max_frame_rate = 144;
+  // The (capability, display-max) constraint pair the active tier was last
+  // re-evaluated against. Either half can become available/change at a
+  // different moment — the display is detectable on the first tick while peer
+  // capability only arrives after negotiation — so the re-evaluation must
+  // re-fire when EITHER input changes, not only when the display id does.
+  // -1/-1 is the never-evaluated sentinel.
+  int stream_constraint_capability = -1;
+  int stream_constraint_max_frame_rate = -1;
   slint::ComponentHandle<ui::StreamWindow> window = ui::StreamWindow::create();
 
   bool Visible() const {
@@ -2325,6 +2356,39 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
 #endif
   });
 }
+
+namespace {
+
+// Send a video-settings change request to the host over the reliable control
+// channel. frame_rate must already be the tier to negotiate (capability/display
+// clamping is the caller's job). Returns true if the request was queued; the
+// session state is updated to the requested value and marked pending. Shared by
+// the user-initiated settings callback and the display-driven re-evaluation that
+// drops an unavailable tier.
+bool SendVideoSettingsRequest(gui_detail::RemoteSession& props, int quality,
+                              int frame_rate, int preference) {
+  if (!props.peer_ ||
+      props.connection_status_.load() != MiniRtcConnectionStatus::MiniRtcConnectionConnected)
+    return false;
+  RemoteAction action{};
+  action.type = ControlType::video_settings;
+  action.vs = {quality, frame_rate, preference};
+  if (!ValidVideoSettings(action.vs)) return false;
+  std::lock_guard lock(props.video_settings_mutex_);
+  if (!props.video_settings_supported_) return false;
+  action.vs.request_id = props.video_settings_.request_id + 1;
+  const auto message = action.to_json();
+  if (MiniRtcSendReliableDataFrame(props.peer_, message.data(), message.size(),
+                                   props.control_data_label_.c_str()) != 0)
+    return false;
+  props.video_settings_ = action.vs;
+  props.video_settings_pending_ = true;
+  props.video_settings_failed_ = false;
+  props.video_settings_request_tick_ = SDL_GetTicks();
+  return true;
+}
+
+}  // namespace
 
 void GuiApplication::BindStreamCallbacks(StreamView& view) {
   auto& stream = view.window;
@@ -4163,6 +4227,11 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   stream->set_remote_cursor_active(remote_cursor_active);
   stream->set_remote_cursor_shape(remote_cursor_shape);
   stream->set_audio_enabled(props->audio_capture_button_pressed_);
+  // Decision to drop an unpresentable active tier, computed under the lock but
+  // acted on after it is released (the send re-acquires the same mutex).
+  int downgrade_frame_rate = 0;
+  int downgrade_quality = 0;
+  int downgrade_preference = 0;
   {
     std::lock_guard lock(props->video_settings_mutex_);
     if (props->video_settings_pending_ &&
@@ -4176,12 +4245,61 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     stream->set_video_settings_enabled(status == MiniRtcConnectionStatus::MiniRtcConnectionConnected &&
                                      props->video_settings_supported_);
     stream->set_high_fps_supported(props->high_fps_supported_.load());
+    {
+      // Recompute the display id each tick (cheap) and only re-derive the
+      // refresh rate / max tier when the window actually moves to a different
+      // display — SDL cannot emit a display-change event for a winit window, so
+      // the screen-change re-evaluation is driven by this id comparison.
+      const SDL_DisplayID display = DisplayForSlintWindow(stream->window());
+      const bool display_changed = display != view.stream_display;
+      if (display_changed) {
+        view.stream_display = display;
+        view.stream_refresh_hz = RefreshRateForSlintWindow(stream->window());
+        view.stream_display_max_frame_rate =
+            MaxVideoFrameRateForRefresh(view.stream_refresh_hz);
+      }
+      stream->set_display_max_frame_rate(view.stream_display_max_frame_rate);
+      // Re-evaluate the active tier whenever a constraint it depends on
+      // changes: the display-derived max tier OR the peer capability. Either
+      // can become available at a different moment (the display is detectable
+      // on the first tick, capability only after negotiation), so keying only
+      // on the display transition would miss the session-start clamp. If the
+      // active tier is unpresentable under the current constraint, drop to the
+      // highest tier the peer and this panel both support, through the same
+      // request path the settings UI uses. Never fires while a change is in
+      // flight, so it cannot fight the user or loop; the persisted preference
+      // is untouched by the clamp.
+      const int capability = props->high_fps_supported_.load() ? 1 : 0;
+      const bool constraint_changed =
+          capability != view.stream_constraint_capability ||
+          view.stream_display_max_frame_rate != view.stream_constraint_max_frame_rate;
+      if (constraint_changed) {
+        view.stream_constraint_capability = capability;
+        view.stream_constraint_max_frame_rate = view.stream_display_max_frame_rate;
+        if (!props->video_settings_pending_ && props->video_settings_supported_) {
+          const int active = props->video_settings_.frame_rate;
+          const int effective = EffectiveVideoFrameRate(
+              active, props->high_fps_supported_.load(), view.stream_refresh_hz);
+          if (effective != active) {
+            downgrade_frame_rate = effective;
+            downgrade_quality = props->video_settings_.quality;
+            downgrade_preference = props->video_settings_.preference;
+          }
+        }
+      }
+    }
     stream->set_video_settings_feedback(UiText(
         props->video_settings_failed_
             ? localization::video_settings_failed[localization_language_index_] : ""));
     stream->set_video_quality_index(props->video_settings_.quality);
     stream->set_frame_rate_index(VideoFrameRateIndex(props->video_settings_.frame_rate));
     stream->set_adaptation_policy_index(props->video_settings_.preference);
+  }
+  // Act on the downgrade decision now that video_settings_mutex_ is released —
+  // SendVideoSettingsRequest re-acquires it, so it must not run under the lock.
+  if (downgrade_frame_rate != 0) {
+    SendVideoSettingsRequest(*props, downgrade_quality, downgrade_frame_rate,
+                             downgrade_preference);
   }
   view.ObserveWindowState();
   stream->set_stats_visible(props->net_traffic_stats_button_pressed_);

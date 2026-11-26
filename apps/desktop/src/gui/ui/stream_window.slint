@@ -466,6 +466,11 @@ export component StreamWindow inherits Window {
     in property <bool> audio-enabled: true;
     in property <bool> video-settings-enabled: false;
     in property <bool> high-fps-supported: false;
+    // Highest frame-rate tier the display this window is on can present,
+    // computed in C++ from the panel's refresh rate. 144 means no restriction
+    // (fast panel or unknown rate); a lower value disables the tiers above it
+    // exactly like an unsupported peer does.
+    in property <int> display-max-frame-rate: 144;
     in property <string> video-settings-feedback: "";
     in-out property <int> video-quality-index: 2;
     in-out property <int> frame-rate-index: 1;
@@ -1931,7 +1936,10 @@ export component StreamWindow inherits Window {
                         VideoSettingRow {
                             label: StreamStrings.frame-rate; options: ["30 fps", "60 fps", "90 fps", "120 fps", "144 fps"];
                             selected: root.frame-rate-index; enabled: root.video-settings-enabled;
-                            options-enabled: [true, true, root.high-fps-supported, root.high-fps-supported, root.high-fps-supported];
+                            options-enabled: [true, true,
+                                root.high-fps-supported && root.display-max-frame-rate >= 90,
+                                root.high-fps-supported && root.display-max-frame-rate >= 120,
+                                root.high-fps-supported && root.display-max-frame-rate >= 144];
                             choose(index) => { root.change-video-settings(root.video-quality-index, index, root.adaptation-policy-index); }
                         }
                         VideoSettingRow {
