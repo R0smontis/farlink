@@ -103,12 +103,13 @@
 #include "server_window_state.h"
 #include "signal_server_settings.h"
 #include <minirtc.h>
+#include <app_version.h>
 #include "ui/announcement_text.h"
 #include "ui/model_update.h"
 #include "ui/release_notes_text.h"
 #include "ui/ui_localization.h"
-#include "update_checker.h"
 #if CROSSDESK_HAS_UPDATER
+#include "update_checker.h"
 #include "updater/update_controller.h"
 #endif
 #include "window_geometry.h"
@@ -1186,9 +1187,11 @@ struct GuiApplication::SlintUi {
   slint::ComponentHandle<ui::MainWindow> main = ui::MainWindow::create();
   slint::ComponentHandle<ui::MainWindow> wall = ui::MainWindow::create();
   auto& Window(bool gallery) { return gallery ? wall : main; }
+#if CROSSDESK_HAS_UPDATER
   std::shared_ptr<slint::VectorModel<ui::ReleaseNoteBlock>>
       release_note_blocks_model =
           std::make_shared<slint::VectorModel<ui::ReleaseNoteBlock>>();
+#endif
   std::map<std::string, StreamView> streams;
   bool releasing_input = false;
   bool gallery_previous_mouse_control = false;
@@ -1367,21 +1370,8 @@ int GuiApplication::Run(bool login_launch) {
   LOG_INFO("Slint backend: {}; {}", backend.backend, backend.diagnostic);
 #endif
   InitializeModules();
-  // This fork operates no update server, so it must not poll upstream's
-  // version.crossdesk.cn or offer upstream CrossDesk releases — installing one
-  // would replace Farlink with the stock app. The empty CROSSDESK_UPDATE_PUBLIC_KEY
-  // already makes the signed auto-installer fail verification, but the version
-  // check itself and the manual-download offer would still reach upstream, so the
-  // fetch is stubbed to settle on "up to date" without any network access.
-  update_checker_ = std::make_unique<UpdateChecker>(
-      CROSSDESK_VERSION, []() -> std::optional<VersionInfo> {
-        // Report the installed version as the latest so the checker settles on
-        // "up to date" without contacting anything — never a newer upstream release.
-        VersionInfo current;
-        current.version = CROSSDESK_VERSION;
-        return current;
-      });
 #if CROSSDESK_HAS_UPDATER
+  update_checker_ = std::make_unique<UpdateChecker>(CROSSDESK_VERSION);
   updater_ = std::make_unique<updater::Controller>(path_manager_->GetCachePath());
 #endif
   InitializeUi();
@@ -1560,7 +1550,9 @@ void GuiApplication::InitializeUi() {
   // Set this only at startup so dismissing the notice lasts until exit.
   ui_->main->set_wayland_notice_open(is_wayland_session);
 #endif
+#if CROSSDESK_HAS_UPDATER
   ui_->main->set_release_note_blocks(ui_->release_note_blocks_model);
+#endif
   RegisterFontAwesome(ui_->main->window());
   ui_->main->set_recent_connections(ui_->recent_model);
   ui_->gallery_path = std::filesystem::path(cache_path_) / "deskhub.json";
@@ -1572,8 +1564,10 @@ void GuiApplication::InitializeUi() {
   ui_->wall->set_gallery_mode(true);
   ui_->wall->set_custom_titlebar(ui_->main->get_custom_titlebar());
   ui_->wall->set_wayland_titlebar(ui_->main->get_wayland_titlebar());
+#if CROSSDESK_HAS_UPDATER
   ui_->wall->set_release_note_blocks(ui_->release_note_blocks_model);
   ui_->wall->set_update_open(false);
+#endif
   RegisterFontAwesome(ui_->wall->window());
   // The first DeskHub window is 960 x 720 logical pixels including its titlebar.
   // Custom titlebars are part of the Slint client; AppKit's titlebar is not.
@@ -2174,18 +2168,15 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
                                    ? UiText(std::to_string(signal_port))
                                    : slint::SharedString{});
   });
-  main->on_cancel_update([this] {
 #if CROSSDESK_HAS_UPDATER
+  main->on_cancel_update([this] {
     if (updater_ && updater_->busy()) updater_->Cancel();
-#endif
   });
   main->on_open_manual_download([this] {
     const auto& latest = update_checker_->latest();
-    OpenUrl(latest && !latest->download_url.empty() ? latest->download_url
-                                                   : "https://crossdesk.cn");
+    if (latest && !latest->download_url.empty()) OpenUrl(latest->download_url);
   });
   main->on_open_download([this, main] {
-#if CROSSDESK_HAS_UPDATER
     const auto& latest = update_checker_->latest();
     if (updater_ && updater_->busy()) return;
     if (updater_ && latest && updater_->Available(latest->update_envelope)) {
@@ -2194,14 +2185,12 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
       main->set_update_confirm_open(true);
       return;
     }
-#endif
     main->invoke_open_manual_download();
   });
   main->on_confirm_update([this, main] {
     if (!main->get_update_confirm_open()) return;
     for (const auto& window : {ui_->main, ui_->wall})
       window->set_update_confirm_open(false);
-#if CROSSDESK_HAS_UPDATER
     const auto& latest = update_checker_->latest();
     if (!updater_ || updater_->busy() || !latest ||
         !updater_->Available(latest->update_envelope)) return;
@@ -2213,14 +2202,16 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
           updater_->state() == updater::Controller::State::Failed);
       window->set_update_install_status("");
     }
-#endif
   });
+#endif
   about::Populate(ui_->Window(gallery_window));
   main->on_open_about_link([this](slint::SharedString url) {
     const std::string link(url);
     if (link.starts_with("https://")) OpenUrl(link);
   });
+#if CROSSDESK_HAS_UPDATER
   main->on_open_website([this] { OpenUrl("https://crossdesk.cn"); });
+#endif
   main->on_open_feedback_github([this, main] {
     if (!OpenUrl("https://github.com/kunkundi/crossdesk/issues/new/choose")) {
       main->set_feedback_succeeded(false);
@@ -2246,10 +2237,12 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
       LOG_WARN("Could not persist the displayed release version");
     }
   });
+#if CROSSDESK_HAS_UPDATER
   main->on_check_for_updates([this] {
     update_checker_->RequestCheck();
     SyncMainWindow();
   });
+#endif
   main->on_connection_cancel([this] {
     const auto props = FindRemoteSession(ui_->connection_dialog_remote_id);
     if (!props) {
@@ -3064,7 +3057,6 @@ void GuiApplication::PollUpdateCheck() {
       main->set_update_install_status(UiText(status));
     }
   }
-#endif
   // The first tick runs after show()/event-loop startup. Poll never waits for
   // networking and all application/model changes remain on this UI thread.
   // Self-hosted deployments point at their own signalling infrastructure and
@@ -3088,6 +3080,7 @@ void GuiApplication::PollUpdateCheck() {
     blocks.push_back(std::move(block));
   }
   ui_->release_note_blocks_model->set_vector(std::move(blocks));
+#endif
 }
 
 void GuiApplication::ShareLocalCursorState() {
@@ -3663,6 +3656,8 @@ void GuiApplication::SyncMainWindow() {
     main->set_signal_reconnecting(signal_reconnecting);
     main->set_signal_tls_error(signal_status_ ==
                                     MiniRtcSignalStatus::MiniRtcSignalTlsCertError);
+    main->set_current_version(CROSSDESK_VERSION);
+#if CROSSDESK_HAS_UPDATER
     main->set_update_available(update_available_);
     switch (update_checker_->status()) {
       case UpdateChecker::Status::Idle:
@@ -3681,10 +3676,10 @@ void GuiApplication::SyncMainWindow() {
         main->set_update_check_status(ui::UpdateCheckStatus::Failed);
         break;
     }
-    main->set_current_version(CROSSDESK_VERSION);
     main->set_latest_version(UiText(latest_version_));
     main->set_release_name(UiText(release_name_));
     main->set_release_date(UiText(release_date_));
+#endif
     main->set_settings_session_active(HasActiveSession());
   }
   if (show_offline_warning_window_) {
@@ -4186,6 +4181,7 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   }
   view.was_visible = visible;
   const MiniRtcConnectionStatus status = props->connection_status_.load();
+#if CROSSDESK_HAS_UPDATER
   bool remote_update_available = false;
   HostPlatform remote_platform = HostPlatform::Unknown;
   if (status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
@@ -4199,6 +4195,14 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
                               *update_checker_->latest()).has_value());
     }
   }
+#else
+  constexpr bool remote_update_available = false;
+  HostPlatform remote_platform = HostPlatform::Unknown;
+  if (status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
+    std::lock_guard lock(props->remote_version_mutex_);
+    remote_platform = props->remote_platform_;
+  }
+#endif
   stream->set_remote_update_visible(remote_update_available);
   stream->set_secure_attention_supported(remote_platform == HostPlatform::Windows);
   stream->set_service_warning(UiText(
@@ -7705,10 +7709,10 @@ void GuiApplication::Cleanup() {
   }
 #endif
   ui_.reset();
+#if CROSSDESK_HAS_UPDATER
   if (update_checker_) {
     update_checker_->Stop();
   }
-#if CROSSDESK_HAS_UPDATER
   updater_.reset();
 #endif
   SDL_Quit();

@@ -199,8 +199,8 @@ private:
   bool OpenUrl(const std::string &url);
 
   std::unique_ptr<SlintUi> ui_;
-  std::unique_ptr<UpdateChecker> update_checker_;
 #if CROSSDESK_HAS_UPDATER
+  std::unique_ptr<UpdateChecker> update_checker_;
   std::unique_ptr<updater::Controller> updater_;
 #endif
   CursorStateProvider cursor_state_provider_;

@@ -3513,31 +3513,8 @@ export component MainWindow inherits Window {
                 width: parent.width - 48px; height: self.preferred-height;
                 spacing: 16px;
                 SurfaceSeparator { height: 1px; outline-color: UiSurface.separator; }
-                if root.update-status-text != "": Text {
-                    text: root.update-status-text;
-                    color: root.update-check-status == UpdateCheckStatus.failed ? #b3261e
-                        : root.update-check-status == UpdateCheckStatus.up-to-date ? WorkbenchStyle.success : WorkbenchStyle.muted;
-                    font-size: 12px; wrap: word-wrap;
-                }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;
-                    if root.update-available: WorkbenchButton {
-                        width: max(80px, about-update-button-metrics.preferred-width + 24px);
-                        height: 32px;
-                        primary: true;
-                        text-size: 12px;
-                        text: root.update-action-text;
-                        enabled: !root.update-install-busy;
-                        clicked => { root.open-download(); root.about-open = false; root.update-open = true; }
-                        about-update-button-metrics := Text { visible: false; text: root.update-action-text; font-size: 12px; }
-                    }
-                    SettingsButton {
-                        width: max(116px, check-button-metrics.preferred-width + 24px);
-                        text: UiStrings.check-for-updates;
-                        enabled: root.update-check-status != UpdateCheckStatus.checking;
-                        clicked => { root.check-for-updates(); }
-                        check-button-metrics := Text { visible: false; text: UiStrings.check-for-updates; font-size: 12px; }
-                    }
                     SettingsButton { width: 80px; primary: true; text: UiStrings.ok; clicked => { root.about-open = false; } }
                 }
             }

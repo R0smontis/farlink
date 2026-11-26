@@ -924,7 +924,7 @@ function setup_targets()
         add_files("apps/desktop/src/network/lan/*.cpp")
         if not is_config("CROSSDESK_PORTABLE", true) then
             add_defines("CROSSDESK_HAS_UPDATER=1", {public = true})
-            add_deps("updater_core")
+            add_deps("updater_core", "version_checker")
             add_files("apps/desktop/src/updater/update_controller.cpp")
         end
         if is_config("CROSSDESK_PORTABLE", true) then
@@ -935,7 +935,7 @@ function setup_targets()
         add_deps("rd_log", "desktop_common", "assets", "config_center", "minirtc",
             "single_instance",
             "path_manager", "screen_capturer", "speaker_capturer",
-            "device_controller", "thumbnail", "version_checker", "tools",
+            "device_controller", "thumbnail", "tools",
             "crossdesk_wire", "crossdesk_file_browser", "privacy", "crossdesk_ui")
         add_files("apps/desktop/src/gui/render.cpp", "apps/desktop/src/gui/application/gui_application.cpp",
             "apps/desktop/src/gui/rendering/*.cpp",
