@@ -381,6 +381,24 @@ function setup_targets()
         add_deps("rd_log")
         add_includedirs("apps/desktop/src/gui/features/devices")
         add_files("apps/desktop/tests/audio_output_trim_test.cpp")
+    target("encoder_ceiling_reprobe_test")
+        set_kind("binary")
+        set_default(false)
+        -- Drives the real EncoderThroughputCeiling state machine, the
+        -- VideoAdaptationPolicy gate predicates, and the real
+        -- ResolutionAdapter ladder for the rung-granular ceiling-gate
+        -- property test. The ladder methods live in the media object target,
+        -- so the harness links minirtc (and libyuv for the scaler the
+        -- adapter translation unit references) like the other
+        -- encoder-internals tests below.
+        add_deps("minirtc")
+        add_packages("libyuv")
+        add_includedirs("deps/submodules/minirtc/src/media/resolution_adapter",
+            "deps/submodules/minirtc/src/transport",
+            "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/common",
+            "deps/submodules/minirtc/src/frame")
+        add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
 
     if is_plat("macosx") then
         target("video_toolbox_in_flight_test")
@@ -426,7 +444,8 @@ function setup_targets()
         add_deps("minirtc")
         add_packages("nlohmann_json")
         add_includedirs("deps/submodules/minirtc/src/api")
-        add_files("apps/desktop/tests/frame_rate_harness.cpp")
+        add_files("apps/desktop/tests/frame_rate_harness.cpp",
+            "apps/desktop/tests/udp_shaper.cpp")
         if is_plat("macosx") then
             add_files("apps/desktop/tests/iosurface_frame_source.mm")
             add_frameworks("CoreVideo", "IOSurface", "Foundation")
