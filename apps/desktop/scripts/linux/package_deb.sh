@@ -81,7 +81,13 @@ DESKTOP_DIR="$DEB_DIR/usr/share/applications"
 install -d "$DEBIAN_DIR" "$BIN_DIR" "$PRIVATE_DIR" "$DESKTOP_DIR"
 install -m 0755 "$SCRIPT_DIR/autostart_postinst.sh" "$DEBIAN_DIR/postinst"
 install -m 0755 "$BUILD_BINARY" "$PRIVATE_DIR/crossdesk-bin"
-install -m 0755 "$(dirname "$BUILD_BINARY")/crossdesk_updater" "$PRIVATE_DIR/crossdesk_updater"
+# The updater is only present in non-portable builds (CROSSDESK_HAS_UPDATER).
+# The fork ships portable, so stage it only when the build actually produced it.
+UPDATER_STAGED=0
+if [[ -f "$(dirname "$BUILD_BINARY")/crossdesk_updater" ]]; then
+    install -m 0755 "$(dirname "$BUILD_BINARY")/crossdesk_updater" "$PRIVATE_DIR/crossdesk_updater"
+    UPDATER_STAGED=1
+fi
 
 # PipeWire is deliberately optional. The Wayland capturer resolves PipeWire
 # 0.3 with dlopen() so the same package can run on Ubuntu 20.04 without the
@@ -123,7 +129,11 @@ fi
 # Check the staged files with only their private runtime directory available.
 # ldd -r can exit successfully even when it reports unresolved symbols, so its
 # diagnostics must also be checked. This does not start the GUI or updater.
-for executable in crossdesk-bin crossdesk_updater; do
+CHECK_EXECUTABLES="crossdesk-bin"
+if [[ "$UPDATER_STAGED" = 1 ]]; then
+    CHECK_EXECUTABLES="$CHECK_EXECUTABLES crossdesk_updater"
+fi
+for executable in $CHECK_EXECUTABLES; do
     dependency_report="$WORK_DIR/$executable.ldd"
     if ! env -u LD_PRELOAD -u LD_AUDIT LD_LIBRARY_PATH="$PRIVATE_DIR" \
         ldd -r "$PRIVATE_DIR/$executable" > "$dependency_report" 2>&1 || \

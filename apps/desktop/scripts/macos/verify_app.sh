@@ -71,19 +71,6 @@ verify_dependencies() {
 }
 
 verify_dependencies "$APP_EXECUTABLE"
-UPDATER="$APP_BUNDLE/Contents/MacOS/crossdesk_updater"
-if [[ ! -x "$UPDATER" ]] || ! lipo "$UPDATER" -verify_arch "$EXPECTED_ARCH" >/dev/null 2>&1; then
-    echo "Missing updater or incorrect updater architecture" >&2
-    exit 1
-fi
-# The updater runs outside the bundle during installation, so it must not rely
-# on private frameworks that are being replaced.
-while IFS= read -r dependency; do
-    case "$dependency" in
-        /System/Library/*|/usr/lib/*) ;;
-        *) echo "Updater has a non-system dynamic dependency: $dependency" >&2; exit 1 ;;
-    esac
-done < <(otool -L "$UPDATER" | tail -n +2 | awk '{ print $1 }')
 
 SLINT_LIBRARY="$(find "$FRAMEWORKS_DIR" -maxdepth 1 -type f -name 'libslint_cpp*.dylib' -print -quit 2>/dev/null || true)"
 if [[ -z "$SLINT_LIBRARY" ]]; then
@@ -128,7 +115,7 @@ fi
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 # A distribution build must not silently fall back to an ad-hoc/development
-# identity, omit a secure timestamp, or leave its updater/runtime unsigned.
+# identity, omit a secure timestamp, or leave its runtime unsigned.
 APP_SIGNATURE="$(codesign --display --verbose=4 "$APP_BUNDLE" 2>&1)"
 if [[ "${CROSSDESK_MACOS_SIGN_IDENTITY:--}" != "-" ||
       "$APP_SIGNATURE" == *"Authority=Developer ID Application: "* ]]; then
@@ -160,7 +147,6 @@ if [[ "${CROSSDESK_MACOS_SIGN_IDENTITY:--}" != "-" ||
     }
 
     verify_distribution_signature "$APP_BUNDLE"
-    verify_distribution_signature "$UPDATER"
     while IFS= read -r -d '' library; do
         verify_distribution_signature "$library"
     done < <(find "$FRAMEWORKS_DIR" -type f -name '*.dylib' -print0)

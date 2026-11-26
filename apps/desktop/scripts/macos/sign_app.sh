@@ -30,7 +30,7 @@ if [[ -n "${CROSSDESK_MACOS_KEYCHAIN:-}" ]]; then
     SIGN_ARGS+=(--keychain "$CROSSDESK_MACOS_KEYCHAIN")
 fi
 
-for executable in Farlink crossdesk_updater; do
+for executable in Farlink; do
     if [[ ! -x "$APP_BUNDLE/Contents/MacOS/$executable" ]]; then
         echo "Missing app executable: $APP_BUNDLE/Contents/MacOS/$executable" >&2
         exit 1
@@ -42,12 +42,10 @@ if [[ ! -d "$APP_BUNDLE/Contents/Frameworks" ]]; then
     exit 1
 fi
 
-# Sign nested code explicitly, from the inside out. The updater also runs
-# outside the bundle, and must retain its own valid Developer ID signature.
+# Sign nested code explicitly, from the inside out.
 while IFS= read -r -d '' library; do
     codesign "${SIGN_ARGS[@]}" "$library"
 done < <(find "$APP_BUNDLE/Contents/Frameworks" -type f -name '*.dylib' -print0)
-codesign "${SIGN_ARGS[@]}" "$APP_BUNDLE/Contents/MacOS/crossdesk_updater"
 codesign "${SIGN_ARGS[@]}" ${APP_ARGS[@]+"${APP_ARGS[@]}"} "$APP_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 

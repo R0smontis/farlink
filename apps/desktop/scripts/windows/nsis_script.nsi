@@ -103,7 +103,9 @@ installApp:
 
     ; Main application executable path
     File /oname=CrossDesk.exe "..\..\..\..\build\windows\x64\release\crossdesk.exe"
+!ifdef CROSSDESK_HAS_UPDATER
     File "..\..\..\..\build\windows\x64\release\crossdesk_updater.exe"
+!endif
     ; Bundle service-side binaries required by the Windows service flow
     File "..\..\..\..\build\windows\x64\release\crossdesk_service.exe"
     File "..\..\..\..\build\windows\x64\release\crossdesk_session_helper.exe"
