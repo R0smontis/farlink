@@ -16,7 +16,7 @@ The bundled media library `deps/submodules/minirtc` is itself a modified version
 
 ## Summary of modifications
 
-The fork extends upstream CrossDesk in four independent areas:
+The fork extends upstream CrossDesk across these independent areas:
 
 - **High frame-rate capture/encode** — frame-rate tiers beyond 60 fps (30/60/90/120/144)
   negotiated via a new `supports_high_fps` wire capability, a GPU-native CVPixelBuffer
@@ -25,6 +25,24 @@ The fork extends upstream CrossDesk in four independent areas:
   relative-mouse injection, negotiated via a new `supports_relative_mouse` wire capability.
 - **Bounded audio jitter buffer** — a receive-side jitter buffer with reorder absorption
   and output trimming for the audio path.
+- **Stereo audio (D11)** — 48 kHz stereo Opus capture/playback with backward-compatible
+  SDP negotiation, mono legacy fallback, mono downmix fan-out for mixed-peer sessions,
+  and DTX; proven by an in-process stereo round-trip test.
+- **Adaptive video playout (D4)** — a jitter-buffered video playout path in the bundled
+  minirtc that smooths inter-presentation timing under jitter; the live target delays are
+  surfaced in the stream stats overlay.
+- **Static-screenshare power saving (D5)** — an allocation-free 0 Hz frame detector in the
+  bundled minirtc that idles the encoder on static screens and wakes on change.
+- **Loss-aware congestion recovery (D3)** — binary-band RTX duplicate suppression with a
+  per-packet cap, a continuous 1%-quantized FEC protection curve with a 35% heavy ceiling,
+  and a FIR minimum-interval throttle in the bundled minirtc.
+- **Host screen-lock awareness** — the host pauses video forwarding while its screen is
+  locked and forces an IDR on unlock so the viewer recovers immediately.
+- **Live QoE overlay and redacted diagnostic export (D8)** — the stream stats overlay now
+  renders the live D8 quality-of-experience metrics, and the diagnostic bundle export is
+  redacted with a live session summary and a stream-window action.
+- **macOS input ergonomics** — side-aware modifier tracking, modifier tap recovery, a
+  shortcut policy, and a chord-leak fix for the macOS input path.
 - **Session observability and encoder cold-start priming** — machine-readable session
   metrics (per-second fps histogram, resolution series, network samples, session-cumulative
   inter-presentation gap), a non-interactive `--lan-connect` direct-connect entry that keeps
@@ -113,3 +131,11 @@ The fork extends upstream CrossDesk in four independent areas:
 | `libs/wire/tests/video_frame_rate_wire_test.cpp` | Frame-rate wire round-trip tests. |
 | `apps/desktop/tests/inter_present_emission_test.cpp` | Inter-presentation gap metric emission tests. |
 | `apps/desktop/tests/inter_present_gap_test.cpp` | Session-cumulative inter-presentation gap tests. |
+| `apps/desktop/src/common/screen_lock_monitor.h` | Host screen-lock state monitor (lock/unlock awareness). |
+| `apps/desktop/src/gui/features/feedback/diagnostic_redaction.h` | Redaction helpers for the diagnostic bundle export. |
+| `apps/desktop/src/platform/macos/input/macos_modifier_key_tracker.h` | Side-aware macOS modifier-key tracker. |
+| `apps/desktop/tests/audio_stereo_roundtrip_test.cpp` | D11 stereo Opus round-trip proof (separation, mono fallback, downmix, DTX, loss+jitter). |
+| `apps/desktop/tests/build_identity_stub.cpp` | Build-identity stub for the redaction test. |
+| `apps/desktop/tests/diagnostic_export_redaction_test.cpp` | Diagnostic export redaction/ZIP assembly tests. |
+| `apps/desktop/tests/macos_modifier_key_tracker_test.cpp` | Modifier-key tracker unit tests. |
+| `apps/desktop/tests/screen_lock_monitor_test.cpp` | Screen-lock monitor unit tests. |

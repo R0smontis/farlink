@@ -2,8 +2,12 @@
 
 **Farlink** is a fork of [CrossDesk](https://github.com/kunkundi/crossdesk) aimed at a
 commercial-grade low-latency remote desktop experience: high frame-rate capture/encode (up to 144 fps negotiation),
-hardware encoder cold-start priming, a bounded audio jitter buffer, game/relative-mouse
-input mode, and machine-readable session observability. Licensed GPL-3.0-only like
+hardware encoder cold-start priming, a bounded audio jitter buffer, 48 kHz stereo Opus
+audio (D11), an adaptive video playout (jitter) buffer (D4), static-screenshare power
+saving (D5), loss-aware congestion recovery (D3), host screen-lock awareness, a live
+QoE stream-stats overlay with redacted diagnostic export (D8), macOS input ergonomics,
+game/relative-mouse input mode, and machine-readable session observability. Licensed
+GPL-3.0-only like
 upstream; the bundled `deps/submodules/minirtc` media library is
 [a Farlink fork](https://github.com/R0smontis/minirtc) of upstream
 [kunkundi/minirtc](https://github.com/kunkundi/minirtc), licensed LGPL-3.0.
