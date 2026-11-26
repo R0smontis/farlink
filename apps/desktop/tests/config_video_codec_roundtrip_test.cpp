@@ -4,9 +4,7 @@
  * Copyright (c) 2026 by Farlink contributors.
  * SPDX-License-Identifier: GPL-3.0-only
  *
- * Round-trip proof for the persisted video-codec setting, the one piece of
- * user-facing video configuration the fork both exposes in the UI and stores.
- * The codec selector in the main settings dialog (main_window.slint) writes
+ * Round-trip checks for persisted video settings. The codec selector writes
  * through ConfigCenter::SetVideoEncodeFormat; this test drives the same
  * setter/getter pair against a temporary INI file and confirms:
  *   1. write -> restart-equivalent reload -> the value is restored;
@@ -159,6 +157,27 @@ int main() {
     Expect(writer.GetVideoFrameRatePreference() == 60,
            "rejected frame-rate preference must leave the default in place");
   }
+
+  // 7. True color is opt-in. Loading and saving either choice must preserve it.
+  SeedIni(config, "[Settings]\nvideo_true_color_444 = 2\n");
+  Expect(!ConfigCenter(config).IsVideoTrueColor444(), "invalid 4:4:4 preference must be off");
+  fs::remove(config);
+  {
+    ConfigCenter fresh(config);
+    Expect(!fresh.IsVideoTrueColor444(), "fresh profile must use 4:2:0");
+    Expect(fresh.SetVideoTrueColor444(true) == 0, "must persist 4:4:4");
+  }
+  {
+    ConfigCenter saved(config);
+    Expect(saved.IsVideoTrueColor444(), "4:4:4 must survive reload");
+    Expect(saved.Save() == 0, "full save must succeed");
+  }
+  {
+    ConfigCenter saved(config);
+    Expect(saved.IsVideoTrueColor444(), "full save must retain 4:4:4");
+    Expect(saved.SetVideoTrueColor444(false) == 0, "must persist 4:2:0");
+  }
+  Expect(!ConfigCenter(config).IsVideoTrueColor444(), "opting out must survive reload");
 
   fs::remove_all(dir);
   if (failures == 0) {

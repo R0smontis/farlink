@@ -104,6 +104,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   int ConnectTo(const std::string& remote_id, const char* password,
                 bool remember_password, bool bypass_presence_check = false,
                 bool background = false);
+  void ApplyTrueColorToSession(RemoteSession& props, bool enabled);
   // UI thread: mute this receiver without stopping audio for other controllers.
   void MuteRemoteAudio(const std::shared_ptr<RemoteSession>& props);
   void UnmuteRemoteAudio(const std::shared_ptr<RemoteSession>& props);

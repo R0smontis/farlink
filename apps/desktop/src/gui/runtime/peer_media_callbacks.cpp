@@ -1,4 +1,7 @@
 #include <libyuv.h>
+#ifdef __APPLE__
+#include "platform/macos/video_pixel_format.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -54,6 +57,14 @@ void PeerEventHandler::OnReceiveVideoBuffer(
     const auto local_now_us = MiniRtcGetSystemTimeMicros(
         handler->IsDirect() ? handler->DirectPeer() : props->peer_);
     const auto* received_native = GetNativeVideoFrame(video_frame);
+    bool native_only = false;
+#ifdef __APPLE__
+    if (received_native && received_native->type == MiniRtcNativeVideoFrameCVPixelBuffer &&
+        received_native->payload.cv_pixel_buffer) {
+      const auto buffer = static_cast<CVPixelBufferRef>(received_native->payload.cv_pixel_buffer);
+      native_only = IsMacYuv444(CVPixelBufferGetPixelFormatType(buffer));
+    }
+#endif
     props->received_video_stats_.Record(
         received_native ? received_native->width : video_frame->width,
         received_native ? received_native->height : video_frame->height,
@@ -72,7 +83,7 @@ void PeerEventHandler::OnReceiveVideoBuffer(
     // consume incoming frames at the negotiated interactive cadence.
     std::unique_lock conversion_lock(props->gallery_conversion_mutex_,
                                      std::defer_lock);
-    if (preview_width > 0) conversion_lock.lock();
+    if (preview_width > 0 && !native_only) conversion_lock.lock();
     if (conversion_lock.owns_lock()) {
       const auto gallery_timing = props->gallery_video_latency_->Frame(
           video_frame->captured_timestamp, local_now_us, timing_now);
@@ -201,6 +212,7 @@ void PeerEventHandler::OnReceiveVideoBuffer(
         background_snapshot_only = true;
       }
     }
+    if (native_only) return;  // No packed NV12 fallback or background snapshot for 4:4:4.
     {
       std::lock_guard<std::mutex> lock(props->video_frame_mutex_);
       const auto now = std::chrono::steady_clock::now();

@@ -49,6 +49,11 @@ class ScreenCapturer {
   // Append virtual methods to preserve existing WGC plugin vtable slots.
   // Backends without index reporting retain the default primary index.
   virtual int GetCurrentMonitorIndex() const { return 0; }
+  // True-color capture: request 4:4:4 pixel formats (xf44/444v) instead of
+  // the default 4:2:0 NV12 output. Backends without a 4:4:4 path ignore this.
+  // Must be safe to call before Start() and while a stream is live; the
+  // backend applies it through its normal reconfiguration path.
+  virtual void SetTrueColorEnabled(bool enabled) { (void)enabled; }
 };
 }  // namespace crossdesk
 #endif

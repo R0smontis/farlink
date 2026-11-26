@@ -64,6 +64,7 @@ public:
   int EnsureCaptureReady();
   int StartScreenCapturer();
   int StopScreenCapturer();
+  void SetTrueColorEnabled(bool enabled);
   bool ReleaseRemoteMouseButtons();
   bool ReleaseRemoteMouseButtons(const std::string& remote_id,
                                  unsigned mask = 7);

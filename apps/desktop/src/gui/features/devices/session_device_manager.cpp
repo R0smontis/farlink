@@ -395,6 +395,10 @@ bool SessionDeviceManager::ShouldCaptureCursor() const {
   });
 }
 
+void SessionDeviceManager::SetTrueColorEnabled(bool enabled) {
+  if (screen_capturer_) screen_capturer_->SetTrueColorEnabled(enabled);
+}
+
 int SessionDeviceManager::StartScreenCapturer() {
 #ifdef __APPLE__
   if (!owner_.EnsureMacScreenRecordingPermission()) {
@@ -418,6 +422,7 @@ int SessionDeviceManager::StartScreenCapturer() {
   // Start may reuse the initialized backend after a disconnected interval.
   // Begin a new measurement window before it can deliver its first callback.
   ResetCaptureMetrics();
+  SetTrueColorEnabled(owner_.config_center_->IsVideoTrueColor444());
   const int ret = screen_capturer_->Start(show_cursor);
   if (ret != 0) {
     screen_sharing_power_.SetSharing(false);

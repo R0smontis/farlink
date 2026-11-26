@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "platform/machine_identity.h"
+#include "platform/macos/video_pixel_format.h"
 #include "platform/window_drag.h"
 #include "rd_log.h"
 
@@ -389,6 +390,7 @@ enum class SlotUse {
 struct Nv12Color {
   uint32_t full_range = 0;
   uint32_t bt709 = 0;
+  float uv_center = 128.0f / 255.0f;
 };
 
 struct FrameSlot {
@@ -531,6 +533,7 @@ vertex RasterData nv12_vertex(uint vertex_id [[vertex_id]]) {
 struct Nv12Color {
   uint full_range;
   uint bt709;
+  float uv_center;
 };
 
 fragment half4 nv12_fragment(
@@ -542,7 +545,7 @@ fragment half4 nv12_fragment(
                                   address::clamp_to_edge,
                                   filter::linear);
   float y = y_texture.sample(video_sampler, in.texcoord).r;
-  float2 uv = uv_texture.sample(video_sampler, in.texcoord).rg - 128.0 / 255.0;
+  float2 uv = uv_texture.sample(video_sampler, in.texcoord).rg - color.uv_center;
   if (!color.full_range) {
     y = (y - 16.0 / 255.0) * (255.0 / 219.0);
     uv *= 255.0 / 224.0;
@@ -867,7 +870,16 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
 
   const int width = static_cast<int>(native->width);
   const int height = static_cast<int>(native->height);
+  auto pixel_buffer = static_cast<CVPixelBufferRef>(native->payload.cv_pixel_buffer);
+  const OSType pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer);
+  const bool yuv444 = IsMacYuv444(pixel_format);
+  const bool xf44 = pixel_format == kCVPixelFormatType_444YpCbCr10BiPlanarFullRange;
   const auto submit_cpu_fallback = [&]() {
+    if (yuv444) {
+      static std::once_flag notice;
+      std::call_once(notice, [] { LOG_WARN("Metal could not upload a 4:4:4 frame; dropping it"); });
+      return SubmitResult::dropped;
+    }
     if (!impl_->native_fallback_logged.exchange(true,
                                                 std::memory_order_acq_rel)) {
       LOG_WARN("macOS native CVPixelBuffer upload unavailable; using CPU NV12 "
@@ -882,15 +894,11 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
     return SubmitNv12(remote_id, packed_nv12.data(), packed_nv12.size(), width, height, timing);
   };
 
-  CVPixelBufferRef pixel_buffer =
-      static_cast<CVPixelBufferRef>(native->payload.cv_pixel_buffer);
-  const OSType pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer);
   if (!CVPixelBufferIsPlanar(pixel_buffer) ||
       CVPixelBufferGetPlaneCount(pixel_buffer) < 2 ||
       CVPixelBufferGetWidth(pixel_buffer) != native->width ||
       CVPixelBufferGetHeight(pixel_buffer) != native->height ||
-      (pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange &&
-       pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)) {
+      (!yuv444 && !IsMacNv12(pixel_format))) {
     return submit_cpu_fallback();
   }
 
@@ -902,7 +910,7 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   CVMetalTextureRef y_cv_texture = nullptr;
   CVReturn y_status = CVMetalTextureCacheCreateTextureFromImage(
       kCFAllocatorDefault, impl_->texture_cache, pixel_buffer, nullptr,
-      MTLPixelFormatR8Unorm, native->width, native->height, 0,
+      xf44 ? MTLPixelFormatR16Unorm : MTLPixelFormatR8Unorm, native->width, native->height, 0,
       &y_cv_texture);
   if (y_status != kCVReturnSuccess || !y_cv_texture) {
     return submit_cpu_fallback();
@@ -911,7 +919,8 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   CVMetalTextureRef uv_cv_texture = nullptr;
   CVReturn uv_status = CVMetalTextureCacheCreateTextureFromImage(
       kCFAllocatorDefault, impl_->texture_cache, pixel_buffer, nullptr,
-      MTLPixelFormatRG8Unorm, native->width / 2U, native->height / 2U, 1,
+      xf44 ? MTLPixelFormatRG16Unorm : MTLPixelFormatRG8Unorm,
+      yuv444 ? native->width : native->width / 2U, yuv444 ? native->height : native->height / 2U, 1,
       &uv_cv_texture);
   if (uv_status != kCVReturnSuccess || !uv_cv_texture) {
     CFRelease(y_cv_texture);
@@ -976,8 +985,12 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   target->uv_texture = uv_texture;
   target->native_frame = std::move(retained);
   CFTypeRef matrix = CVBufferCopyAttachment(pixel_buffer, kCVImageBufferYCbCrMatrixKey, nullptr);
-  target->color = {pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-                   matrix && CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)};
+  // Normalized coordinates work for both subsampled and full-size UV. xf44
+  // samples are MSB-aligned in R16/RG16Unorm: neutral is 512 << 6, not the
+  // 8-bit shader's 128/255. No studio-swing expansion for full-range YUV.
+  target->color = {xf44 || pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                   matrix && CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2),
+                   xf44 ? 32768.0f / 65535.0f : 128.0f / 255.0f};
   if (matrix) CFRelease(matrix);
   target->width = width;
   target->height = height;
@@ -988,7 +1001,7 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   target->valid = true;
   timing.MarkStage(VideoFrameStage::accepted);
   if (!impl_->native_path_logged.exchange(true, std::memory_order_acq_rel)) {
-    LOG_INFO("macOS VideoToolbox-to-Metal native NV12 path enabled");
+    LOG_INFO("macOS VideoToolbox-to-Metal native YUV path enabled");
   }
   return SubmitResult::submitted;
 }
@@ -1513,6 +1526,8 @@ bool MacMetalVideoRenderer::CopyLatestNv12(
   }
 
   const MiniRtcNativeVideoFrame* native = native_frame.Get();
+  const auto buffer = static_cast<CVPixelBufferRef>(native->payload.cv_pixel_buffer);
+  if (IsMacYuv444(CVPixelBufferGetPixelFormatType(buffer))) return false;
   const size_t y_size = static_cast<size_t>(native->width) * native->height;
   output->resize(y_size + y_size / 2);
   return native->copy_to_nv12(native->owner, output->data(), output->size()) ==

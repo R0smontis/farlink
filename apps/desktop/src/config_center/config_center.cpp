@@ -244,6 +244,7 @@ int ConfigCenter::Load() {
     video_frame_rate_preference_ =
         IsValidVideoFrameRate(static_cast<int>(preferred)) ? static_cast<int>(preferred) : 60;
   }
+  video_true_color_444_ = ini_->GetLongValue(section_, "video_true_color_444", 0) == 1;
   legacy_wheel_sensitivity_percent_ = read_sensitivity("wheel_sensitivity_percent");
   const auto devices = nlohmann::json::parse(
       ini_->GetValue(section_, "device_wheel_sensitivity", "{}"), nullptr, false);
@@ -351,6 +352,8 @@ int ConfigCenter::Save() {
                     static_cast<long>(video_encode_format_));
   ini_->SetLongValue(section_, "video_frame_rate_preference",
                     static_cast<long>(video_frame_rate_preference_.load()));
+  ini_->SetLongValue(section_, "video_true_color_444",
+                    static_cast<long>(video_true_color_444_.load()));
   ini_->SetLongValue(section_, "turn_mode", static_cast<long>(turn_mode_));
   ini_->SetLongValue(section_, "direct_start_bitrate_bps", direct_start_bitrate_bps_);
   ini_->SetLongValue(section_, "relay_start_bitrate_bps", relay_start_bitrate_bps_);
@@ -529,6 +532,14 @@ int ConfigCenter::SetVideoFrameRatePreference(int frame_rate) {
   if (!IsValidVideoFrameRate(frame_rate)) return -1;
   if (StoreValues({{"video_frame_rate_preference", std::to_string(frame_rate)}}) != 0) return -1;
   video_frame_rate_preference_ = frame_rate;
+  return 0;
+}
+
+int ConfigCenter::SetVideoTrueColor444(bool enabled) {
+  const int value = enabled ? 1 : 0;
+  if (video_true_color_444_.load() == value) return 0;
+  if (StoreValues({{"video_true_color_444", std::to_string(value)}}) != 0) return -1;
+  video_true_color_444_.store(value);
   return 0;
 }
 

@@ -29,6 +29,7 @@
 #include "sdr_color.h"
 #include "privacy_controller.h"
 #include "../privacy/privacy_capture_state.h"
+#include "../video_pixel_format.h"
 #include <algorithm>
 
 using namespace crossdesk;
@@ -84,10 +85,12 @@ static int CopyCapturedPixelBufferToNv12(void *owner, uint8_t *destination,
     return -1;
   }
   const OSType pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer);
-  if (pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange &&
-      pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
-    return -1;
+  if (IsMacYuv444(pixel_format)) {
+    static std::once_flag notice;
+    std::call_once(notice, [] { LOG_WARN("4:4:4 capture requires native CVPixelBuffer input"); });
+    return -1;  // Neither 4:4:4 plane has NV12's layout.
   }
+  if (!IsMacNv12(pixel_format)) return -1;
 
   const size_t width = CVPixelBufferGetWidth(pixel_buffer);
   const size_t height = CVPixelBufferGetHeight(pixel_buffer);
@@ -166,6 +169,7 @@ class API_AVAILABLE(macos(14.0)) ScreenCapturerSckImpl : public ScreenCapturer {
  public:
   int Init(const int fps, cb_desktop_data cb) override;
   void SetPrivacyController(PrivacyController* privacy) override { privacy_ = privacy; }
+  void SetTrueColorEnabled(bool enabled) override;
 
   int Start(bool show_cursor) override;
 
@@ -227,6 +231,7 @@ class API_AVAILABLE(macos(14.0)) ScreenCapturerSckImpl : public ScreenCapturer {
   bool configuration_in_flight_ = false;
   bool reconfigure_pending_ = false;
   SCStreamConfiguration* __strong applied_configuration_ = nil;
+  bool true_color_enabled_ = false;
 
  public:
   // Called by SckHelper when shareable content is returned by ScreenCaptureKit. `content` will be
@@ -575,6 +580,16 @@ int ScreenCapturerSckImpl::ResetToInitialMonitor() {
   return 0;
 }
 
+void ScreenCapturerSckImpl::SetTrueColorEnabled(bool enabled) {
+  {
+    std::lock_guard<std::mutex> lock(lock_);
+    if (true_color_enabled_ == enabled) return;
+    true_color_enabled_ = enabled;
+    if (!capture_requested_) return;
+  }
+  StartOrReconfigureCapturer();
+}
+
 int ScreenCapturerSckImpl::Destroy() {
   Stop();
   SckHelper *helper_to_release = nil;
@@ -782,7 +797,6 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
     return;
   }
 
-  config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
   config.colorMatrix = kCGDisplayStreamYCbCrMatrix_ITU_R_601_4;
   config.colorSpaceName = kCGColorSpaceSRGB;
   config.showsCursor = show_cursor;
@@ -794,6 +808,9 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
   std::unique_lock<std::mutex> lock(lock_);
   if (!capture_requested_ || generation != configuration_generation_) return;
   if (configuration_in_flight_) { reconfigure_pending_ = true; return; }
+  // A pixel-format change takes the updateConfiguration branch on a live stream.
+  config.pixelFormat = true_color_enabled_ ? kCVPixelFormatType_444YpCbCr10BiPlanarFullRange
+                                           : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
   if (GetMacPrivacyCaptureState().revision != revision) {
     lock.unlock();
     RetryPrivacyFilter();
@@ -1026,20 +1043,23 @@ void ScreenCapturerSckImpl::OnNewCVPixelBuffer(SCStream* source,
   const size_t width = CVPixelBufferGetWidth(pixelBuffer);
   const size_t height = CVPixelBufferGetHeight(pixelBuffer);
   const OSType pixel_format = CVPixelBufferGetPixelFormatType(pixelBuffer);
-  if (width == 0 || height == 0 || (width & 1U) != 0 ||
-      (height & 1U) != 0 || !CVPixelBufferIsPlanar(pixelBuffer) ||
-      CVPixelBufferGetPlaneCount(pixelBuffer) < 2 ||
-      (pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange &&
-       pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)) {
+  const bool nv12 = IsMacNv12(pixel_format);
+  constexpr size_t max_size = std::numeric_limits<int>::max();
+  if (width == 0 || height == 0 || width > max_size || height > max_size ||
+      (width & 1U) || (height & 1U) || !CVPixelBufferIsPlanar(pixelBuffer) ||
+      CVPixelBufferGetPlaneCount(pixelBuffer) < 2 || (!nv12 && !IsMacYuv444(pixel_format))) {
     LOG_ERROR("Invalid CVPixelBuffer: width={}, height={}, format={}, planes={}",
               width, height, pixel_format,
               CVPixelBufferGetPlaneCount(pixelBuffer));
     return;
   }
 
-  const size_t required_size = width * height * 3U / 2U;
-  if (required_size > static_cast<size_t>((std::numeric_limits<int>::max)())) {
-    LOG_ERROR("Captured frame is too large: {} bytes", required_size);
+  // MiniRtcVideoFrame::size is a logical packed NV12 extent, even for native
+  // descriptors. Never use it to copy 4:4:4 storage: xf44/444v stay native.
+  const size_t pixels = width * height;
+  const size_t logical_size = pixels + pixels / 2;
+  if (logical_size > max_size) {
+    LOG_ERROR("Captured frame is too large: {}x{}", width, height);
     return;
   }
 
@@ -1087,7 +1107,7 @@ void ScreenCapturerSckImpl::OnNewCVPixelBuffer(SCStream* source,
   if (log_native_output) {
     LOG_INFO("macOS ScreenCaptureKit native CVPixelBuffer output enabled");
   }
-  callback(nullptr, static_cast<int>(required_size), static_cast<int>(width),
+  callback(nullptr, static_cast<int>(logical_size), static_cast<int>(width),
            static_cast<int>(height), stream_id.c_str(), &native_frame);
 }
 

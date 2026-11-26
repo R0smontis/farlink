@@ -13,6 +13,12 @@ void ScreenCapturerSck::SetPrivacyController(PrivacyController* privacy) {
     screen_capturer_sck_impl_->SetPrivacyController(privacy);
 }
 
+void ScreenCapturerSck::SetTrueColorEnabled(bool enabled) {
+  true_color_enabled_ = enabled;
+  if (screen_capturer_sck_impl_)
+    screen_capturer_sck_impl_->SetTrueColorEnabled(enabled);
+}
+
 int ScreenCapturerSck::Init(const int fps, cb_desktop_data cb) {
   if (cb) {
     on_data_ = cb;
@@ -23,6 +29,7 @@ int ScreenCapturerSck::Init(const int fps, cb_desktop_data cb) {
 
   screen_capturer_sck_impl_ = CreateScreenCapturerSck();
   screen_capturer_sck_impl_->SetPrivacyController(privacy_);
+  screen_capturer_sck_impl_->SetTrueColorEnabled(true_color_enabled_);
   const int ret = screen_capturer_sck_impl_->Init(fps, on_data_);
   if (ret != 0) {
     screen_capturer_sck_impl_.reset();

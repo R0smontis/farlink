@@ -277,6 +277,7 @@ inline int ApplyStreamWindowStrings(
   strings.set_video_settings_unavailable(
       Text(localization::video_settings_unavailable[language]));
   strings.set_video_quality(Text(localization::video_quality[language]));
+  strings.set_true_color(Text(localization::true_color[language]));
   strings.set_frame_rate(Text(localization::video_frame_rate[language]));
   strings.set_remote_resolution(Text(localization::resolution[language]));
   strings.set_adaptation_policy(

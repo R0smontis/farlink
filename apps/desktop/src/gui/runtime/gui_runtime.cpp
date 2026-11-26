@@ -314,8 +314,8 @@ int GuiRuntime::CreateConnectionPeer() {
   params_.hardware_acceleration = true;
 #if defined(_WIN32) || (defined(__linux__) && !defined(__OHOS__)) || defined(__APPLE__)
   // Windows and Linux retain pooled CPU NV12 frames or CUDA device frames;
-  // macOS retains VideoToolbox CVPixelBuffers for direct Metal sampling. All
-  // platforms fall back to a packed CPU copy when native upload is unavailable.
+  // macOS retains VideoToolbox CVPixelBuffers for direct Metal sampling.
+  // Only 4:2:0 has a packed NV12 fallback.
   params_.native_video_output = true;
 #else
   params_.native_video_output = false;
@@ -329,6 +329,9 @@ int GuiRuntime::CreateConnectionPeer() {
   params_.enable_srtp = config_center_->IsEnableSrtp();
   params_.desktop_encoding_mode = config_center_->GetDesktopEncodingMode();
   params_.video_content_type = MiniRtcVideoContentType::ScreenContent;
+  // W2C: requires minirtc feat/w2c-truecolor-444
+  params_.video_chroma_format = config_center_->IsVideoTrueColor444()
+      ? MiniRtcVideoChromaFormat::Yuv444 : MiniRtcVideoChromaFormat::Yuv420;
   // Bootstrap outgoing media with fixed defaults. Live overrides come only
   // from the authorized controller and apply to its connection on this host.
   params_.video_quality = MiniRtcVideoQuality::MiniRtcVideoQualityHigh;

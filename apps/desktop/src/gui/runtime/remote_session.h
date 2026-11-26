@@ -120,6 +120,7 @@ struct RemoteSession {
   std::vector<unsigned char> gallery_nv12_, gallery_scaled_, gallery_scratch_;
   std::shared_ptr<lan::Session> lan_session_;
   MiniRtcParams params_;
+  bool true_color_444_ = false;  // UI-thread intent, not the negotiated wire format.
   MiniRtcPeerPtr* peer_ = nullptr;
   std::shared_ptr<PeerEventHandler> peer_events_;
   std::atomic<bool> closing_{false};

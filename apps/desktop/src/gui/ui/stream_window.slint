@@ -1,7 +1,7 @@
 import { SurfaceSeparator, FlatSurface, UiSurface } from "ui_surface.slint";
 import { UiRadius } from "ui_radius.slint";
 import { ScrollView, Slider } from "std-widgets.slint";
-import { SettingsSelect } from "settings_controls.slint";
+import { SettingsSelect, SettingsToggleRow } from "settings_controls.slint";
 import { RemoteCursor, AdjustedPointer } from "remote_cursor.slint";
 import { EndpointPopup } from "detail_popup.slint";
 import { FontAwesomeIcons, IconButton, PrimaryButton, SecondaryButton, DialogSurface, ImGuiFontStyle, ControlStyle, ButtonStyle, ScrollingText, HoverTooltip } from "common.slint";
@@ -35,6 +35,7 @@ export global StreamStrings {
     in-out property <string> remote-resolution: "Resolution";
     in-out property <string> video-settings-unavailable: "The remote device does not support live video settings";
     in-out property <string> video-quality: "Video quality";
+    in-out property <string> true-color: "True Color";
     in-out property <string> frame-rate: "Capture frame rate";
     in-out property <string> adaptation-policy: "Video preference";
     in-out property <string> quality-low: "Low";
@@ -488,6 +489,8 @@ export component StreamWindow inherits Window {
     in-out property <int> frame-rate-index: 1;
     in-out property <int> adaptation-policy-index: 1;
     callback change-video-settings(int, int, int);
+    in property <bool> true-color-enabled;
+    callback toggle-true-color(bool);
     in-out property <float> mouse-sensitivity-percent: 100;
     in-out property <float> wheel-sensitivity-percent: 100;
     in property <string> sensitivity-error;
@@ -634,6 +637,7 @@ export component StreamWindow inherits Window {
     private property <length> video-menu-width: min(320px, video.width - 8px);
     private property <length> settings-content-height:
         (root.video-settings-enabled && root.video-settings-feedback == "" ? 182px : 220px)
+        + 36px + 8px
         + 2 * (18px + 4px + 27px + 8px) + (root.sensitivity-error == "" ? 0px : 28px)
         + (root.keyboard-shortcut-row-visible ? 57px : 0px)
         + (18px + 4px + 27px + 8px) + (root.diagnostic-feedback == "" ? 0px : 28px)
@@ -1970,6 +1974,11 @@ export component StreamWindow inherits Window {
                             options: [StreamStrings.quality-low, StreamStrings.quality-medium, StreamStrings.quality-high];
                             selected: root.video-quality-index; enabled: root.video-settings-enabled;
                             choose(index) => { root.change-video-settings(index, root.frame-rate-index, root.adaptation-policy-index); }
+                        }
+                        SettingsToggleRow {
+                            label: StreamStrings.true-color + " 4:4:4"; divider: false;
+                            checked: root.true-color-enabled; toggle-on-click: false;
+                            clicked => { root.toggle-true-color(!root.true-color-enabled); }
                         }
                         VideoSettingRow {
                             label: StreamStrings.frame-rate; options: ["30 fps", "60 fps", "90 fps", "120 fps", "144 fps"];

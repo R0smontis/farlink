@@ -67,6 +67,7 @@ class ConfigCenter {
   int SetDesktopRealtimeRateControl(bool enabled);
   int SetVideoEncodeFormat(VIDEO_ENCODE_FORMAT video_encode_format);
   int SetVideoFrameRatePreference(int frame_rate);
+  int SetVideoTrueColor444(bool enabled);
   int SetTurnMode(TURN_MODE turn_mode);
   int SetForceRelay(bool force_relay);
   int SetServerHost(const std::string& signal_server_host);
@@ -115,6 +116,8 @@ class ConfigCenter {
   // the user picking a tier. Default 60. Distinct from the legacy per-connection
   // video_frame_rate key the migration deletes.
   int GetVideoFrameRatePreference() const { return video_frame_rate_preference_.load(); }
+  // Host-wide capture preference, also offered to new peers during negotiation.
+  bool IsVideoTrueColor444() const { return video_true_color_444_.load() != 0; }
   int GetRelayStartBitrateBps() const;
   bool IsReceiverPaddingProbingDisabled() const;
   bool IsForceRelay() const;
@@ -187,6 +190,7 @@ class ConfigCenter {
   std::atomic<bool> pause_video_when_minimized_{true};
   std::atomic<int> mouse_sensitivity_percent_{100};
   std::atomic<int> video_frame_rate_preference_{60};
+  std::atomic<int> video_true_color_444_{0};
   int legacy_wheel_sensitivity_percent_ = 100;
   std::map<std::string, int> device_wheel_sensitivity_;
   std::map<std::string, int> device_keyboard_shortcut_mode_;

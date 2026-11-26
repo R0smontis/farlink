@@ -42,6 +42,17 @@ bool GuiRuntime::HasActiveSession() {
                      });
 }
 
+void GuiRuntime::ApplyTrueColorToSession(RemoteSession& props, bool enabled) {
+  props.true_color_444_ = enabled;
+  devices_.SetTrueColorEnabled(enabled);  // One capture source shared by all encoders.
+  // MiniRTC snapshots chroma at creation; never rewrite a live peer's params.
+  if (!props.peer_) {
+    // W2C: requires minirtc feat/w2c-truecolor-444
+    props.params_.video_chroma_format = enabled ? MiniRtcVideoChromaFormat::Yuv444
+                                                : MiniRtcVideoChromaFormat::Yuv420;
+  }
+}
+
 void GuiRuntime::MuteRemoteAudio(const std::shared_ptr<RemoteSession>& props) {
   if (!props) return;
   std::lock_guard delivery_lock(audio_delivery_mutex_);
@@ -751,6 +762,7 @@ int GuiRuntime::ConnectTo(const std::string& remote_id, const char* password,
           props->requested_video_frame_rate_ = preferred;
         }
         memcpy(&props->params_, &params_, sizeof(MiniRtcParams));
+        ApplyTrueColorToSession(*props, config_center_->IsVideoTrueColor444());
         props->params_.user_id = props->local_id_.c_str();
         props->peer_events_ = std::make_shared<PeerEventHandler>(*this);
         props->params_.user_data = props->peer_events_.get();

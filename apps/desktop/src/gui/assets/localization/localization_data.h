@@ -331,6 +331,7 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"画面接收中...", {"画面接收中...", "Receiving screen...", "Получение изображения...", "畫面接收中...", "受信画面…", "수신화면...", "Empfangsbildschirm...", "Écran de réception...", "Pantalla de recepción...", "Recebendo tela..."}},
   {"画面设置", {"画面设置", "Video settings", "Настройки видео", "畫面設定", "ビデオ設定", "영상 설정", "Videoeinstellungen", "Paramètres vidéo", "Configuración de vídeo", "Configurações de vídeo"}},
   {"画面质量", {"画面质量", "Video Quality", "Качество видео", "畫面質量", "ビデオ品質", "비디오 품질", "Videoqualität", "Qualité vidéo", "Calidad de vídeo", "Qualidade de vídeo"}},
+  {"真彩", {"真彩", "True Color", "Истинный цвет", "真彩", "トゥルーカラー", "트루 컬러", "Echtfarbe", "Couleurs vraies", "Color verdadero", "Cor verdadeira"}},
   {"画面采集帧率", {"画面采集帧率", "Video Capture Frame Rate", "Частота захвата видео", "畫面採集幀率", "ビデオキャプチャフレームレート", "비디오 캡처 프레임 속도", "Bildrate der Videoaufnahme", "Fréquence d'images de capture vidéo", "Velocidad de fotogramas de captura de vídeo", "Taxa de quadros de captura de vídeo"}},
   {"界面", {"界面", "Interface", "Интерфейс", "介面", "インターフェース", "인터페이스", "Oberfläche", "Interfaces", "Interfaz", "Interface"}},
   {"登录桌面时自启", {"登录桌面时自启", "Start at desktop login", "Запуск при входе в систему", "登入桌面時自啟", "デスクトップログインで起動", "데스크톱 로그인에서 시작", "Beginnen Sie mit der Desktop-Anmeldung", "Démarrer lors de la connexion au bureau", "Iniciar sesión en el escritorio", "Comece no login da área de trabalho"}},
@@ -727,6 +728,7 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"video_settings_failed", "调整失败，请重试。"},
   {"video_settings_unavailable", "连接建立后可调整，需被控端支持。"},
   {"video_quality", "画面质量"},
+  {"true_color", "真彩"},
   {"video_frame_rate", "画面采集帧率"},
   {"video_adaptation_policy", "画面偏好"},
   {"video_priority_frame_rate", "帧率优先"},
@@ -1259,6 +1261,7 @@ inline constexpr const char* kSlintLiterals[] = {
   X(video_settings_failed) \
   X(video_settings_unavailable) \
   X(video_quality) \
+  X(true_color) \
   X(video_frame_rate) \
   X(video_adaptation_policy) \
   X(video_priority_frame_rate) \

@@ -53,6 +53,10 @@ void GuiRuntime::InitializeLan() {
         config_center_->IsReceiverPaddingProbingDisabled();
     params.desktop_encoding_mode = config_center_->GetDesktopEncodingMode();
     params.video_content_type = MiniRtcVideoContentType::ScreenContent;
+    const bool true_color = config_center_->IsVideoTrueColor444();
+    // W2C: requires minirtc feat/w2c-truecolor-444
+    params.video_chroma_format = true_color ? MiniRtcVideoChromaFormat::Yuv444
+                                            : MiniRtcVideoChromaFormat::Yuv420;
     params.video_quality = MiniRtcVideoQuality::MiniRtcVideoQualityHigh;
     params.video_frame_rate = 60;
     // Same frame-rate-derived degradation decision as the managed bootstrap;
@@ -70,6 +74,7 @@ void GuiRuntime::InitializeLan() {
     if (!session->incoming) {
       auto props = FindRemoteSession(session->key);
       if (!props) throw std::runtime_error("LAN session cancelled");
+      props->true_color_444_ = true_color;
       props->device_preference_key_ =
           nlohmann::json::array({"lan", session->target.device_id}).dump();
       props->peer_events_ = events;

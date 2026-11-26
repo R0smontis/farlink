@@ -6816,6 +6816,18 @@
       "es": "Configuración de vídeo",
       "pt-BR": "Configurações de vídeo"
     },
+    "真彩": {
+      "zh-Hans": "真彩",
+      "en": "True Color",
+      "ru": "Истинный цвет",
+      "zh-Hant": "真彩",
+      "ja": "トゥルーカラー",
+      "ko": "트루 컬러",
+      "de": "Echtfarbe",
+      "fr": "Couleurs vraies",
+      "es": "Color verdadero",
+      "pt-BR": "Cor verdadeira"
+    },
     "画面质量": {
       "zh-Hans": "画面质量",
       "en": "Video Quality",
@@ -12092,6 +12104,7 @@
     "video_settings_failed": "调整失败，请重试。",
     "video_settings_unavailable": "连接建立后可调整，需被控端支持。",
     "video_quality": "画面质量",
+    "true_color": "真彩",
     "video_frame_rate": "画面采集帧率",
     "video_adaptation_policy": "画面偏好",
     "video_priority_frame_rate": "帧率优先",
@@ -12791,6 +12804,7 @@
       "画面接收中...",
       "画面设置",
       "画面质量",
+      "真彩",
       "画面采集帧率",
       "界面",
       "登录桌面时自启",

@@ -21,6 +21,10 @@ The fork extends upstream CrossDesk across these independent areas:
 - **High frame-rate capture/encode** — frame-rate tiers beyond 60 fps (30/60/90/120/144)
   negotiated via a new `supports_high_fps` wire capability, a GPU-native CVPixelBuffer
   scaler, encoder-throughput-driven adaptation, and per-cause frame-drop accounting.
+- **macOS HEVC true color** — the stream-window `4:4:4` switch persists the host's
+  capture preference. New peers negotiate chroma at connection time; ScreenCaptureKit
+  can change format without restarting. Metal samples 8- and 10-bit 4:4:4 frames
+  directly; they have no CPU NV12 preview or fallback. The default remains 4:2:0.
 - **Game / relative-mouse input mode** — a captured-mouse mode for remote gaming with
   relative-mouse injection, negotiated via a new `supports_relative_mouse` wire capability.
 - **Bounded audio jitter buffer** — a receive-side jitter buffer with reorder absorption

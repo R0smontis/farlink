@@ -2601,6 +2601,13 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     }
   });
 #endif
+  stream->on_toggle_true_color([this](bool enabled) {
+    if (config_center_->SetVideoTrueColor444(enabled) != 0) return;
+    std::shared_lock lock(remote_sessions_mutex_);
+    for (const auto& [_, props] : remote_sessions_) {
+      if (!props->closing_) ApplyTrueColorToSession(*props, enabled);
+    }
+  });
   stream->on_change_video_settings([this, &view](int quality, int frame_rate_index,
                                           int preference) {
     const auto& props = view.session;
@@ -4339,6 +4346,7 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   stream->set_remote_cursor_active(remote_cursor_active);
   stream->set_remote_cursor_shape(remote_cursor_shape);
   stream->set_audio_enabled(props->audio_capture_button_pressed_);
+  stream->set_true_color_enabled(props->true_color_444_);
   // Decision to re-request the capture tier (in either direction — a drop when
   // a constraint tightens, a rise when it relaxes), computed under the lock but
   // acted on after it is released (the send re-acquires the same mutex).
