@@ -1,4 +1,4 @@
-> **Farlink 是 [CrossDesk](https://github.com/kunkundi/crossdesk) 的修改版，2026-11。修改说明见 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md)，本 fork 的技术文档见 [docs/FARLINK.md](docs/FARLINK.md)。下文的官方网站、下载、应用商店与 Web 客户端链接均为上游 CrossDesk 所有，指向上游未修改的发布版本，并不分发本 fork。**
+> **Farlink 是 [CrossDesk](https://github.com/kunkundi/crossdesk) 的修改版，修改起始日期 2026-11-25。修改说明见 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md)，本 fork 的技术文档见 [docs/FARLINK.md](docs/FARLINK.md)。下文的官方网站、下载、应用商店与 Web 客户端链接均为上游 CrossDesk 所有，指向上游未修改的发布版本，并不分发本 fork。**
 >
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk 标志：图标在左，双色文字在右" />
