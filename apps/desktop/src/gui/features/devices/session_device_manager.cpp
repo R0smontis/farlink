@@ -29,6 +29,9 @@
 #if defined(__linux__) && !defined(__OHOS__)
 #include "platform/linux/screen_capturer/screen_capturer_linux.h"
 #endif
+#ifdef __APPLE__
+#include "platform/macos/screen_capturer/screen_capturer_sck.h"
+#endif
 #ifdef _WIN32
 #include <nlohmann/json.hpp>
 #include "platform/windows/screen_capturer/screen_capturer_win.h"
@@ -238,6 +241,36 @@ int SessionDeviceManager::InitializeScreenCapturer() {
     windows->SetNativeCursorPolicy(owner_.host_cursor_default_, owner_.host_cursor_preference_);
   }
 #endif
+#ifdef __APPLE__
+  // macOS virtual display lifecycle hook. Because macOS 27.x cannot
+  // reliably destroy virtual displays (they persist until logout), the
+  // feature is gated behind an explicit opt-in environment variable:
+  //
+  //   FARLINK_MAC_VIRTUAL_DISPLAY=1      enable
+  //   FARLINK_MAC_VIRTUAL_DISPLAY=0      disable (default)
+  //
+  // Once enabled, the capturer creates the display lazily when capture
+  // starts and zero physical displays are active (clamshell / headless
+  // Mac mini / Mac Studio). The display resolution is fixed at creation
+  // time because reconfigure is also broken on macOS 27.x. See
+  // mac_virtual_display.h for the platform defect details.
+  if (auto mac = dynamic_cast<ScreenCapturerSck*>(screen_capturer_)) {
+    const char* env = std::getenv("FARLINK_MAC_VIRTUAL_DISPLAY");
+    const bool enabled = env && env[0] == '1';
+    mac->SetVirtualDisplayEnabled(enabled);
+    if (enabled) {
+      crossdesk::MacVirtualDisplaySpec spec;
+      spec.width = 1920;
+      spec.height = 1080;
+      spec.refresh_rate = 60.0;
+      spec.hi_dpi = false;
+      spec.name = "Farlink Virtual Display";
+      mac->SetVirtualDisplaySpec(spec);
+    }
+  }
+#endif
+
+
 
   last_frame_time_ = {};
   next_frame_deadline_ = {};

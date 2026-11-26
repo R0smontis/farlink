@@ -185,6 +185,37 @@ function setup_targets()
         add_includedirs("apps/desktop/src/platform/macos/input")
         add_files("apps/desktop/tests/macos_relative_mouse_injection_test.cpp")
 
+    -- Deterministic pure-C++ unit test for the macOS virtual display
+    -- policy: dimension clamping, even alignment, HiDPI scaling, refresh
+    -- rate snapping, and the host lifecycle state machine. Header-only
+    -- policy, no CoreGraphics dependency, fully deterministic.
+    target("mac_virtual_display_policy_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src/platform/macos/virtual_display")
+        add_files("apps/desktop/tests/mac_virtual_display_policy_test.cpp")
+
+    -- Real-hardware smoke test for the macOS virtual display RAII wrapper.
+    -- NOT part of the default build because it creates real virtual
+    -- displays in the system. Run manually on a macOS host:
+    --   xmake build mac_virtual_display_smoke_test && \\
+    --   xmake run mac_virtual_display_smoke_test
+    -- The test is self-verifying and reports the macOS 27.x teardown
+    -- defect honestly when detected. See mac_virtual_display.h for the
+    -- defect documentation.
+    if is_os("macosx") then
+        target("mac_virtual_display_smoke_test")
+            set_kind("binary")
+            set_default(false)
+            add_mxxflags("-fobjc-arc")
+            add_defines("CROSSDESK_MAC_VIRTUAL_DISPLAY_NO_RD_LOG")
+            add_includedirs("apps/desktop/src",
+                "apps/desktop/src/platform/macos/virtual_display")
+            add_files("apps/desktop/tests/mac_virtual_display_smoke_test.mm",
+                "apps/desktop/src/platform/macos/virtual_display/mac_virtual_display.mm")
+            add_frameworks("Foundation", "CoreGraphics")
+    end
+
     target("game_mode_capture_state_test")
         set_kind("binary")
         set_default(false)
@@ -802,8 +833,10 @@ function setup_targets()
             add_deps("privacy")
             add_mxxflags("-fobjc-arc")
             add_files("apps/desktop/src/platform/macos/screen_capturer/*.cpp",
-                "apps/desktop/src/platform/macos/screen_capturer/*.mm")
-            add_includedirs("apps/desktop/src/platform/macos/screen_capturer")
+                "apps/desktop/src/platform/macos/screen_capturer/*.mm",
+                "apps/desktop/src/platform/macos/virtual_display/*.mm")
+            add_includedirs("apps/desktop/src/platform/macos/screen_capturer",
+                "apps/desktop/src/platform/macos/virtual_display")
         elseif is_os("linux") then
             add_deps("privacy")
             add_packages("libyuv")
