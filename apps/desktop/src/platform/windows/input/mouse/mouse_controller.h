@@ -10,6 +10,7 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 #include <remote_action.h>
 
@@ -35,6 +36,23 @@ class PlatformMouseController final : public MouseController {
   std::vector<DisplayInfo> display_info_list_;
   std::mutex display_info_mutex_;
   std::atomic<unsigned> pressed_buttons_{0};
+
+  // move_relative injection state, mirroring the macOS host semantics
+  // (platform/macos/input/mouse/mouse_controller.cpp:139-202): wire dx/dy
+  // are fractions of the target display's width/height, converted to
+  // physical pixels here. The anchor tracks the logical cursor position in
+  // double precision across a burst so fractional motion is not lost;
+  // Windows relative SendInput moves the cursor by whole pixels, so the
+  // sub-pixel remainder stays in the carry fields and is resynced against
+  // the physical cursor whenever injection has been idle long enough for
+  // local input or absolute positioning to have moved it.
+  static constexpr std::chrono::milliseconds kRelativeAnchorMaxAge{500};
+  bool relative_anchor_valid_ = false;
+  double relative_anchor_x_ = 0;
+  double relative_anchor_y_ = 0;
+  double relative_carry_x_ = 0;
+  double relative_carry_y_ = 0;
+  std::chrono::steady_clock::time_point relative_anchor_time_{};
 };
 }  // namespace crossdesk
 #endif

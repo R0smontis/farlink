@@ -83,6 +83,95 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
   if (remote_action.type != ControlType::mouse) return 0;
   if (!std::isfinite(remote_action.m.x) || !std::isfinite(remote_action.m.y))
     return -1;
+
+  if (remote_action.m.flag == MouseFlag::move_relative) {
+    // Wire dx/dy are fractions of this display's width/height (the same
+    // resolution-independent unit the absolute x/y uses, remote_action.h:66-74)
+    // — identical to what the macOS host multiplies by its display size in
+    // points (platform/macos/input/mouse/mouse_controller.cpp:169-176). Here
+    // the display size is physical pixels because SendInput relative moves
+    // are pixel units. Nothing depends on the encoded stream's resolution,
+    // so mid-session resolution adaptation cannot change sensitivity.
+    if (!std::isfinite(remote_action.m.dx) || !std::isfinite(remote_action.m.dy))
+      return -1;
+    // Per-event clamp identical to the macOS accumulator's
+    // (relative_mouse_injection.h:kMaxDeltaPerEvent), applied before the
+    // pixel conversion so sensitivity to display size matches exactly.
+    constexpr double kMaxDeltaPerEvent = 32767.0;
+    const double dx_px = std::clamp(
+        static_cast<double>(remote_action.m.dx) * display.width,
+        -kMaxDeltaPerEvent, kMaxDeltaPerEvent);
+    const double dy_px = std::clamp(
+        static_cast<double>(remote_action.m.dy) * display.height,
+        -kMaxDeltaPerEvent, kMaxDeltaPerEvent);
+    // Injected relative moves do not report their resulting position, so
+    // the tracked anchor is authoritative within a burst and resyncs to the
+    // physical cursor once injection has been idle long enough for local
+    // input devices to have moved it — the macOS anchor rule
+    // (mouse_controller.cpp:143-161). The sub-pixel remainder carries
+    // losslessly in double across events: rounding applies per-event to the
+    // residual, never to the sum, so N fractional moves cannot drift.
+    double base_x = 0, base_y = 0;
+    const auto now = std::chrono::steady_clock::now();
+    if (relative_anchor_valid_ &&
+        now - relative_anchor_time_ < kRelativeAnchorMaxAge) {
+      base_x = relative_anchor_x_;
+      base_y = relative_anchor_y_;
+    } else {
+      POINT cursor{};
+      if (!GetCursorPos(&cursor)) return -1;
+      base_x = cursor.x;
+      base_y = cursor.y;
+      // A fresh anchor must not carry rounding debt from a different frame.
+      relative_carry_x_ = 0;
+      relative_carry_y_ = 0;
+    }
+    relative_carry_x_ += dx_px;
+    relative_carry_y_ += dy_px;
+    const auto move_x = static_cast<LONG>(std::lround(relative_carry_x_));
+    const auto move_y = static_cast<LONG>(std::lround(relative_carry_y_));
+    relative_carry_x_ -= static_cast<double>(move_x);
+    relative_carry_y_ -= static_cast<double>(move_y);
+    if (move_x == 0 && move_y == 0) {
+      relative_anchor_x_ = base_x;
+      relative_anchor_y_ = base_y;
+      relative_anchor_time_ = now;
+      relative_anchor_valid_ = true;
+      return 0;
+    }
+    ip.type = INPUT_MOUSE;
+    ip.mi.dx = move_x;
+    ip.mi.dy = move_y;
+    // MOUSEEVENTF_MOVE without MOUSEEVENTF_ABSOLUTE: dx/dy are relative
+    // pixel units, no virtual-desk normalization. Games consuming raw input
+    // read the same relative motion through the HID path; the desktop
+    // cursor moves by the same amount and is clamped by Windows itself at
+    // the virtual screen edge, exactly like a physical mouse.
+    ip.mi.dwFlags = MOUSEEVENTF_MOVE;
+    ip.mi.dwExtraInfo = kInjectedMouseInputMarker;
+    const UINT rel_sent = SendInputOnUserDesktop(ip);
+    if (rel_sent != 1) {
+      const DWORD error = GetLastError();
+      LOG_WARN("SendInput failed for relative mouse dx={}, dy={}, err={}",
+               move_x, move_y, error);
+      SetLastError(error);
+      return -1;
+    }
+    relative_anchor_x_ = base_x + static_cast<double>(move_x);
+    relative_anchor_y_ = base_y + static_cast<double>(move_y);
+    relative_anchor_time_ = now;
+    relative_anchor_valid_ = true;
+    return 0;
+  }
+  // An absolute move ends relative positioning; clicks and the wheel keep
+  // whatever mode the most recent move established. Only the absolute move
+  // invalidates the tracked anchor: it repositions through the physical
+  // cursor, so the next relative burst must resync from it — same rule as
+  // the macOS host (mouse_controller.cpp:194-203).
+  if (remote_action.m.flag == MouseFlag::move) {
+    relative_anchor_valid_ = false;
+  }
+
   ip.type = INPUT_MOUSE;
   ip.mi.dx = (LONG)(std::clamp(remote_action.m.x, 0.0f, 1.0f) *
                     (display.width - 1)) + display.left;

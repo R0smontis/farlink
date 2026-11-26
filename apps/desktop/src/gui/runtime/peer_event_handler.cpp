@@ -696,7 +696,18 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   action.i.supports_deskhub_resolution = true;
   action.i.supports_deskhub_fps15 = true;
   action.i.supports_deskhub_bandwidth = true;
+  // Advertise relative-mouse injection only where it is actually implemented:
+  // macOS (platform/macos/input/mouse/mouse_controller.cpp:139) and Windows
+  // (platform/windows/input/mouse/mouse_controller.cpp move_relative case).
+  // Linux has no implementation — its X11/Wayland controllers have no
+  // move_relative case and would inject nothing or worse. Before this gate
+  // the bit was unconditional, which sent macOS game-mode controllers into
+  // sessions whose hosts teleported the cursor or dropped motion.
+#if defined(__APPLE__) || defined(_WIN32)
   action.i.supports_relative_mouse = true;
+#else
+  action.i.supports_relative_mouse = false;
+#endif
   action.i.supports_high_fps = true;
   action.i.supports_file_browser = UserSessionFeaturesAvailable();
 #ifndef __OHOS__

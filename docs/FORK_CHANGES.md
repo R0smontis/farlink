@@ -52,6 +52,8 @@ The fork extends upstream CrossDesk in three independent areas:
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.h` | Declarations for the above. |
 | `apps/desktop/src/platform/macos/screen_capturer/screen_capturer_sck_impl.mm` | Zero-copy capture path for high frame-rate. |
 | `apps/desktop/src/platform/window_drag.h` | Window-drag interface change. |
+| `apps/desktop/src/platform/windows/input/mouse/mouse_controller.cpp` | Windows relative-mouse injection. |
+| `apps/desktop/src/platform/windows/input/mouse/mouse_controller.h` | Declarations for the above. |
 | `apps/desktop/xmake/targets.lua` | New test/harness build targets. |
 | `libs/wire/include/preview_subscription.h` | Frame-rate field validation for high tiers. |
 | `libs/wire/include/remote_action.h` | New capability flags in host-info message. |

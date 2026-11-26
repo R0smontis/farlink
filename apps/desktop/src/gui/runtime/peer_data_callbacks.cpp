@@ -705,6 +705,16 @@ InputOutcome GuiRuntime::InjectRemoteMouse(const RemoteAction& remote_action,
               sent, IsDesktopTransitionInputError(error) || blocked, blocked};
         },
         [&]() -> DesktopInputResult {
+          // The secure-desktop IPC protocol carries only x/y/wheel/flag and
+          // the helper injects an absolute move for every event
+          // (service/session_helper_main.cpp InjectMouseInput). move_relative
+          // would teleport to the top-left corner there because x=y=0, so it
+          // is dropped here rather than misinterpreted — secure desktops
+          // (UAC consent, lock screen) are credential prompts, not game
+          // surfaces, and losing camera-relative motion there is correct.
+          if (remote_action.m.flag == MouseFlag::move_relative) {
+            return {true, false, false};
+          }
           int absolute_x = 0;
           int absolute_y = 0;
           if (!BuildAbsoluteMousePosition(devices_.display_info_list(), display,
