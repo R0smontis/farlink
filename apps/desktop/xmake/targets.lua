@@ -438,6 +438,32 @@ function setup_targets()
         add_deps("rd_log")
         add_includedirs("apps/desktop/src/gui/features/devices")
         add_files("apps/desktop/tests/audio_output_trim_test.cpp")
+    -- D11 stereo proof: in-process stereo round-trip through the real
+    -- AudioEncoder/AudioDecoder/AudioJitterBuffer (separation, mono legacy
+    -- fallback, mono downmix fan-out, DTX bitrate, 5% loss + jitter).
+    target("audio_stereo_roundtrip_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("libopus", "spdlog")
+        add_includedirs(
+            "deps/submodules/minirtc/src/common",
+            "deps/submodules/minirtc/src/log",
+            "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/media/audio/jitter",
+            "deps/submodules/minirtc/src/media/audio/decode",
+            "deps/submodules/minirtc/src/media/audio/encode",
+            "deps/submodules/minirtc/src/media",
+            "deps/submodules/minirtc/src/frame")
+        if is_os("macosx") then
+            add_frameworks("Foundation", "CoreFoundation",
+                "SystemConfiguration", "CoreServices")
+            add_syslinks("iconv")
+        end
+        add_files("apps/desktop/tests/audio_stereo_roundtrip_test.cpp",
+            "deps/submodules/minirtc/src/media/audio/jitter/audio_jitter_buffer.cpp",
+            "deps/submodules/minirtc/src/media/audio/decode/audio_decoder.cpp",
+            "deps/submodules/minirtc/src/media/audio/encode/audio_encoder.cpp",
+            "deps/submodules/minirtc/src/log/log.cpp")
     target("encoder_ceiling_reprobe_test")
         set_kind("binary")
         set_default(false)
@@ -585,6 +611,11 @@ function setup_targets()
         add_includedirs("apps/desktop/src/gui", "apps/desktop/src/gui/assets/fonts",
             "apps/desktop/src/gui/assets/localization")
         add_files("apps/desktop/tests/slint_ui_smoke_test.cpp")
+        -- The Slint runtime is copied next to the binary and referenced via
+        -- @rpath; without an rpath entry dyld cannot resolve it at launch.
+        if is_os("macosx") then
+            add_rpathdirs("@executable_path")
+        end
         add_rules("crossdesk.slint_runtime")
 
     if is_os("linux") then
@@ -622,6 +653,9 @@ function setup_targets()
         add_deps("crossdesk_ui")
         add_includedirs("apps/desktop/src/gui")
         add_files("apps/desktop/tests/slint_stream_render_test.cpp")
+        if is_os("macosx") then
+            add_rpathdirs("@executable_path")
+        end
         add_rules("crossdesk.slint_runtime")
 
     target("slint_popup_render_test")
@@ -635,6 +669,9 @@ function setup_targets()
         add_deps("crossdesk_ui")
         add_includedirs("apps/desktop/src/gui", "apps/desktop/src/gui/assets/localization")
         add_files("apps/desktop/tests/slint_popup_render_test.cpp")
+        if is_os("macosx") then
+            add_rpathdirs("@executable_path")
+        end
         add_rules("crossdesk.slint_runtime")
 
     target("version_checker_test")
@@ -1065,6 +1102,10 @@ function setup_targets()
             add_frameworks("Security", "UniformTypeIdentifiers", {public = true})
             add_includedirs("apps/desktop/src/platform/macos/gui",
                 "apps/desktop/src/platform/macos/gui/tray")
+            -- session_device_manager.cpp reaches the macOS keyboard capturer
+            -- header, which includes the side-aware modifier tracker headers
+            -- by bare name from the input directory.
+            add_includedirs("apps/desktop/src/platform/macos/input")
         elseif is_os("linux") then
             add_links("GL")
             add_deps("headless_console")

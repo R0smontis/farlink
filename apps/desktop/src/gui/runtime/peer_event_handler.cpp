@@ -654,6 +654,13 @@ void PeerEventHandler::OnNetStatusReport(
   // only display client side net status if connected to itself
   if (!(runtime->peer_reserved_ && !strstr(client_id, "C-"))) {
     props->net_traffic_stats_.Store(*net_traffic_stats);
+    // Bind the live D8 HUD media-timing fields: the transport now carries the
+    // video/audio playout (jitter buffer) target delays, so surface them in
+    // the stream stats overlay. Negative means unavailable/disabled, which the
+    // HUD renders as unavailable rather than a false zero.
+    props->net_traffic_stats_.StoreMediaTiming(
+        net_traffic_stats->video_target_delay_ms,
+        net_traffic_stats->audio_target_delay_ms);
     // Periodic machine-readable network sample. The transport reports
     // roughly once per second; logging the raw counters here is the only
     // durable record — the cache above exists for UI display and is reset

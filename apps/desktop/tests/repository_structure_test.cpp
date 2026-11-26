@@ -144,9 +144,13 @@ int main() {
   }
 
   bool ok = true;
-  static constexpr std::array<std::string_view, 11> kLegacyRootDirectories = {
-      "src",       "ios",       "scripts",    "icons",
-      "tests",     "xmake",     "shared",     "platforms",
+  // Legacy monorepo root directories that must never reappear. `scripts/` is
+  // deliberately absent from this list: commit a017236f reintroduced it as
+  // the home of the standalone `scripts/version.py` component-version tool,
+  // so its presence is intentional rather than a legacy-layout regression.
+  static constexpr std::array<std::string_view, 10> kLegacyRootDirectories = {
+      "src",       "ios",       "icons",     "tests",
+      "xmake",     "shared",    "platforms",
       "wire",      "submodules", "thirdparty"};
   for (std::string_view directory : kLegacyRootDirectories) {
     if (!std::filesystem::exists(repo_root / directory)) {
