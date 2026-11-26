@@ -2,6 +2,10 @@
 .xmake/
 .xmake-toolchain-cache/
 build/
+# Runtime logs written next to the working copy by the app and harnesses;
+# never a source artifact, so they must not dirty the tree (which would also
+# flip the build-identity state to "dirty").
+logs/
 apps/ios/Vendor/
 apps/ios/DerivedData*/
 apps/ios/.xmake/
