@@ -4260,18 +4260,22 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
       const bool constraint_changed =
           capability != view.stream_constraint_capability ||
           view.stream_display_max_frame_rate != view.stream_constraint_max_frame_rate;
-      if (constraint_changed) {
+      // Consume the constraint change only when it can actually be evaluated.
+      // If a settings request is still in flight (as the initial session-start
+      // request is right after capability negotiation) the evaluation defers —
+      // leaving the constraint marked changed so it re-fires once the reply
+      // arrives — rather than dropping the session-start clamp on the floor.
+      if (constraint_changed && !props->video_settings_pending_ &&
+          props->video_settings_supported_) {
         view.stream_constraint_capability = capability;
         view.stream_constraint_max_frame_rate = view.stream_display_max_frame_rate;
-        if (!props->video_settings_pending_ && props->video_settings_supported_) {
-          const int active = props->video_settings_.frame_rate;
-          const int effective = EffectiveVideoFrameRate(
-              active, props->high_fps_supported_.load(), view.stream_refresh_hz);
-          if (effective != active) {
-            downgrade_frame_rate = effective;
-            downgrade_quality = props->video_settings_.quality;
-            downgrade_preference = props->video_settings_.preference;
-          }
+        const int active = props->video_settings_.frame_rate;
+        const int effective = EffectiveVideoFrameRate(
+            active, props->high_fps_supported_.load(), view.stream_refresh_hz);
+        if (effective != active) {
+          downgrade_frame_rate = effective;
+          downgrade_quality = props->video_settings_.quality;
+          downgrade_preference = props->video_settings_.preference;
         }
       }
     }
