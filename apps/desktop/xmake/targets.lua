@@ -239,6 +239,21 @@ function setup_targets()
         add_includedirs("apps/desktop/src")
         add_files("apps/desktop/tests/screen_lock_monitor_test.cpp")
 
+    -- Deterministic sanitiser + ZIP assembly test for the diagnostic
+    -- exporter: seeds every supported secret pattern into synthetic logs,
+    -- runs the production RedactDiagnosticText/ExportDiagnostics, and parses
+    -- the archive back. Links the real exporter translation unit plus a
+    -- fixed build-identity stub; no network, no real logs.
+    target("diagnostic_export_redaction_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("private_file")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/common",
+            "apps/desktop/src/log", "apps/desktop/src/gui/features/feedback")
+        add_files("apps/desktop/tests/diagnostic_export_redaction_test.cpp",
+            "apps/desktop/tests/build_identity_stub.cpp",
+            "apps/desktop/src/gui/features/feedback/diagnostic_export.cpp")
+
     -- End-to-end emission test: drives the real Record() path with fake
     -- monotonic timestamps and the real LogVideoSessionSummary() teardown,
     -- then reads back the actual log file to verify the inter_present line.

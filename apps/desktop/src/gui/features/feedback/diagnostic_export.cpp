@@ -1,4 +1,5 @@
 #include "diagnostic_export.h"
+#include "diagnostic_redaction.h"
 
 #include <array>
 #include <cstdint>
@@ -133,7 +134,8 @@ std::string DiagnosticFileName() {
 ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
                                const std::filesystem::path& transport_logs,
                                const std::filesystem::path& destination,
-                               const std::string& version, std::time_t now) {
+                               const std::string& version, std::time_t now,
+                               const SessionSummaryFields* session) {
   std::vector<Entry> entries;
   try {
     for (const auto& [directory, name] :
@@ -159,7 +161,11 @@ ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
       input.read(data.data(), static_cast<std::streamsize>(size));
       if (input.bad() || static_cast<size_t>(input.gcount()) != size)
         return {ExportError::read_failed};
-      if (!data.empty()) entries.push_back({name, std::move(data)});
+      // Redact before the bytes touch the archive: passwords, tokens,
+      // credentials, key material and home-directory usernames never leave
+      // the machine, even though the raw log files on disk retain them.
+      if (!data.empty())
+        entries.push_back({name, RedactDiagnosticText(data)});
     }
   } catch (...) {
     return {ExportError::read_failed};
@@ -175,10 +181,67 @@ ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
       "\nPlatform: " + Platform() +
       "\nProcess bits: " + std::to_string(sizeof(void*) * 8) +
       "\nExported UTC: " + TimeText(now, "%Y-%m-%d %H:%M:%S", true) +
-      "\nActive log files are included as-is, without filtering or redaction.\n"
+      "\nLog files are sanitized before archiving: passwords, tokens,\n"
+      "credentials, private keys and local usernames are masked.\n"
       "Configuration files and screen previews are not included.\n"
       "Review the logs before sharing. GitHub issue attachments are public.\n";
   entries.insert(entries.begin(), {"environment.txt", std::move(info)});
+  if (session) {
+    // Hand-serialized flat JSON: the field set is fixed, numeric values are
+    // finite by construction of the accumulators they come from, and pulling
+    // a JSON library into this translation unit is not worth one object.
+    // remote_id/codec pass through a JSON string escaper.
+    const auto escape = [](std::string_view text) {
+      std::string out;
+      for (const char c : text) {
+        switch (c) {
+          case '"': out += "\\\""; break;
+          case '\\': out += "\\\\"; break;
+          case '\n': out += "\\n"; break;
+          case '\r': out += "\\r"; break;
+          case '\t': out += "\\t"; break;
+          default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+              char buf[8];
+              std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+              out += buf;
+            } else {
+              out += c;
+            }
+        }
+      }
+      return out;
+    };
+    const auto number = [](double value) {
+      char buf[32];
+      std::snprintf(buf, sizeof(buf), "%.3f", value);
+      // Trim trailing zeros but keep at least one decimal digit: 12.500 ->
+      // 12.5, 21.000 -> 21.0.
+      std::string text = buf;
+      if (text.find('.') != std::string::npos) {
+        while (text.size() > 2 && text.back() == '0' && text[text.size() - 2] != '.')
+          text.pop_back();
+      }
+      return text;
+    };
+    std::string json = "{\n";
+    json += "  \"remote_id\":\"" + escape(session->remote_id) + "\",\n";
+    json += "  \"duration_s\":" + number(session->duration_s) + ",\n";
+    json += "  \"codec\":\"" + escape(session->codec) + "\",\n";
+    json += "  \"fps_tier\":" + std::to_string(session->fps_tier) + ",\n";
+    json += "  \"resolution\":\"" + std::to_string(session->width) + "x" +
+            std::to_string(session->height) + "\",\n";
+    json += "  \"frames_presented\":" + std::to_string(session->frames_presented) + ",\n";
+    json += "  \"inter_present_intervals\":" + std::to_string(session->intervals) + ",\n";
+    json += "  \"freeze_count\":" + std::to_string(session->freeze_count) + ",\n";
+    json += "  \"freeze_max_ms\":" + number(session->freeze_max_ms) + ",\n";
+    json += "  \"p95_max_ms\":" + number(session->p95_max_ms) + ",\n";
+    json += "  \"freezes_per_min\":" + number(session->freezes_per_min) + ",\n";
+    json += "  \"rtt_ms\":" + number(session->rtt_ms) + ",\n";
+    json += "  \"video_in_loss\":" + number(session->video_in_loss) + "\n";
+    json += "}\n";
+    entries.push_back({"session_summary.json", std::move(json)});
+  }
   try {
     private_file::Write(destination, Zip(entries));
   } catch (...) {

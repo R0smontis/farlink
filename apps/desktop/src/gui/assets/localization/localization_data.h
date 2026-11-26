@@ -563,6 +563,8 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"对端地址", {"对端地址", "Remote endpoint", "Удалённый адрес", "對端位址", "リモートアドレス", "원격 주소", "Remote-Adresse", "Adresse distante", "Dirección remota", "Endereço remoto"}},
   {"游戏鼠标", {"游戏鼠标", "Game Mouse", "Игровая мышь", "遊戲滑鼠", "ゲームマウス", "게임 마우스", "Maus im Spielmodus", "Souris de jeu", "Ratón de juego", "Mouse de jogo"}},
   {"释放游戏鼠标", {"释放游戏鼠标 (Ctrl+Alt+G)", "Release Game Mouse (Ctrl+Alt+G)", "Отпустить игровую мышь (Ctrl+Alt+G)", "釋放遊戲滑鼠 (Ctrl+Alt+G)", "ゲームマウスを解放 (Ctrl+Alt+G)", "게임 마우스 해제 (Ctrl+Alt+G)", "Spielmaus freigeben (Ctrl+Alt+G)", "Relâcher la souris de jeu (Ctrl+Alt+G)", "Soltar el ratón de juego (Ctrl+Alt+G)", "Soltar o mouse de jogo (Ctrl+Alt+G)"}},
+  {"诊断", {"诊断", "Diagnostics", "Диагностика", "診斷", "診断", "진단", "Diagnose", "Diagnostic", "Diagnóstico", "Diagnóstico"}},
+  {"导出", {"导出", "Export", "Экспорт", "匯出", "エクスポート", "내보내기", "Exportieren", "Exporter", "Exportar", "Exportar"}},
 };
 
 struct NamedTranslation { const char* name; const char* literal; };
@@ -865,6 +867,9 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"windows_service_repair_success", "服务已修复并启动"},
   {"windows_service_repair_failed", "修复失败，请检查管理员权限和便携版文件后重试"},
   {"remote_service_unavailable_message", "远端 Windows 服务不可用，锁屏时无法操作。请在远端安装或修复 Farlink 服务。"},
+  {"diagnostics", "诊断"},
+  {"export_action", "导出"},
+  {"exporting", "正在导出…"},
 };
 inline constexpr const char* kSlintLiterals[] = {
   "此端口已被占用，",
@@ -1384,7 +1389,10 @@ inline constexpr const char* kSlintLiterals[] = {
   X(windows_service_repairing) \
   X(windows_service_repair_success) \
   X(windows_service_repair_failed) \
-  X(remote_service_unavailable_message)
+  X(remote_service_unavailable_message) \
+  X(diagnostics) \
+  X(export_action) \
+  X(exporting)
 
 }  // namespace localization
 }  // namespace crossdesk

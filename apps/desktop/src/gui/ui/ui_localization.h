@@ -329,6 +329,9 @@ inline int ApplyStreamWindowStrings(
       Text(localization::transport_encryption_enabled[language]));
   strings.set_stats_encryption_disabled(
       Text(localization::transport_encryption_disabled[language]));
+  strings.set_diagnostics(Text(localization::diagnostics[language]));
+  strings.set_export_diagnostics(Text(localization::export_action[language]));
+  strings.set_exporting_diagnostics(Text(localization::exporting[language]));
   return language;
 }
 

@@ -11819,6 +11819,30 @@
       "fr": "Relâcher la souris de jeu (Ctrl+Alt+G)",
       "es": "Soltar el ratón de juego (Ctrl+Alt+G)",
       "pt-BR": "Soltar o mouse de jogo (Ctrl+Alt+G)"
+    },
+    "诊断": {
+      "zh-Hans": "诊断",
+      "en": "Diagnostics",
+      "ru": "Диагностика",
+      "zh-Hant": "診斷",
+      "ja": "診断",
+      "ko": "진단",
+      "de": "Diagnose",
+      "fr": "Diagnostic",
+      "es": "Diagnóstico",
+      "pt-BR": "Diagnóstico"
+    },
+    "导出": {
+      "zh-Hans": "导出",
+      "en": "Export",
+      "ru": "Экспорт",
+      "zh-Hant": "匯出",
+      "ja": "エクスポート",
+      "ko": "내보내기",
+      "de": "Exportieren",
+      "fr": "Exporter",
+      "es": "Exportar",
+      "pt-BR": "Exportar"
     }
   },
   "desktop": {
@@ -12119,7 +12143,10 @@
     "windows_service_repairing": "正在修复 Windows 服务…",
     "windows_service_repair_success": "服务已修复并启动",
     "windows_service_repair_failed": "修复失败，请检查管理员权限和便携版文件后重试",
-    "remote_service_unavailable_message": "远端 Windows 服务不可用，锁屏时无法操作。请在远端安装或修复 Farlink 服务。"
+    "remote_service_unavailable_message": "远端 Windows 服务不可用，锁屏时无法操作。请在远端安装或修复 Farlink 服务。",
+    "diagnostics": "诊断",
+    "export_action": "导出",
+    "exporting": "正在导出…"
   },
   "slint": [
     "此端口已被占用，",
@@ -12890,7 +12917,9 @@
       "本端地址",
       "对端地址",
       "游戏鼠标",
-      "释放游戏鼠标"
+      "释放游戏鼠标",
+      "诊断",
+      "导出"
     ],
     "android": [
       " · 已完成",

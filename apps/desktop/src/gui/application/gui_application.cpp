@@ -2663,6 +2663,7 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     view.session->net_traffic_stats_button_pressed_ =
         !view.session->net_traffic_stats_button_pressed_;
   });
+  stream->on_export_diagnostics([this] { ExportDiagnosticLogs(); });
   stream->on_toggle_fullscreen([this, &view] {
     auto& stream = view.window;
     view.ObserveWindowState();
@@ -5797,6 +5798,10 @@ void GuiApplication::ExportDiagnosticLogs() {
     window->set_feedback_saved_path("");
     window->set_feedback_succeeded(false);
   }
+  for (auto& [_, view] : ui_->streams) {
+    view.window->set_diagnostic_exporting(true);
+    view.window->set_diagnostic_feedback(UiText(""));
+  }
   const auto filename = feedback::DiagnosticFileName();
   const auto title = localization::Literal("导出诊断日志", localization_language_index_);
   std::weak_ptr<void> lifetime = ui_->file_dialog_lifetime;
@@ -5806,6 +5811,7 @@ void GuiApplication::ExportDiagnosticLogs() {
     if (exit_) return;
     if (path.empty()) {
       for (const auto& window : {ui_->main, ui_->wall}) window->set_feedback_exporting(false);
+      for (auto& [_, view] : ui_->streams) view.window->set_diagnostic_exporting(false);
       return;
     }
     try {
@@ -5825,14 +5831,69 @@ void GuiApplication::ExportDiagnosticLogs() {
 #endif
       ui_->diagnostic_saved_path = path;
       get_logger()->flush();
+      // Snapshot the focused stream session (or the most recently focused
+      // connected one) into plain data before the async worker starts: the
+      // worker thread must not touch session state, so everything it needs
+      // is captured here on the UI thread. TakeInterPresentGapStats is a
+      // const copy-out, so exporting mid-session never disturbs the running
+      // accumulator or the teardown summary.
+      feedback::SessionSummaryFields session_summary{};
+      bool have_session = false;
+      {
+        std::shared_lock lock(remote_sessions_mutex_);
+        std::shared_ptr<RemoteSession> best;
+        for (const auto& [id, props] : remote_sessions_) {
+          if (!props || props->closing_) continue;
+          if (props->connection_status_ != MiniRtcConnectionStatus::MiniRtcConnectionConnected)
+            continue;
+          if (id == controlled_remote_id_ && focus_on_stream_window_) { best = props; break; }
+          if (!best || props->last_focused_stream_) best = props;
+        }
+        if (best) {
+          have_session = true;
+          session_summary.remote_id = best->remote_id_;
+          const auto now = VideoLatencyFrame::Clock::now();
+          session_summary.duration_s = std::chrono::duration<double>(
+              now - best->session_observability_->connect_time).count();
+          session_summary.codec = best->session_observability_->LoadCodec();
+          session_summary.fps_tier = best->requested_video_frame_rate_;
+          {
+            std::lock_guard frame_lock(best->video_frame_mutex_);
+            session_summary.width = best->video_width_;
+            session_summary.height = best->video_height_;
+          }
+          session_summary.frames_presented = best->video_latency_->FramesPresentedTotal();
+          const auto gaps = best->video_latency_->TakeInterPresentGapStats();
+          const auto window = best->video_latency_->TakeInterPresentWindow();
+          session_summary.intervals = gaps.intervals;
+          session_summary.freeze_count = gaps.gap_count;
+          session_summary.freeze_max_ms = gaps.gap_max_ms;
+          session_summary.p95_max_ms = gaps.ApproxP95IntervalMs();
+          double window_ms = 0;
+          if (window.first && window.last && *window.last > *window.first)
+            window_ms = std::chrono::duration<double, std::milli>(*window.last - *window.first).count();
+          session_summary.freezes_per_min =
+              window_ms > 0 ? gaps.gap_count * 60000.0 / window_ms : 0;
+          const auto net = best->net_traffic_stats_.Load();
+          session_summary.rtt_ms = net.rtt_ms;
+          session_summary.video_in_loss = net.video_inbound_stats.loss_rate;
+        }
+      }
       ui_->diagnostic_export = std::async(std::launch::async,
-          [logs = path_manager_->GetLogPath(), destination] {
-            return feedback::ExportDiagnostics(logs, logs, destination, CROSSDESK_VERSION);
+          [logs = path_manager_->GetLogPath(), destination,
+           summary = session_summary, have_session] {
+            return feedback::ExportDiagnostics(logs, logs, destination, CROSSDESK_VERSION,
+                std::time(nullptr), have_session ? &summary : nullptr);
           });
     } catch (...) {
       for (const auto& window : {ui_->main, ui_->wall}) {
         window->set_feedback_exporting(false);
         window->set_feedback_status(UiText(localization::Literal(
+            "无法保存诊断包，请选择其他位置重试。", localization_language_index_)));
+      }
+      for (auto& [_, view] : ui_->streams) {
+        view.window->set_diagnostic_exporting(false);
+        view.window->set_diagnostic_feedback(UiText(localization::Literal(
             "无法保存诊断包，请选择其他位置重试。", localization_language_index_)));
       }
     }
@@ -5873,6 +5934,11 @@ void GuiApplication::PollDiagnosticExport() {
     window->set_feedback_succeeded(succeeded);
     window->set_feedback_status(UiText(localization::Literal(message, localization_language_index_)));
     window->set_feedback_saved_path(UiText(succeeded ? ui_->diagnostic_saved_path : ""));
+  }
+  for (auto& [_, view] : ui_->streams) {
+    view.window->set_diagnostic_exporting(false);
+    view.window->set_diagnostic_feedback(UiText(localization::Literal(
+        message, localization_language_index_)));
   }
 }
 
