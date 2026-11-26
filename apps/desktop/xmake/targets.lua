@@ -483,6 +483,18 @@ function setup_targets()
             "deps/submodules/minirtc/src/frame")
         add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
 
+    -- D6a FPS-cap ladder: pure-policy rung/floor/hysteresis assertions plus a
+    -- scripted-timeline simulation of the controller's EvaluateFpsCapLadder
+    -- branching (cooldowns, healthy-hold step-up, 0 Hz idle freeze,
+    -- capture-limited guard). The policy is header-only, so no minirtc link
+    -- is required — only its include dirs.
+    target("fps_cap_ladder_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("deps/submodules/minirtc/src/media/resolution_adapter",
+            "deps/submodules/minirtc/src/api")
+        add_files("apps/desktop/tests/fps_cap_ladder_test.cpp")
+
     if is_plat("macosx") then
         target("video_toolbox_in_flight_test")
             set_kind("binary")
