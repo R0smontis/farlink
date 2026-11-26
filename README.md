@@ -2,10 +2,14 @@
 
 **Farlink** is a fork of [CrossDesk](https://github.com/kunkundi/crossdesk) aimed at a
 commercial-grade low-latency remote desktop experience: high frame-rate capture/encode (up to 144 fps negotiation),
-zero-config LAN auto-discovery, 4 MiB UDP socket buffers, a dynamic high-FPS degradation
-ladder that sacrifices frame rate before resolution, hardware HEVC 4:4:4 10-bit
-true-color on Apple Silicon, hardware encoder cold-start priming, a bounded audio jitter
-buffer, 48 kHz stereo Opus
+an 80/100 Mbps network/encoder bitrate ceiling with an evidence-tuned 8 Mbps session
+start (D2), zero-config LAN auto-discovery, 4 MiB UDP socket buffers, a dynamic high-FPS
+degradation ladder that sacrifices frame rate before resolution, hardware HEVC 4:4:4
+10-bit true-color on Apple Silicon, bidirectional PNG/TIFF image clipboard sync with an
+8 MiB cap and echo prevention, a discreet desktop-wallpaper privacy screen alongside the
+branded and black covers, an opt-in macOS headless virtual display
+(`FARLINK_MAC_VIRTUAL_DISPLAY=1`), hardware encoder cold-start priming, a bounded audio
+jitter buffer, 48 kHz stereo Opus
 audio (D11), an adaptive video playout (jitter) buffer (D4), static-screenshare power
 saving (D5), loss-aware congestion recovery (D3), host screen-lock awareness, a live
 QoE stream-stats overlay with redacted diagnostic export (D8), macOS input ergonomics,

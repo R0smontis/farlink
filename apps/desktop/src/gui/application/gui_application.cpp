@@ -64,6 +64,7 @@
 #include "rendering/slint_video_presenter.h"
 #include "rendering/video_geometry.h"
 #include "rendering/video_frame_diagnostics.h"
+#include "privacy/privacy_cover_style.h"
 #include "runtime/privacy_control_state.h"
 #if _WIN32
 #include <windows.h>
@@ -1778,6 +1779,10 @@ void GuiApplication::ResetSettingsUi(bool gallery_window) {
 #if defined(_WIN32) || defined(__APPLE__)
   main->set_privacy_black_screen_available(true);
   main->set_privacy_black_screen(config_center_->IsPrivacyBlackScreen());
+  // The selector mirrors the resolved cover — the style enum is authoritative
+  // once non-default, the legacy black-screen boolean otherwise.
+  main->set_privacy_cover_index(static_cast<int>(ResolvePrivacyCoverStyle(
+      config_center_->GetPrivacyCoverStyle(), config_center_->IsPrivacyBlackScreen())));
 #endif
   main->set_lock_on_disconnect_enabled(config_center_->IsLockOnDisconnect());
   main->set_trusted_devices_only(config_center_->IsTrustedDevicesOnly());
@@ -5384,12 +5389,18 @@ bool GuiApplication::SaveSettingsFromUi(bool gallery_window) {
         localization::Literal("无法保存隐私屏解锁设置，请重试。", localization_language_index_)));
     return false;
   }
-  if (main->get_privacy_black_screen_available() &&
-      config_center_->SetPrivacyBlackScreen(main->get_privacy_black_screen()) != 0) {
-    if (wall_changed) ui_->gallery.Save(ui_->gallery_path);
-    main->set_settings_save_error(UiText(
-        localization::Literal("保存失败，请重试", localization_language_index_)));
-    return false;
+  if (main->get_privacy_black_screen_available()) {
+    // The cover selector is authoritative. SetPrivacyCoverStyle itself keeps
+    // the legacy black-screen boolean in sync, so pre-style consumers and
+    // profiles resolve to the identical cover; the black-screen toggle the
+    // selector replaced is no longer independently editable in the UI.
+    const int cover = std::clamp(main->get_privacy_cover_index(), 0, 2);
+    if (config_center_->SetPrivacyCoverStyle(cover) != 0) {
+      if (wall_changed) ui_->gallery.Save(ui_->gallery_path);
+      main->set_settings_save_error(UiText(
+          localization::Literal("保存失败，请重试", localization_language_index_)));
+      return false;
+    }
   }
   if (config_center_->SetDesktopRealtimeRateControl(main->get_desktop_realtime_rate_control()) != 0) {
     if (wall_changed) ui_->gallery.Save(ui_->gallery_path);

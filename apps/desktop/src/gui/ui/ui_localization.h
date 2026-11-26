@@ -153,6 +153,10 @@ inline int ApplyMainWindowStrings(
   strings.set_unknown_platform(Text(localization::unknown_platform[language]));
   strings.set_privacy_local_unlock(Text(localization::privacy_local_unlock[language]));
   strings.set_privacy_black_screen(Text(localization::privacy_black_screen[language]));
+  strings.set_privacy_cover_style(Text(localization::privacy_cover_style[language]));
+  strings.set_privacy_cover_branded(Text(localization::privacy_cover_branded[language]));
+  strings.set_privacy_cover_black(Text(localization::privacy_cover_black[language]));
+  strings.set_privacy_cover_wallpaper(Text(localization::privacy_cover_wallpaper[language]));
   strings.set_privacy_on_connect(Text(localization::privacy_on_connect[language]));
   strings.set_lock_on_disconnect(Text(localization::lock_on_disconnect[language]));
   strings.set_file_save_path(

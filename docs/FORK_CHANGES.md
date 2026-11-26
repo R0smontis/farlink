@@ -83,6 +83,27 @@ The fork extends upstream CrossDesk across these independent areas:
   recovery chord is untouched and works identically in every style. Windows keeps its
   high-band cover and maps the wallpaper choice to the branded fallback; Linux is
   gamma-black only, as before. The default remains the branded cover.
+- **High-bitrate ceiling and evidence-tuned start (D2)** — the bundled minirtc's
+  network/encoder bitrate ceilings rise to 80/100 Mbps (env-overridable via
+  `MINIRTC_MAX_NETWORK_BITRATE_BPS` / `MINIRTC_MAX_ENCODER_BITRATE_BPS`) and the direct
+  session start bitrate defaults to 8 Mbps instead of 2.5 Mbps, eliminating the slow
+  congestion-control ramp on modern LAN/Wi-Fi paths; A/B evidence in `wan/D2_BITRATE_AB.md`.
+- **Bidirectional image clipboard sync (W3B)** — copying a screenshot or image on either
+  endpoint pastes straight into remote applications. A new `supports_clipboard_image`
+  capability gates chunked binary frames on the existing reliable clipboard stream
+  (magic-prefixed so legacy text peers never see them): 32 KiB chunks with out-of-order
+  reassembly, a hard 8 MiB compressed-PNG safety cap, 15 s stale-transfer eviction,
+  cancel frames, duplicate suppression and FNV-1a echo control. PNG/TIFF on macOS,
+  cross-platform tests in `clipboard_image_wire_test` / `clipboard_image_mac_test`.
+- **Opt-in macOS virtual display (W3C)** — a runtime-resolved RAII wrapper for Apple's
+  private `CGVirtualDisplay` SPI enables headless capture provisioning behind
+  `FARLINK_MAC_VIRTUAL_DISPLAY=1`. The integration honestly reports two macOS 27.x
+  platform defects verified on 27.2.1: teardown does not remove the display from
+  WindowServer (leaked displays persist until logout) and mode switching after creation
+  is immutable; the policy layer therefore provisions the correct resolution at creation
+  time and never relies on teardown for correctness. Gated by
+  `mac_virtual_display_policy_test`; the interactive smoke test is compile-only because
+  of the teardown leak.
 
 ## Modified upstream files
 
