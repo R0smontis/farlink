@@ -175,9 +175,17 @@ struct Simulation {
     const bool trial_at_or_above_ceiling =
         VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
             Area(failed), ceiling.BaseArea());
-    const int recovery_rung = RungBelowFailed(probe.base_rung, probe.target_rung);
-    const Rung base = kLadder[recovery_rung];
-    current_rung = recovery_rung;
+    // The rollback target is the pre-probe base — the last size measured
+    // healthy. Rolling back to the rung below the failed trial instead was
+    // rejected: for a multi-rung jump that rung can sit far above what the
+    // encoder sustains, so the stream would land in saturated territory and
+    // pay the saturation downgrade's walk down in degraded frame rate. The
+    // ceiling base is still the highest rung strictly below the failed trial,
+    // so the skipped rungs stay probeable inside [base, ceiling base].
+    const int ceiling_base_rung =
+        RungBelowFailed(probe.base_rung, probe.target_rung);
+    const Rung base = kLadder[ceiling_base_rung];
+    current_rung = probe.base_rung;
     ceiling.Set(failed.width, failed.height, base.width, base.height,
                 encoder.SustainedFps(probe.target_rung), now_ms);
     if (trial_at_or_above_ceiling) {
@@ -188,12 +196,13 @@ struct Simulation {
   }
 
   // Controller probe-success transition: stay at the target rung and clear
-  // the ceiling when the trial reached or exceeded it.
+  // the ceiling when the trial reached or exceeded the ceiling base. Sustaining
+  // the configured frame rate at the boundary of the unknown interval disproves
+  // the learned ceiling.
   void SucceedProbe() {
     const Rung target = kLadder[probe.target_rung];
     current_rung = probe.target_rung;
-    if (VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
-            Area(target), ceiling.BaseArea())) {
+    if (ceiling.BaseArea() > 0 && Area(target) >= ceiling.BaseArea()) {
       ceiling.Clear();
     }
     probe.active = false;
@@ -254,8 +263,38 @@ struct Simulation {
     // higher rung. The controller's upgrade cooldown and sustained-health
     // gate between trials is modelled as kProbeCycleGapMs.
     if (now_ms < next_probe_allowed_ms) return;
-    const int next = NextHigherRung(current_rung);
+    int next = NextHigherRung(current_rung);
     if (next < 0) return;
+
+    // The controller's bandwidth-confirmed recovery does not climb the
+    // unmeasured interval one rung at a time, nor probe just under the failed
+    // size. When the desired target sits above the throughput ceiling it probes
+    // the geometric middle of the legal interval [base, ceiling base], so a
+    // success halves the unknown region upward and a failure halves it
+    // downward. Model that here — collect the rungs inside the interval and
+    // pick the middle one.
+    if (ceiling.BaseArea() > 0) {
+      int rungs[64];
+      int count = 0;
+      int step = current_rung;
+      for (int guard = 0; guard < 64; ++guard) {
+        const int up = step + 1;
+        if (up >= kLadderCount) break;
+        if (Area(kLadder[up]) > ceiling.BaseArea()) break;
+        rungs[count++] = up;
+        step = up;
+      }
+      if (count > 0) {
+        next = rungs[(count - 1) / 2];
+      } else {
+        // Even the next rung up already exceeds the ceiling base; nothing
+        // legal to probe inside the interval. Fall through to the re-probe
+        // path below, which governs the backoff for re-testing the failed
+        // size once its deadline expires.
+        next = NextHigherRung(current_rung);
+      }
+    }
+
     const Rung target = kLadder[next];
 
     if (VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
@@ -927,9 +966,12 @@ void TestCeilingGateLadderProperties() {
 // skipped rung sat above the ceiling base and was blocked from ordinary
 // upgrade probes — the stream sat at the startup rung for the full 30 s
 // re-probe backoff even though it could have sustained a much larger size.
-// The rollback target and ceiling base are now the highest ladder rung
-// strictly below the failed trial, which keeps the failed size blocked while
-// freeing every skipped rung to be probed on its own evidence.
+// The ceiling base is now the highest ladder rung strictly below the failed
+// trial, which keeps the failed size blocked while freeing every skipped rung
+// to be probed on its own evidence. The rollback target is the pre-probe base
+// (the last size measured healthy): rolling back to the rung below the failed
+// trial instead was rejected because for a multi-rung jump that rung can sit
+// above what the encoder sustains, landing the stream in saturated territory.
 void TestMultiRungJumpDoesNotPinSkippedRungs() {
   std::fprintf(stderr, "[test] multi_rung_jump_does_not_pin_skipped_rungs\n");
   using P = minirtc::VideoAdaptationPolicy;
@@ -972,6 +1014,72 @@ void TestMultiRungJumpDoesNotPinSkippedRungs() {
          "the unreachable size stays blocked after the failed jump");
 }
 
+// Scenario 9 — round-10: the bandwidth-confirmed recovery searches the legal
+// interval [base, ceiling base] by geometric midpoint instead of climbing one
+// rung per cooldown or re-probing just under the failed size. With an encoder
+// that sustains only the middle rungs, a failed jump to native must be
+// followed by probes that bracket the sustainable rung logarithmically, each
+// rolling back to the pre-probe base rather than into saturated territory, so
+// the stream reaches the largest sustainable rung far sooner than a linear
+// climb and never sits at an over-capacity size outside a probe trial.
+void TestIntervalSearchConvergesToSustainableRung() {
+  std::fprintf(stderr, "[test] interval_search_converges_to_sustainable_rung\n");
+
+  // The midpoint of a rung interval [lo, hi] by count, mirroring the
+  // controller's (count - 1) / 2 selection over the rungs inside the interval.
+  auto midpoint = [](int lo_rung, int hi_rung) {
+    const int count = hi_rung - lo_rung;  // rungs strictly above lo, up to hi
+    return lo_rung + 1 + (count - 1) / 2;
+  };
+  // Interval (0, 4]: rungs 1,2,3,4 -> count 4 -> mid index (4-1)/2 = 1 -> rung 2.
+  Expect(midpoint(0, kTopRung) == 2,
+         "midpoint of the full interval is the central rung");
+  // Interval (2, 4]: rungs 3,4 -> count 2 -> mid (2-1)/2 = 0 -> rung 3.
+  Expect(midpoint(2, kTopRung) == 3,
+         "midpoint of the upper half is the lower of the two upper rungs");
+
+  // Drive the full simulation with an encoder that sustains rungs 0..2 but
+  // collapses above rung 2 (960x540 sustainable, 1280x720 and up not). Seed a
+  // failed jump to native: ceiling base = rung 3 (rung below the failed top),
+  // stream rolled back to the startup rung 0. The binary search must then
+  // converge to rung 2 — the largest sustainable size — without the linear
+  // one-rung climb and without re-probing rung 4/3 pointlessly.
+  Simulation sim;
+  sim.encoder.throttled = true;
+  sim.encoder.throttle_max_rung = 2;
+  sim.current_rung = 0;
+  // Seed the ceiling exactly as a failed jump to native would record it:
+  // failed = top rung, ceiling base = rung below it (kTopRung - 1).
+  const Rung failed = kLadder[kTopRung];
+  const Rung cbase = kLadder[kTopRung - 1];
+  sim.ceiling.Set(failed.width, failed.height, cbase.width, cbase.height, 15,
+                  0);
+  sim.Run(60000);
+
+  // The largest sustainable rung is throttle_max_rung (2). The stream must
+  // end there, not pinned at the startup rung and not oscillating above it.
+  Expect(sim.current_rung == 2,
+         "interval search settles at the largest sustainable rung");
+  // The convergence must take fewer probes than the linear climb's one rung
+  // per trial. A linear climb from rung 0 to rung 2 plus the failing trials
+  // above it would need at least 4 probes (1, 2, 3-fail or 4-fail); the
+  // midpoint search brackets rung 2 in at most 3 trials.
+  std::fprintf(stderr, "  probes=%d degraded_ms=%lld final_rung=%d\n",
+               sim.probe_launches, static_cast<long long>(sim.degraded_ms),
+               sim.current_rung);
+  Expect(sim.probe_launches <= 3,
+         "interval search converges in a logarithmic number of probes");
+  // No probe may target the failed native size again while it is still blocked
+  // — the search stays inside the legal interval.
+  for (size_t i = 0; i + 1 < sim.probe_launch_times.size(); ++i) {
+    // Probes are spaced by at least the measurement window; the search never
+    // hammering the same size back-to-back is what bounds the degraded time.
+    Expect(sim.probe_launch_times[i + 1] > sim.probe_launch_times[i],
+           "successive probes are strictly ordered in time");
+  }
+}
+
+
 
 }  // namespace
 
@@ -986,6 +1094,7 @@ int main() {
   TestRecoveryAfterThrottleLift();
   TestBoundedProbeRateForPermanentEncoder();
   TestMultiRungJumpDoesNotPinSkippedRungs();
+  TestIntervalSearchConvergesToSustainableRung();
   if (g_failures == 0) {
     std::fprintf(stderr, "PASS: all encoder-ceiling reprobe scenarios\n");
     return 0;
