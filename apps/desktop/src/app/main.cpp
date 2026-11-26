@@ -481,7 +481,7 @@ int main(int argc, char* argv[]) {
   const bool login_launch = HasArgument(argc, argv, "--autostart");
   const bool child = HasArgument(argc, argv, "--child");
   if (!crossdesk::ParseLaunchOptions(argc, argv)) {
-    std::cerr << "Usage: --lan-connect <ip:port> [--view-only]\n"
+    std::cerr << "Usage: --lan-connect <ip:port> [--view-only] [--no-local-capture]\n"
                  "The access password is read from the FARLINK_LAN_PASSWORD "
                  "environment variable, never from the command line.\n";
     return 1;

@@ -32,9 +32,10 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
       }
     } else if (std::strcmp(argv[i], "--view-only") == 0) {
       g_launch_options.view_only = true;
+    } else if (std::strcmp(argv[i], "--no-local-capture") == 0) {
+      g_launch_options.no_local_capture = true;
     }
   }
-  g_launch_options.no_local_capture = std::getenv("FARLINK_NO_LOCAL_CAPTURE") != nullptr;
   return valid;
 }
 
