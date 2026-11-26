@@ -20,6 +20,7 @@
 
 #include <remote_action.h>
 
+#include "common/screen_lock_monitor.h"
 #include "device_controller.h"
 #include "display_info.h"
 #include "features/input/captured_keyboard_queue.h"
@@ -122,6 +123,12 @@ public:
   // The same snapshot in the wire's host information form.
   std::vector<HostDisplay> host_display_list() const;
 
+  // Host lock-screen level as of the latest monitor poll. Host status and
+  // automation report this; capture forwarding uses the same atomic.
+  bool IsHostScreenLocked() const {
+    return host_screen_locked_.load(std::memory_order_relaxed);
+  }
+
 private:
   int InitializeAudioOutput();
   unsigned ReleaseMouseButtonMask(unsigned mask);
@@ -197,6 +204,13 @@ private:
   int64_t capture_send_us_ = 0, capture_max_send_us_ = 0;
   std::string last_video_frame_stream_id_;
   bool invalid_video_stream_id_logged_ = false;
+  // Host screen-lock awareness: polled on the UI tick inside
+  // UpdateInteractions; the capture callback reads the atomic level to skip
+  // forwarding while locked and consumes the one-shot keyframe flag on the
+  // first frame after unlock.
+  ScreenLockMonitor screen_lock_monitor_;
+  std::atomic<bool> host_screen_locked_{false};
+  std::atomic<bool> force_keyframe_on_next_frame_{false};
 };
 
 } // namespace crossdesk

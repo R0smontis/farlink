@@ -230,6 +230,15 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/inter_present_gap_test.cpp")
 
+    -- Edge-detection poller around QueryScreenLock: scripted fake query and
+    -- injected clock, fully deterministic, no platform dependencies (the
+    -- test carries its own stub for the platform symbols).
+    target("screen_lock_monitor_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src")
+        add_files("apps/desktop/tests/screen_lock_monitor_test.cpp")
+
     -- End-to-end emission test: drives the real Record() path with fake
     -- monotonic timestamps and the real LogVideoSessionSummary() teardown,
     -- then reads back the actual log file to verify the inter_present line.

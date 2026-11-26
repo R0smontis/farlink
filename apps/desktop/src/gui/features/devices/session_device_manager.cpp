@@ -266,6 +266,13 @@ int SessionDeviceManager::InitializeScreenCapturer() {
 #endif
         const uint64_t capture_generation =
             RecordCaptureCadence(now_time, fps, from_secure_desktop);
+        // Host screen locked: keep the capture stream alive (tearing down
+        // and re-enumerating ScreenCaptureKit costs seconds and can disturb
+        // replayd) but forward nothing — encode and send both skip. The
+        // frame-clock anchors are deliberately NOT advanced while locked:
+        // for a long lock the natural resume-gap detector fires, and for a
+        // short one the explicit one-shot IDR flag below covers the resume.
+        if (host_screen_locked_.load(std::memory_order_relaxed)) return;
         if (!ShouldSendCapturedFrame(now_time, fps)) {
           std::lock_guard<std::mutex> lock(capture_metrics_mutex_);
           if (capture_generation == capture_metrics_generation_)
@@ -312,7 +319,10 @@ int SessionDeviceManager::InitializeScreenCapturer() {
             has_previous_frame && duration_ms >= kCaptureResumeKeyFrameGapMs;
         const bool stream_changed = !last_video_frame_stream_id_.empty() &&
                                     last_video_frame_stream_id_ != stream_id;
-
+        // One-shot IDR after unlock: exchange(false) so exactly the first
+        // post-unlock frame carries the request to every connected peer.
+        const bool force_keyframe =
+            force_keyframe_on_next_frame_.exchange(false, std::memory_order_acq_rel);
         MiniRtcVideoFrame frame{};
         frame.data = reinterpret_cast<const char *>(data);
         frame.size = size;
@@ -330,7 +340,7 @@ int SessionDeviceManager::InitializeScreenCapturer() {
                                                         stream_id)) continue;
           if (owner_.WithController(
                   remote_id, [&](MiniRtcPeerPtr* peer, const std::string& wire) {
-                    if (resumed_after_gap || stream_changed)
+                    if (resumed_after_gap || stream_changed || force_keyframe)
                       MiniRtcRequestVideoKeyFrame(peer, stream_id.c_str());
                     frame.captured_timestamp = MiniRtcGetSystemTimeMicros(peer);
                     return PeerSendVideoFrameToPeer(peer, &frame, stream_id.c_str(),
@@ -808,6 +818,20 @@ void SessionDeviceManager::UpdateInteractions() {
   // Restore the previous session's modes and apply the new controller's saved
   // selections before starting capture or allowing an early input return.
   owner_.HandleDisplayResolutionChanges();
+  // Poll host lock state on the UI tick. The monitor throttles the platform
+  // query itself; edges flip the atomic level the capture callback reads and
+  // arm the one-shot IDR trigger consumed by the first frame after unlock.
+  {
+    const auto lock_transition = screen_lock_monitor_.Poll();
+    if (lock_transition.became_locked) {
+      host_screen_locked_.store(true, std::memory_order_relaxed);
+      LOG_INFO("host screen locked; pausing video encode/send");
+    } else if (lock_transition.became_unlocked) {
+      host_screen_locked_.store(false, std::memory_order_relaxed);
+      force_keyframe_on_next_frame_.store(true, std::memory_order_relaxed);
+      LOG_INFO("host screen unlocked; resuming video and forcing IDR");
+    }
+  }
 #ifdef _WIN32
   if (owner_.screen_capturer_is_started_ &&
       cursor_capture_dirty_.load(std::memory_order_relaxed)) {
