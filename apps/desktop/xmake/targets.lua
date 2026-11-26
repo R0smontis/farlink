@@ -496,6 +496,22 @@ function setup_targets()
             "deps/submodules/minirtc/src/frame")
         add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
 
+    -- D2 high-bitrate ceiling: verifies the 80/100 Mbps defaults, the
+    -- MINIRTC_MAX_*_BITRATE_BPS parsing contract, StartingBitrates validation
+    -- against the raised ceiling, the encoder clamp helpers, and — through a
+    -- live CongestionControl — that SetMaxTargetBitrate actually propagates
+    -- to TargetRateConstraints.max_data_rate (the regression spec D2 found:
+    -- the runtime setter used to touch probe allocation only). Links minirtc
+    -- because CongestionControl's estimator stack is not header-only.
+    target("bitrate_limits_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("minirtc")
+        add_includedirs("deps/submodules/minirtc/src/common",
+            "deps/submodules/minirtc/src/qos",
+            "deps/submodules/minirtc/src/api")
+        add_files("apps/desktop/tests/bitrate_limits_test.cpp")
+
     -- D6a FPS-cap ladder: pure-policy rung/floor/hysteresis assertions plus a
     -- scripted-timeline simulation of the controller's EvaluateFpsCapLadder
     -- branching (cooldowns, healthy-hold step-up, 0 Hz idle freeze,

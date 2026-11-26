@@ -27,8 +27,12 @@ struct PreviewBandwidthDemand {
     const int64_t pixels = width > 0 && height > 0
         ? int64_t(width) * height : 3840LL * 2160;
     const int64_t estimate = pixels * std::clamp(fps, 1, 60) * 15 / 100;
+    // The per-stream clamp mirrors the library's D2 network ceiling (80 Mbps,
+    // minirtc bitrate_limits.h): a full-screen 4K60 demand legitimately
+    // estimates above the retired 20 Mbps clamp, and the allocator above still
+    // bounds the total by the user's configured budget tier.
     return int(std::clamp<int64_t>((estimate + 49'999) / 50'000 * 50'000,
-                                   150'000, 20'000'000));
+                                   150'000, 80'000'000));
   }
 };
 

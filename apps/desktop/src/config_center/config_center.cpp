@@ -59,8 +59,11 @@ int ReadStartingBitrate(const CSimpleIniA& ini, const char* section,
   const char* end = value + std::strlen(value);
   int bps = 0;
   const auto parsed = std::from_chars(value, end, bps);
+  // The upper bound mirrors the library's D2 network ceiling (80 Mbps since
+  // the Wave-3A raise; minirtc bitrate_limits.h). The library validates again
+  // at session start, so a process-level env override still clamps safely.
   if (parsed.ec != std::errc{} || parsed.ptr != end ||
-      bps < 300'000 || bps > 20'000'000) {
+      bps < 300'000 || bps > 80'000'000) {
     LOG_WARN("Invalid {} configuration, using {} bps", key, fallback);
     return fallback;
   }
