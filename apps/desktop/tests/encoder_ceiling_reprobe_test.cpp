@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "encoder_throughput_ceiling.h"
+#include "resolution_adapter.h"
 #include "video_adaptation_policy.h"
 
 namespace {
@@ -155,12 +156,13 @@ struct Simulation {
   // the remembered ceiling.
   void FailProbe() {
     const Rung failed = kLadder[probe.target_rung];
+    const Rung base = kLadder[probe.base_rung];
     const bool trial_at_or_above_ceiling =
         VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
-            Area(failed), ceiling.Width(), ceiling.Height());
+            Area(failed), ceiling.BaseArea());
     current_rung = probe.base_rung;
-    ceiling.Set(failed.width, failed.height, encoder.SustainedFps(probe.target_rung),
-                now_ms);
+    ceiling.Set(failed.width, failed.height, base.width, base.height,
+                encoder.SustainedFps(probe.target_rung), now_ms);
     if (trial_at_or_above_ceiling) {
       ceiling.BackoffReprobe(now_ms);
     }
@@ -174,7 +176,7 @@ struct Simulation {
     const Rung target = kLadder[probe.target_rung];
     current_rung = probe.target_rung;
     if (VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
-            Area(target), ceiling.Width(), ceiling.Height())) {
+            Area(target), ceiling.BaseArea())) {
       ceiling.Clear();
     }
     probe.active = false;
@@ -189,7 +191,13 @@ struct Simulation {
   // the next lower one and learn the ceiling at the size being left.
   void SaturationDowngrade() {
     const Rung leaving = kLadder[current_rung];
-    ceiling.Set(leaving.width, leaving.height, encoder.SustainedFps(current_rung),
+    // The downgrade target is the next lower rung, the largest size still
+    // considered safe; at the floor there is no lower rung, so the boundary
+    // falls back to the size being left itself.
+    const Rung base = kLadder[current_rung > 0 ? current_rung - 1 : 0];
+    const bool has_lower = current_rung > 0;
+    ceiling.Set(leaving.width, leaving.height, has_lower ? base.width : 0,
+                has_lower ? base.height : 0, encoder.SustainedFps(current_rung),
                 now_ms);
     if (current_rung > 0) --current_rung;
   }
@@ -234,7 +242,7 @@ struct Simulation {
     const Rung target = kLadder[next];
 
     if (VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
-            Area(target), ceiling.Width(), ceiling.Height())) {
+            Area(target), ceiling.BaseArea())) {
       if (!VideoAdaptationPolicy::IsEncoderThroughputReprobeDue(
               now_ms, ceiling.ReprobeMs())) {
         return;  // Backoff has not expired; stay at the current rung.
@@ -449,7 +457,7 @@ void TestSingleReprobeRollbackCost() {
 void TestSaturationDeferral() {
   std::fprintf(stderr, "[test] saturation_deferral\n");
   EncoderThroughputCeiling ceiling;
-  ceiling.Set(1280, 720, 15, 0);
+  ceiling.Set(1280, 720, 0, 0, 15, 0);
   Expect(ceiling.ReprobeMs() == 30000, "initial deadline at +30 s");
   // Saturated at t=29 s: the deadline is pushed a full step beyond now.
   ceiling.DeferReprobe(29000);
@@ -483,7 +491,7 @@ void TestSaturationDeferral() {
 void TestResetOnReconfiguration() {
   std::fprintf(stderr, "[test] reset_on_reconfiguration\n");
   EncoderThroughputCeiling ceiling;
-  ceiling.Set(1920, 1080, 15, 1000);
+  ceiling.Set(1920, 1080, 0, 0, 15, 1000);
   Expect(ceiling.IsSet(), "ceiling set");
   ceiling.BackoffReprobe(2000);
   ceiling.BackoffReprobe(3000);
@@ -500,7 +508,7 @@ void TestResetOnReconfiguration() {
 void TestBackoffLadderSchedule() {
   std::fprintf(stderr, "[test] backoff_ladder_schedule\n");
   EncoderThroughputCeiling ceiling;
-  ceiling.Set(1920, 1080, 15, 0);
+  ceiling.Set(1920, 1080, 0, 0, 15, 0);
   Expect(ceiling.ReprobeMs() == 30000, "initial re-probe at +30 s");
   Expect(ceiling.BackoffReprobe(30000) == 60000, "first failure backs off 60 s");
   Expect(ceiling.ReprobeMs() == 30000 + 60000, "deadline accumulates");
@@ -571,11 +579,336 @@ void TestProbeVerdictPolicy() {
          "insufficient capture input is not encoder evidence");
 }
 
+// Scenario 7 — round-6 exact regression: the ceiling gate must bucket the
+// even-rounding variants of a failed rung. Before the round-6 fix the
+// comparison was strict (target_area >= ceiling area). The 1458x946 failure
+// re-probed at the rounding-slip sizes 1456x946 and 1456x944 — both a few
+// pixels below the remembered size — slipped past the strict gate, bypassed
+// the backoff state machine entirely, and re-fired on the short
+// ordinary-upgrade cadence, which produced the observed 29/29/29 s undamped
+// oscillation between the sustainable rung and the unreachable one. The
+// round-6 fix used a 7/8-of-ceiling-area ratio, but a fixed ratio cannot in
+// general separate the epsilon rounding variants from genuinely smaller
+// adjacent rungs where the ladder step compresses at the floor or a quality
+// cap (see ceiling_gate_ladder_properties). The gate now blocks any target
+// strictly above the largest-safe base area — the rung below the failed
+// size — which must catch both variants while leaving the genuinely lower
+// ladder rungs free.
+void TestRungGranularGateRegression() {
+  std::fprintf(stderr, "[test] rung_granular_gate_regression\n");
+  using P = minirtc::VideoAdaptationPolicy;
+
+  // Exact gate bucketing at the round-6 ceiling 1458x946, whose largest-safe
+  // base is the rung below at 1284x832.
+  constexpr int64_t kBaseArea = static_cast<int64_t>(1284) * 832;
+  Expect(P::IsBlockedByEncoderThroughputCeiling(
+             static_cast<int64_t>(1456) * 946, kBaseArea),
+         "rounding variant 1456x946 must be treated as the failed rung");
+  Expect(P::IsBlockedByEncoderThroughputCeiling(
+             static_cast<int64_t>(1456) * 944, kBaseArea),
+         "rounding variant 1456x944 must be treated as the failed rung");
+  Expect(!P::IsBlockedByEncoderThroughputCeiling(
+             static_cast<int64_t>(1284) * 832, kBaseArea),
+         "the base rung itself must stay unblocked");
+  Expect(!P::IsBlockedByEncoderThroughputCeiling(
+             static_cast<int64_t>(1130) * 732, kBaseArea),
+         "two full rungs below must stay unblocked");
+
+  // A strict area comparison against the failed size is exactly what let the
+  // slip through: both variants sit below the remembered failed area
+  // 1458x946, so a strict-area gate cannot catch them.
+  Expect(static_cast<int64_t>(1456) * 946 <
+             static_cast<int64_t>(1458) * 946 &&
+         static_cast<int64_t>(1456) * 944 <
+             static_cast<int64_t>(1458) * 946,
+         "the regression variants are strictly smaller than the failed size, "
+         "so a strict-area gate cannot catch them");
+
+  // Backoff escalation under rounding variants, driving the real state
+  // machine through the controller's probe-failure transition. The first
+  // failure at 1458x946 learns the ceiling with the base 30 s re-probe arm;
+  // every consecutive re-probe arrives as a rounding variant of the same
+  // rung, must still be recognised as at-or-above the ceiling, and must
+  // advance the exponential ladder 30 -> 60 -> 120 -> 120 s. Before the fix
+  // the variants slipped the gate, BackoffReprobe was never reached, and the
+  // re-probes kept firing on the undamped ~30 s cadence.
+  EncoderThroughputCeiling ceiling;
+  constexpr int64_t kT0 = 100000;
+
+  // First probe fails at the full rung size, rolling back to the rung below
+  // at 1284x832: fresh evidence arms the ladder at the base interval. No
+  // backoff yet — this is the learning failure, not a re-probe of a known
+  // ceiling.
+  ceiling.Set(1458, 946, 1284, 832, 15, kT0);
+  Expect(ceiling.ReprobeMs() - kT0 == EncoderThroughputCeiling::kReprobeBaseMs,
+         "fresh ceiling evidence arms the first re-probe at +30 s");
+  Expect(ceiling.ReprobeStep() == 0, "ladder starts at step 0");
+
+  struct Variant {
+    int width;
+    int height;
+  };
+  // Consecutive failed re-probes arriving as even-rounding variants of the
+  // same rung: the controller re-computes the target from the ladder and
+  // FitVideoResolution re-rounds it, so the encoded failure size jitters by
+  // a pixel pair around the remembered ceiling.
+  constexpr Variant kVariants[] = {
+      {1456, 946}, {1456, 944}, {1458, 944}, {1456, 946}};
+  constexpr int64_t kExpectedIntervals[] = {60000, 120000, 120000, 120000};
+  int64_t now = kT0;
+  for (int i = 0; i < 4; ++i) {
+    // The re-probe launches when the deadline expires and fails at the
+    // rounding-variant size.
+    now = ceiling.ReprobeMs();
+    const int64_t failed_area =
+        static_cast<int64_t>(kVariants[i].width) * kVariants[i].height;
+    const bool trial_at_or_above_ceiling =
+        P::IsBlockedByEncoderThroughputCeiling(failed_area,
+                                               ceiling.BaseArea());
+    Expect(trial_at_or_above_ceiling,
+           "rounding-variant re-probe must be treated as at-or-above the "
+           "ceiling so the backoff ladder advances");
+    if (!trial_at_or_above_ceiling) break;
+
+    // Controller failure transition: re-learn the ceiling at the size that
+    // actually failed (rolling back to the same rung below at 1284x832), then
+    // advance the backoff because the trial was at or above the remembered
+    // ceiling.
+    ceiling.Set(kVariants[i].width, kVariants[i].height, 1284, 832, 15, now);
+    ceiling.BackoffReprobe(now);
+
+    const int64_t interval = ceiling.ReprobeMs() - now;
+    std::fprintf(stderr,
+                 "  reprobe %d: failed=%dx%d next_interval_ms=%lld\n", i + 1,
+                 kVariants[i].width, kVariants[i].height,
+                 static_cast<long long>(interval));
+    Expect(interval == kExpectedIntervals[i],
+           i == 0
+               ? "first failed re-probe escalates the interval to 60 s"
+               : (i == 1
+                      ? "second failed re-probe escalates the interval to 120 s"
+                      : "the ladder stays capped at 120 s"));
+  }
+  Expect(ceiling.ReprobeStep() == EncoderThroughputCeiling::kReprobeMaxStep,
+         "the ladder reaches its cap after consecutive variant failures");
+  Expect(EncoderThroughputCeiling::kReprobeMaxBackoffMs == 120000,
+         "the cap matches the 120 s ladder top");
+
+  // Regression witness: had the variants slipped the gate (strict-area
+  // comparison), none of the BackoffReprobe calls above would have been
+  // reached and every interval would have stayed at the 30 s base arm —
+  // the 29/29/29 s oscillation. Assert the escalation actually happened:
+  // the final interval is the cap, four times the base.
+  Expect(ceiling.ReprobeMs() - now == 4 * EncoderThroughputCeiling::kReprobeBaseMs,
+         "escalation reached 4x the base interval; a slipped gate would "
+         "have left every interval at 30 s");
+}
+// Scenario 8 — ladder property test: for the real minirtc::ResolutionAdapter
+// ladder, the ceiling gate must exactly separate adjacent rungs. The gate
+// blocks any target strictly above the ceiling's base area, where the base
+// is the rung directly below the failed size — the size the stream rolled
+// back to or downgraded to. For every ceiling rung R reachable by the
+// downward ladder walk, with L the rung directly below it (the base the
+// controller passes when it learns the ceiling at R), the mechanism depends
+// on three invariants:
+//   1. L itself must NOT be blocked when the ceiling base is L — the
+//      transport sits at L after the rollback and the gate must not bucket
+//      it into the failed rung;
+//   2. stepping back up from L must reach a size U that IS blocked —
+//      otherwise the re-probe of the failed rung escapes the backoff
+//      machinery and the undamped oscillation returns. GetNextHigherResolution
+//      is bounded below at current_area + 1, so U is always strictly above L
+//      and this holds by construction; asserting it guards the ladder
+//      against a regression to a non-monotonic step;
+//   3. the failed rung R and its even-rounding variants (a couple of pixels
+//      narrower in one dimension) must all remain strictly above L — this is
+//      what buckets the rounding variants into the failed rung. Where the
+//      ladder step compresses (the clamped floor, a quality cap) R and L are
+//      close, so this is the invariant most at risk and the one the round-6
+//      fixed-ratio gate could not satisfy.
+// The test is deliberately strict: every compressed step that breaks an
+// invariant is counted as a violation and reported with exact geometry,
+// because the floor and cap clamping classes are where the step compresses.
+// A missing upward step ({-1,-1}) is only acceptable inside the cap shadow
+// (verified per case); anything else means the ladder itself is broken.
+// Up to 20 violations print with full detail. If the gate semantics or the
+// ladder geometry ever change, the exact failing numbers are the decision
+// input.
+void TestCeilingGateLadderProperties() {
+  std::fprintf(stderr, "[test] ceiling_gate_ladder_properties\n");
+  using P = minirtc::VideoAdaptationPolicy;
+
+  struct SourceSize {
+    int width;
+    int height;
+  };
+  constexpr SourceSize kSources[] = {{3024, 1964}, {2560, 1440}, {3840, 2160},
+                                     {1920, 1080}, {1366, 768}, {3440, 1440},
+                                     {1080, 1920}};
+  struct QualityCase {
+    MiniRtcVideoQuality quality;
+    const char* name;
+    int max_pixels;
+  };
+  // High is the uncapped-in-practice default (4K budget, above every test
+  // source); Medium and Low clamp the ladder at 1080p/720p.
+  constexpr QualityCase kQualities[] = {
+      {MiniRtcVideoQualityHigh, "high", 3840 * 2160},
+      {MiniRtcVideoQualityMedium, "medium", 1920 * 1080},
+      {MiniRtcVideoQualityLow, "low", 1280 * 720}};
+  // The ladder floor area: the smallest bitrate-limit rung is 320x180.
+  constexpr int64_t kFloorArea = 320 * 180;
+
+  int violations = 0;
+  int floor_band_cases = 0;
+  int cap_clamped_cases = 0;
+  int pairs_checked = 0;
+  for (const SourceSize& src : kSources) {
+    for (const QualityCase& qual : kQualities) {
+      minirtc::ResolutionAdapter adapter(qual.quality, kConfiguredFps);
+      // The quality-cap window for this source: GetResolution and
+      // GetNextHigherResolution both clamp their target at min(top
+      // bitrate-limit tier area, source area). Used diagnostically to tag
+      // cap-truncated steps in the violation output.
+      const auto bitrate_limits = adapter.GetBitrateLimits();
+      Expect(!bitrate_limits.empty(),
+             "the adapter must expose bitrate-limit tiers for every quality");
+      const int64_t cap_max_area = static_cast<int64_t>(std::min<int64_t>(
+          static_cast<int64_t>(bitrate_limits.back().width) *
+              bitrate_limits.back().height,
+          static_cast<int64_t>(src.width) * src.height));
+
+      // Walk the ladder downward from native, collecting every rung.
+      std::vector<std::pair<int, int>> rungs;
+      rungs.push_back({src.width, src.height});
+      int cur_w = src.width;
+      int cur_h = src.height;
+      for (int guard = 0; guard < 64; ++guard) {
+        const auto next =
+            adapter.GetNextLowerResolution(cur_w, cur_h, src.width, src.height);
+        if (next.first <= 0) break;
+        rungs.push_back(next);
+        cur_w = next.first;
+        cur_h = next.second;
+      }
+
+      for (size_t i = 0; i + 1 < rungs.size(); ++i) {
+        const auto R = rungs[i];      // ceiling rung (the failed size)
+        const auto L = rungs[i + 1];  // the rung directly below: the ceiling base
+        const int64_t r_area = static_cast<int64_t>(R.first) * R.second;
+        const int64_t l_area = static_cast<int64_t>(L.first) * L.second;
+        const auto U =
+            adapter.GetNextHigherResolution(L.first, L.second, src.width,
+                                            src.height);
+        ++pairs_checked;
+
+        // Invariant 1: the rung directly below the ceiling — the base itself
+        // — must stay free, or the transport could not sit where the rollback
+        // left it.
+        if (P::IsBlockedByEncoderThroughputCeiling(l_area, l_area)) {
+          ++violations;
+          if (violations <= 20) {
+            std::fprintf(stderr,
+                         "  VIOLATION-base-blocked: src=%dx%d q=%s R=%dx%d "
+                         "L=%dx%d(%lld) — the rollback base must stay free\n",
+                         src.width, src.height, qual.name, R.first, R.second,
+                         L.first, L.second, static_cast<long long>(l_area));
+          }
+        }
+
+        // Invariant 3: the failed rung R and its even-rounding variants must
+        // all be blocked (strictly above the base L). Where the ladder step
+        // compresses — the clamped floor or a quality cap — R and L are
+        // close, so a wide rounding variant of R can collapse onto or below
+        // L and escape the bucket. The variants probe up to two even pixels
+        // narrower in either dimension, the jitter FitVideoResolution
+        // actually produces.
+        const int variant_widths[] = {R.first, R.first - 2};
+        const int variant_heights[] = {R.second, R.second - 2};
+        for (int vw : variant_widths) {
+          for (int vh : variant_heights) {
+            if (vw <= 0 || vh <= 0) continue;
+            const int64_t variant_area = static_cast<int64_t>(vw) * vh;
+            if (!P::IsBlockedByEncoderThroughputCeiling(variant_area, l_area)) {
+              const char* cause =
+                  r_area <= 2 * kFloorArea     ? "floor-clamped-step"
+                  : r_area > cap_max_area       ? "cap-truncated-step"
+                                                : "open-ladder";
+              ++violations;
+              if (r_area <= 2 * kFloorArea) ++floor_band_cases;
+              if (violations <= 20) {
+                std::fprintf(stderr,
+                             "  VIOLATION-variant-not-blocked[%s]: src=%dx%d "
+                             "q=%s R=%dx%d(%lld) L=%dx%d(%lld) variant=%dx%d(%lld) "
+                             "gap_R_minus_L=%lld cap_max_area=%lld\n",
+                             cause, src.width, src.height, qual.name, R.first,
+                             R.second, static_cast<long long>(r_area), L.first,
+                             L.second, static_cast<long long>(l_area), vw, vh,
+                             static_cast<long long>(variant_area),
+                             static_cast<long long>(r_area - l_area),
+                             static_cast<long long>(cap_max_area));
+              }
+            }
+          }
+        }
+
+        // Invariant 2: stepping back up from L must be blocked, or the
+        // re-probe of the failed rung escapes the backoff machinery.
+        if (U.first <= 0) {
+          // returns {-1,-1} inside the cap shadow: either L is already at
+          // or above the cap window, or L sits close enough below it that
+          // the geometric upscale target (l_area / 0.88^2) overshoots the
+          // cap and the clamped fit collapses onto the cap boundary,
+          // leaving no size strictly above L.
+          ++cap_clamped_cases;
+          const int64_t ideal_upscale_area = static_cast<int64_t>(
+              std::llround(static_cast<double>(l_area) / (0.88 * 0.88)));
+          Expect(l_area >= cap_max_area || ideal_upscale_area >= cap_max_area,
+                 "a missing upward step must be the quality-cap clamp "
+                 "shadow, not a ladder break in the open ladder");
+          continue;
+        }
+        const int64_t u_area = static_cast<int64_t>(U.first) * U.second;
+        if (!P::IsBlockedByEncoderThroughputCeiling(u_area, l_area)) {
+          // GetNextHigherResolution is bounded below at current_area + 1, so
+          // U is always strictly above L and this should be impossible. A
+          // failure here means the ladder step is no longer monotonic — a
+          // genuine ladder break, not a threshold problem.
+          ++violations;
+          if (violations <= 20) {
+            std::fprintf(stderr,
+                         "  VIOLATION-stepup-not-blocked[ladder-non-monotonic]: "
+                         "src=%dx%d q=%s R=%dx%d(%lld) L=%dx%d(%lld) U=%dx%d(%lld) "
+                         "cap_max_area=%lld\n",
+                         src.width, src.height, qual.name, R.first, R.second,
+                         static_cast<long long>(r_area), L.first, L.second,
+                         static_cast<long long>(l_area), U.first, U.second,
+                         static_cast<long long>(u_area),
+                         static_cast<long long>(cap_max_area));
+          }
+        }
+      }
+    }
+  }
+
+  std::fprintf(stderr,
+               "  pairs_checked=%d violations=%d floor_band_cases=%d "
+               "cap_clamped_cases=%d\n",
+               pairs_checked, violations, floor_band_cases,
+               cap_clamped_cases);
+  Expect(pairs_checked > 100,
+         "the ladder walk must cover a meaningful number of rung pairs");
+  Expect(violations == 0,
+         "every non-degenerate rung pair must satisfy both gate properties");
+}
+
 
 }  // namespace
 
 int main() {
   TestProbeVerdictPolicy();
+  TestRungGranularGateRegression();
+  TestCeilingGateLadderProperties();
   TestBackoffLadderSchedule();
   TestResetOnReconfiguration();
   TestSaturationDeferral();

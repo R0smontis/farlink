@@ -207,12 +207,19 @@ function setup_targets()
     target("encoder_ceiling_reprobe_test")
         set_kind("binary")
         set_default(false)
-        -- Header-only harness: drives the real EncoderThroughputCeiling state
-        -- machine and VideoAdaptationPolicy gate predicates, so it only needs
-        -- the minirtc include roots, not the linked library.
+        -- Drives the real EncoderThroughputCeiling state machine, the
+        -- VideoAdaptationPolicy gate predicates, and the real
+        -- ResolutionAdapter ladder for the rung-granular ceiling-gate
+        -- property test. The ladder methods live in the media object target,
+        -- so the harness links minirtc (and libyuv for the scaler the
+        -- adapter translation unit references) like the other
+        -- encoder-internals tests below.
+        add_deps("minirtc")
+        add_packages("libyuv")
         add_includedirs("deps/submodules/minirtc/src/media/resolution_adapter",
             "deps/submodules/minirtc/src/transport",
             "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/common",
             "deps/submodules/minirtc/src/frame")
         add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
 
