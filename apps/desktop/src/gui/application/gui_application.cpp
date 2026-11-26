@@ -4454,8 +4454,12 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   if (!props->net_traffic_stats_button_pressed_ ||
       status != MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
     props->video_latency_snapshot_.reset();
+    props->inter_present_snapshot_.reset();
+    props->inter_present_window_snapshot_ = {};
   } else if (refresh_stats) {
     props->video_latency_snapshot_ = props->video_latency_->Get(fps_now);
+    props->inter_present_snapshot_ = props->video_latency_->TakeInterPresentGapStats();
+    props->inter_present_window_snapshot_ = props->video_latency_->TakeInterPresentWindow();
   }
   const auto& latency = props->video_latency_snapshot_;
   stream->set_stats_video_latency(UiText(
@@ -4475,6 +4479,52 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
             : std::to_string(static_cast<int>(std::lround(*display_rtt))) + " ms";
   }
   stream->set_stats_connection_latency(UiText(connection_latency));
+  // D8 inter-presentation freeze metrics. All four render as unavailable
+  // until the first two presentations exist: zero intervals means no
+  // measured cadence at all, and reporting zeros there would read as a
+  // perfectly smooth stream. The rate uses the exact measured window as its
+  // denominator, same formula as the teardown summary line.
+  const auto& gaps = props->inter_present_snapshot_;
+  std::string freeze_count = "—";
+  std::string freezes_per_min = "—";
+  std::string freeze_max = "—";
+  std::string interval_p95 = "—";
+  if (gaps && gaps->intervals > 0) {
+    freeze_count = std::to_string(gaps->gap_count);
+    double window_ms = 0;
+    const auto& present_window = props->inter_present_window_snapshot_;
+    if (present_window.first && present_window.last &&
+        *present_window.last > *present_window.first) {
+      window_ms = std::chrono::duration<double, std::milli>(
+                      *present_window.last - *present_window.first)
+                      .count();
+    }
+    if (window_ms > 0) {
+      const double rate = gaps->gap_count * 60000.0 / window_ms;
+      char rate_buf[24];
+      // One decimal below 10/min, integer above: the badge is glanceable,
+      // not a precision readout.
+      std::snprintf(rate_buf, sizeof(rate_buf), rate < 10 ? "%.1f" : "%.0f", rate);
+      freezes_per_min = rate_buf;
+    }
+    if (gaps->gap_count > 0)
+      freeze_max = std::to_string(static_cast<int>(std::lround(gaps->gap_max_ms))) + " ms";
+    interval_p95 = std::to_string(static_cast<int>(std::lround(gaps->ApproxP95IntervalMs()))) + " ms";
+  }
+  stream->set_stats_freeze_count(UiText(freeze_count));
+  stream->set_stats_freezes_per_min(UiText(freezes_per_min));
+  stream->set_stats_freeze_max(UiText(freeze_max));
+  stream->set_stats_interval_p95(UiText(interval_p95));
+  // Jitter-buffer target delays come from the media pipeline report; a
+  // negative value means the transport does not expose the metric yet.
+  const auto [video_delay_ms, audio_delay_ms] = props->net_traffic_stats_.LoadMediaTiming();
+  const auto format_delay = [](double ms) {
+    return ms >= 0 ? std::to_string(static_cast<int>(std::lround(ms))) + " ms" : std::string("—");
+  };
+  stream->set_stats_video_jitter(UiText(
+      status == MiniRtcConnectionStatus::MiniRtcConnectionConnected ? format_delay(video_delay_ms) : "—"));
+  stream->set_stats_audio_jitter(UiText(
+      status == MiniRtcConnectionStatus::MiniRtcConnectionConnected ? format_delay(audio_delay_ms) : "—"));
   if (refresh_stats && status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
     LOG_DEBUG("Latency stats: remote={} video_ms={} video_samples={} video_endpoint={} "
               "rtt_raw_ms={} rtt_display_ms={}",

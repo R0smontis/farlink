@@ -11,6 +11,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #include "minirtc.h"
 #include "runtime/connection_latency.h"
@@ -108,6 +109,22 @@ class NetTrafficStatsCache {
     return connection_latency_.Get(now);
   }
 
+  // Jitter-buffer target delays in milliseconds, as reported by the media
+  // pipeline. Negative means no report yet (or the backend does not expose
+  // the metric); the HUD renders that as unavailable rather than zero, which
+  // would falsely claim a perfectly tight buffer. Transport-agnostic: the
+  // binding in the report path is two assignments once the transport stats
+  // carry the fields.
+  void StoreMediaTiming(double video_target_delay_ms, double audio_target_delay_ms) {
+    video_target_delay_ms_.store(video_target_delay_ms, std::memory_order_relaxed);
+    audio_target_delay_ms_.store(audio_target_delay_ms, std::memory_order_relaxed);
+  }
+
+  std::pair<double, double> LoadMediaTiming() const {
+    return {video_target_delay_ms_.load(std::memory_order_relaxed),
+            audio_target_delay_ms_.load(std::memory_order_relaxed)};
+  }
+
   void ResetLatency() { connection_latency_.Reset(); }
 
   bool HasRecentReport(Clock::time_point now = Clock::now()) const {
@@ -124,6 +141,7 @@ class NetTrafficStatsCache {
       codecs_ = {};
     }
     ResetLatency();
+    StoreMediaTiming(-1, -1);
     last_report_ms_.store(0, std::memory_order_relaxed);
   }
 
@@ -172,6 +190,8 @@ class NetTrafficStatsCache {
   std::atomic<bool> srtp_active_{false};
   std::atomic<double> rtt_ms_{-1};
   std::atomic<int64_t> last_report_ms_{0};
+  std::atomic<double> video_target_delay_ms_{-1};
+  std::atomic<double> audio_target_delay_ms_{-1};
   ConnectionLatencyStats connection_latency_;
   mutable std::mutex text_mutex_;
   std::string local_encoder_;

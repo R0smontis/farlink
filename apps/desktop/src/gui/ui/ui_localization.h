@@ -332,6 +332,12 @@ inline int ApplyStreamWindowStrings(
   strings.set_diagnostics(Text(localization::diagnostics[language]));
   strings.set_export_diagnostics(Text(localization::export_action[language]));
   strings.set_exporting_diagnostics(Text(localization::exporting[language]));
+  strings.set_stats_freezes(Text(localization::stats_freezes[language]));
+  strings.set_stats_freezes_per_min(Text(localization::stats_freezes_per_min[language]));
+  strings.set_stats_max_gap(Text(localization::stats_max_gap[language]));
+  strings.set_stats_p95_gap(Text(localization::stats_p95_gap[language]));
+  strings.set_stats_video_jitter(Text(localization::stats_video_jitter[language]));
+  strings.set_stats_audio_jitter(Text(localization::stats_audio_jitter[language]));
   return language;
 }
 

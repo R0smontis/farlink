@@ -11843,6 +11843,78 @@
       "fr": "Exporter",
       "es": "Exportar",
       "pt-BR": "Exportar"
+    },
+    "冻结": {
+      "zh-Hans": "冻结",
+      "en": "Freezes",
+      "ru": "Зависания",
+      "zh-Hant": "凍結",
+      "ja": "フリーズ",
+      "ko": "프리즈",
+      "de": "Freezes",
+      "fr": "Gels",
+      "es": "Congelaciones",
+      "pt-BR": "Congelamentos"
+    },
+    "冻结/分": {
+      "zh-Hans": "冻结/分",
+      "en": "Freezes/min",
+      "ru": "Зависания/мин",
+      "zh-Hant": "凍結/分",
+      "ja": "フリーズ/分",
+      "ko": "프리즈/분",
+      "de": "Freezes/Min.",
+      "fr": "Gels/min",
+      "es": "Congelaciones/min",
+      "pt-BR": "Congelamentos/min"
+    },
+    "最大间隔": {
+      "zh-Hans": "最大间隔",
+      "en": "Max gap",
+      "ru": "Макс. интервал",
+      "zh-Hant": "最大間隔",
+      "ja": "最大間隔",
+      "ko": "최대 간격",
+      "de": "Max. Lücke",
+      "fr": "Intervalle max",
+      "es": "Intervalo máx.",
+      "pt-BR": "Intervalo máx."
+    },
+    "p95 间隔": {
+      "zh-Hans": "p95 间隔",
+      "en": "p95 gap",
+      "ru": "p95 интервал",
+      "zh-Hant": "p95 間隔",
+      "ja": "p95 間隔",
+      "ko": "p95 간격",
+      "de": "p95-Lücke",
+      "fr": "Intervalle p95",
+      "es": "Intervalo p95",
+      "pt-BR": "Intervalo p95"
+    },
+    "视频抖动": {
+      "zh-Hans": "视频抖动",
+      "en": "Video jitter",
+      "ru": "Джиттер видео",
+      "zh-Hant": "視訊抖動",
+      "ja": "映像ジッター",
+      "ko": "비디오 지터",
+      "de": "Video-Jitter",
+      "fr": "Gigue vidéo",
+      "es": "Jitter de vídeo",
+      "pt-BR": "Jitter de vídeo"
+    },
+    "音频抖动": {
+      "zh-Hans": "音频抖动",
+      "en": "Audio jitter",
+      "ru": "Джиттер аудио",
+      "zh-Hant": "音訊抖動",
+      "ja": "音声ジッター",
+      "ko": "오디오 지터",
+      "de": "Audio-Jitter",
+      "fr": "Gigue audio",
+      "es": "Jitter de audio",
+      "pt-BR": "Jitter de áudio"
     }
   },
   "desktop": {
@@ -12146,7 +12218,13 @@
     "remote_service_unavailable_message": "远端 Windows 服务不可用，锁屏时无法操作。请在远端安装或修复 Farlink 服务。",
     "diagnostics": "诊断",
     "export_action": "导出",
-    "exporting": "正在导出…"
+    "exporting": "正在导出…",
+    "stats_freezes": "冻结",
+    "stats_freezes_per_min": "冻结/分",
+    "stats_max_gap": "最大间隔",
+    "stats_p95_gap": "p95 间隔",
+    "stats_video_jitter": "视频抖动",
+    "stats_audio_jitter": "音频抖动"
   },
   "slint": [
     "此端口已被占用，",
@@ -12919,7 +12997,13 @@
       "游戏鼠标",
       "释放游戏鼠标",
       "诊断",
-      "导出"
+      "导出",
+      "冻结",
+      "冻结/分",
+      "最大间隔",
+      "p95 间隔",
+      "视频抖动",
+      "音频抖动"
     ],
     "android": [
       " · 已完成",

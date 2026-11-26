@@ -252,6 +252,14 @@ struct RemoteSession {
   std::chrono::steady_clock::time_point last_time_;
   // UI-thread snapshot refreshed with FPS once per second.
   std::optional<VideoLatencyStats::Snapshot> video_latency_snapshot_;
+  // UI-thread snapshots of the session-cumulative inter-presentation metrics
+  // (D8), refreshed alongside video_latency_snapshot_ at the same 1 Hz tick.
+  // Taken with the const copy-out accessors, so refreshing the HUD never
+  // disturbs the running accumulator or the teardown summary. The window
+  // endpoints are copied too because freezes-per-minute needs the exact
+  // measured span as its denominator.
+  std::optional<VideoLatencyStats::InterPresentGapStats> inter_present_snapshot_;
+  VideoLatencyStats::InterPresentWindow inter_present_window_snapshot_;
   NetTrafficStatsCache net_traffic_stats_;
   ReceivedVideoStats received_video_stats_;
 

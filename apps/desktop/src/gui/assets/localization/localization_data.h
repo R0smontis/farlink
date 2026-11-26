@@ -565,6 +565,12 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"释放游戏鼠标", {"释放游戏鼠标 (Ctrl+Alt+G)", "Release Game Mouse (Ctrl+Alt+G)", "Отпустить игровую мышь (Ctrl+Alt+G)", "釋放遊戲滑鼠 (Ctrl+Alt+G)", "ゲームマウスを解放 (Ctrl+Alt+G)", "게임 마우스 해제 (Ctrl+Alt+G)", "Spielmaus freigeben (Ctrl+Alt+G)", "Relâcher la souris de jeu (Ctrl+Alt+G)", "Soltar el ratón de juego (Ctrl+Alt+G)", "Soltar o mouse de jogo (Ctrl+Alt+G)"}},
   {"诊断", {"诊断", "Diagnostics", "Диагностика", "診斷", "診断", "진단", "Diagnose", "Diagnostic", "Diagnóstico", "Diagnóstico"}},
   {"导出", {"导出", "Export", "Экспорт", "匯出", "エクスポート", "내보내기", "Exportieren", "Exporter", "Exportar", "Exportar"}},
+  {"冻结", {"冻结", "Freezes", "Зависания", "凍結", "フリーズ", "프리즈", "Freezes", "Gels", "Congelaciones", "Congelamentos"}},
+  {"冻结/分", {"冻结/分", "Freezes/min", "Зависания/мин", "凍結/分", "フリーズ/分", "프리즈/분", "Freezes/Min.", "Gels/min", "Congelaciones/min", "Congelamentos/min"}},
+  {"最大间隔", {"最大间隔", "Max gap", "Макс. интервал", "最大間隔", "最大間隔", "최대 간격", "Max. Lücke", "Intervalle max", "Intervalo máx.", "Intervalo máx."}},
+  {"p95 间隔", {"p95 间隔", "p95 gap", "p95 интервал", "p95 間隔", "p95 間隔", "p95 간격", "p95-Lücke", "Intervalle p95", "Intervalo p95", "Intervalo p95"}},
+  {"视频抖动", {"视频抖动", "Video jitter", "Джиттер видео", "視訊抖動", "映像ジッター", "비디오 지터", "Video-Jitter", "Gigue vidéo", "Jitter de vídeo", "Jitter de vídeo"}},
+  {"音频抖动", {"音频抖动", "Audio jitter", "Джиттер аудио", "音訊抖動", "音声ジッター", "오디오 지터", "Audio-Jitter", "Gigue audio", "Jitter de audio", "Jitter de áudio"}},
 };
 
 struct NamedTranslation { const char* name; const char* literal; };
@@ -870,6 +876,12 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"diagnostics", "诊断"},
   {"export_action", "导出"},
   {"exporting", "正在导出…"},
+  {"stats_freezes", "冻结"},
+  {"stats_freezes_per_min", "冻结/分"},
+  {"stats_max_gap", "最大间隔"},
+  {"stats_p95_gap", "p95 间隔"},
+  {"stats_video_jitter", "视频抖动"},
+  {"stats_audio_jitter", "音频抖动"},
 };
 inline constexpr const char* kSlintLiterals[] = {
   "此端口已被占用，",
@@ -1392,7 +1404,13 @@ inline constexpr const char* kSlintLiterals[] = {
   X(remote_service_unavailable_message) \
   X(diagnostics) \
   X(export_action) \
-  X(exporting)
+  X(exporting) \
+  X(stats_freezes) \
+  X(stats_freezes_per_min) \
+  X(stats_max_gap) \
+  X(stats_p95_gap) \
+  X(stats_video_jitter) \
+  X(stats_audio_jitter)
 
 }  // namespace localization
 }  // namespace crossdesk
