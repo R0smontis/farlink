@@ -1,5 +1,30 @@
-> **Farlink is a modified version of [CrossDesk](https://github.com/kunkundi/crossdesk), modified from 2026-11-25. See [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md) for the notice of modifications, and [docs/FARLINK.md](docs/FARLINK.md) for this fork's technical documentation. The website, download, app-store, and web-client links below are upstream CrossDesk's own and point to upstream's unmodified releases — they do not distribute this fork.**
->
+# Farlink
+
+**Farlink** is a fork of [CrossDesk](https://github.com/kunkundi/crossdesk) aimed at a
+commercial-grade low-latency remote desktop experience: high frame-rate capture/encode (up to 144 fps negotiation),
+hardware encoder cold-start priming, a bounded audio jitter buffer, game/relative-mouse
+input mode, and machine-readable session observability. Licensed GPL-3.0-only like
+upstream; the bundled `deps/submodules/minirtc` media library is
+[a Farlink fork](https://github.com/R0smontis/minirtc) of upstream
+[kunkundi/minirtc](https://github.com/kunkundi/minirtc), licensed LGPL-3.0.
+
+```bash
+git clone --recursive https://github.com/R0smontis/farlink.git
+cd farlink
+xmake f -y -m release && xmake b -y crossdesk     # requires xmake; see docs/FARLINK.md
+```
+
+If you cloned without `--recursive`: `git submodule update --init --recursive`.
+See [docs/FARLINK.md](docs/FARLINK.md) for the full build/run guide, platform support,
+and known limitations; [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md) for the license-required
+notice of modifications.
+
+---
+
+> **Note:** the remainder of this README is upstream CrossDesk's own document. Website,
+> download, app-store, and web-client links below point to upstream's unmodified releases —
+> they do not distribute this fork.
+
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk logo with the icon on the left and a two-tone wordmark on the right" />
   <p>A lightweight, cross-platform remote desktop for computers, browsers, mobile devices, and terminals, with DeskHub for viewing and controlling multiple desktops.</p>

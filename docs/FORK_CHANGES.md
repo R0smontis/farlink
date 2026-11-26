@@ -2,7 +2,7 @@
 
 **Farlink** is a modified version of **CrossDesk** (<https://github.com/kunkundi/crossdesk>),
 forked at upstream base commit `0551055` (`[fix] migrate legacy autostart settings on upgrade, refs #242`).
-Fork modification date range: **2026-11-25 – 2026-11-26**.
+Fork modification date range: **2026-11-25 – 2026-11-27**.
 
 This file is the prominent notice of modification required by the GNU General Public
 License v3 §5(a) (and, for the bundled `deps/submodules/minirtc`, the GNU Lesser General
@@ -16,7 +16,7 @@ The bundled media library `deps/submodules/minirtc` is itself a modified version
 
 ## Summary of modifications
 
-The fork extends upstream CrossDesk in three independent areas:
+The fork extends upstream CrossDesk in four independent areas:
 
 - **High frame-rate capture/encode** — frame-rate tiers beyond 60 fps (30/60/90/120/144)
   negotiated via a new `supports_high_fps` wire capability, a GPU-native CVPixelBuffer
@@ -25,6 +25,11 @@ The fork extends upstream CrossDesk in three independent areas:
   relative-mouse injection, negotiated via a new `supports_relative_mouse` wire capability.
 - **Bounded audio jitter buffer** — a receive-side jitter buffer with reorder absorption
   and output trimming for the audio path.
+- **Session observability and encoder cold-start priming** — machine-readable session
+  metrics (per-second fps histogram, resolution series, network samples, session-cumulative
+  inter-presentation gap), a non-interactive `--lan-connect` direct-connect entry that keeps
+  the password out of the command line, and hardware encoder priming in the bundled minirtc
+  (see its own `docs/FORK_CHANGES.md`).
 
 ## Modified upstream files
 
@@ -47,6 +52,10 @@ The fork extends upstream CrossDesk in three independent areas:
 | `apps/desktop/src/gui/ui/common.slint` | UI strings/layout for new controls. |
 | `apps/desktop/src/gui/ui/stream_window.slint` | Stream-window UI wiring. |
 | `apps/desktop/src/gui/ui/ui_localization.h` | UI localization binding. |
+| `apps/desktop/src/app/launch_options.cpp` | Non-interactive `--lan-connect` / `--view-only` launch options. |
+| `apps/desktop/src/app/launch_options.h` | Declarations for the above. |
+| `apps/desktop/src/gui/rendering/video_latency.cpp` | Session-cumulative inter-presentation gap metric and machine-readable session metrics emission. |
+| `apps/desktop/src/gui/rendering/video_latency.h` | Declarations for the above. |
 | `apps/desktop/src/platform/macos/gui/window_drag_mac.mm` | Window-drag interaction with capture mode. |
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp` | Relative-mouse control integration. |
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.h` | Declarations for the above. |
@@ -102,3 +111,5 @@ The fork extends upstream CrossDesk in three independent areas:
 | `apps/desktop/tests/video_toolbox_in_flight_test.cpp` | VideoToolbox in-flight contract test. |
 | `libs/wire/include/video_frame_rate.h` | Frame-rate tiers and degradation-preference logic. |
 | `libs/wire/tests/video_frame_rate_wire_test.cpp` | Frame-rate wire round-trip tests. |
+| `apps/desktop/tests/inter_present_emission_test.cpp` | Inter-presentation gap metric emission tests. |
+| `apps/desktop/tests/inter_present_gap_test.cpp` | Session-cumulative inter-presentation gap tests. |
