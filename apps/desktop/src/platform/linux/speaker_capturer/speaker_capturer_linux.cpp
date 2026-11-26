@@ -53,7 +53,7 @@ bool SpeakerCapturerLinux::Prepare() {
   mainloop_ = pa_mainloop_new();
   if (!mainloop_) return false;
   context_ =
-      pa_context_new(pa_mainloop_get_api(mainloop_), "CrossDesk system audio");
+      pa_context_new(pa_mainloop_get_api(mainloop_), "Farlink system audio");
   if (!context_ ||
       pa_context_connect(context_, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0)
     return false;

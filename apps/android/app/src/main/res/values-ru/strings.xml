@@ -6,7 +6,7 @@
     <string name="text_23ebae95d26dfe5e" formatted="false">" устройства"</string>
     <string name="text_a7f4dfd234a43b16" formatted="false">" Статья · "</string>
     <string name="text_2c894057fc526576" formatted="false">" непрочитанные элементы"</string>
-    <string name="text_d0ac753c6681e578" formatted="false">"Удаленное подключение CrossDesk"</string>
+    <string name="text_957c79e49d0de639" formatted="false">"Удаленное подключение Farlink"</string>
     <string name="text_0991c6fc1de4ffd6" formatted="false">"GNU GPL версия 3"</string>
     <string name="text_5ae7dc4079223967" formatted="false">"Уведомление OpenFEC"</string>
     <string name="text_69ad29820a259526" formatted="false">"Лицензия и исходный код OpenFEC"</string>
@@ -35,7 +35,7 @@
     <string name="text_2428420e407fe2e8" formatted="false">"Итого "</string>
     <string name="text_d977c7568cc5201e" formatted="false">"Всего элементов {0}· Непрочитанные элементы {1}"</string>
     <string name="text_52d25a9e30ba94f1" formatted="false">"О программе"</string>
-    <string name="text_459c1e980c1c8ce2" formatted="false">"О CrossDesk"</string>
+    <string name="text_c3ec71e505162929" formatted="false">"О Farlink"</string>
     <string name="text_390a95b65eb33052" formatted="false">"О, вышла новая версия"</string>
     <string name="text_3fd47edce45b3603" formatted="false">"Закрыть"</string>
     <string name="text_56a18c93e12fdc4e" formatted="false">"Закрыть панель управления"</string>
@@ -235,7 +235,7 @@
     <string name="text_dd6c465847af1b60" formatted="false">"Неверный пароль доступа, пожалуйста, введите его еще раз."</string>
     <string name="text_defba1d2989bfab4" formatted="false">"Не удалось проверить сертификат · Нажмите, чтобы повторить попытку."</string>
     <string name="text_44f3d4d52347095a" formatted="false">"Сначала пройдите онлайн-авторизацию."</string>
-    <string name="text_2a07ca002bc5093d" formatted="false">"Пожалуйста, включите системную службу CrossDesk на удаленном конце и повторите попытку."</string>
+    <string name="text_58ffa08e765c94b1" formatted="false">"Пожалуйста, включите системную службу Farlink на удаленном конце и повторите попытку."</string>
     <string name="text_990fd23c62de5ccf" formatted="false">"Время ожидания запроса истекло, а состояние экрана конфиденциальности компьютера не подтверждено."</string>
     <string name="text_e5c8fa6dcf7b2a8b" formatted="false">"Пожалуйста, дождитесь отправки текущего файла."</string>
     <string name="text_9305d9d72b06110d" formatted="false">"Введите порт в диапазоне 1–65535."</string>

@@ -445,7 +445,7 @@ class NativePrivacy {
     XUngrabServer(display_);
     XSync(display_, False);
     if (!owner_ || XGetSelectionOwner(display_, selection_) != owner_) {
-      error = "Another CrossDesk instance owns Linux privacy protection";
+      error = "Another Farlink instance owns Linux privacy protection";
       return false;
     }
     reply_.recovered = false;

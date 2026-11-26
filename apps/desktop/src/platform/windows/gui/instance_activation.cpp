@@ -158,7 +158,7 @@ bool RequestInstanceActivation(std::string& error, const std::string& applicatio
     if (GetTickCount64() >= deadline) break;
     Sleep(50);
   } while (true);
-  error = "Cannot notify the existing CrossDesk window on this desktop: " +
+  error = "Cannot notify the existing Farlink window on this desktop: " +
           std::to_string(last_error);
   return false;
 }

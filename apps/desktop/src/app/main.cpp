@@ -79,7 +79,7 @@ void EnsureConsoleForCli() {
 
 void PrintServiceCliUsage() {
   std::cout
-      << "CrossDesk service management commands\n"
+      << crossdesk::platform::kMachineAppName << " service management commands\n"
       << "  --service-install    Install the sibling crossdesk_service.exe\n"
       << "  --service-repair     Update the service path and restart it\n"
       << "  --service-uninstall  Remove the installed Windows service\n"
@@ -240,9 +240,9 @@ static crossdesk::platform::InstanceResult AcquireInstance(
   std::string error;
   const auto result = guard.TryAcquire(role, error);
   if (result == crossdesk::platform::InstanceResult::kAlreadyRunning) {
-    std::cerr << "CrossDesk is already running for this user.\n";
+    std::cerr << crossdesk::platform::kMachineAppName << " is already running for this user.\n";
   } else if (result == crossdesk::platform::InstanceResult::kError) {
-    std::cerr << "CrossDesk cannot start: " << error << '\n';
+    std::cerr << crossdesk::platform::kMachineAppName << " cannot start: " << error << '\n';
   }
   return result;
 }
@@ -264,11 +264,13 @@ static int ExitForExistingInstance(
     if (!crossdesk::platform::RequestInstanceActivation(error)) {
       std::cerr << error << '\n';
 #ifdef _WIN32
-      MessageBoxW(nullptr,
-                  L"CrossDesk is already running, but its window could not be "
-                  L"activated.\n\nIt may still be starting or be running in "
-                  L"another Windows session. Please check the system tray.",
-                  L"CrossDesk", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+      const std::wstring already_running_message =
+          std::wstring(crossdesk::platform::kMachineAppNameWide) +
+          L" is already running, but its window could not be "
+          L"activated.\n\nIt may still be starting or be running in "
+          L"another Windows session. Please check the system tray.";
+      MessageBoxW(nullptr, already_running_message.c_str(),
+                  crossdesk::platform::kMachineAppNameWide, MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
 #endif
     }
   }

@@ -12,7 +12,7 @@ final class LocalizationKeys {
         IDS.put(" 台设备", R.string.text_23ebae95d26dfe5e);
         IDS.put(" 条 · ", R.string.text_a7f4dfd234a43b16);
         IDS.put(" 条未读", R.string.text_2c894057fc526576);
-        IDS.put("CrossDesk 远程连接", R.string.text_d0ac753c6681e578);
+        IDS.put("Farlink 远程连接", R.string.text_957c79e49d0de639);
         IDS.put("GNU GPL 第 3 版", R.string.text_0991c6fc1de4ffd6);
         IDS.put("OpenFEC 告知", R.string.text_5ae7dc4079223967);
         IDS.put("OpenFEC 许可与源码", R.string.text_69ad29820a259526);
@@ -41,7 +41,7 @@ final class LocalizationKeys {
         IDS.put("共 ", R.string.text_2428420e407fe2e8);
         IDS.put("共 {0} 条 · {1} 条未读", R.string.text_d977c7568cc5201e);
         IDS.put("关于", R.string.text_52d25a9e30ba94f1);
-        IDS.put("关于 CrossDesk", R.string.text_459c1e980c1c8ce2);
+        IDS.put("关于 Farlink", R.string.text_c3ec71e505162929);
         IDS.put("关于，有新版本", R.string.text_390a95b65eb33052);
         IDS.put("关闭", R.string.text_3fd47edce45b3603);
         IDS.put("关闭控制栏", R.string.text_56a18c93e12fdc4e);
@@ -241,7 +241,7 @@ final class LocalizationKeys {
         IDS.put("访问密码错误，请重新输入", R.string.text_dd6c465847af1b60);
         IDS.put("证书校验失败 · 点击重试", R.string.text_defba1d2989bfab4);
         IDS.put("请先完成联网授权", R.string.text_44f3d4d52347095a);
-        IDS.put("请在远端启用 CrossDesk 系统服务后重试", R.string.text_2a07ca002bc5093d);
+        IDS.put("请在远端启用 Farlink 系统服务后重试", R.string.text_58ffa08e765c94b1);
         IDS.put("请求超时，尚未确认电脑的隐私屏状态", R.string.text_990fd23c62de5ccf);
         IDS.put("请等待当前文件发送完成", R.string.text_e5c8fa6dcf7b2a8b);
         IDS.put("请输入 1–65535 范围内的端口", R.string.text_9305d9d72b06110d);

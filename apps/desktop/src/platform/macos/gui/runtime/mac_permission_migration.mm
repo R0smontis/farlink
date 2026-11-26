@@ -96,7 +96,7 @@ MacPermissionMigrationResult Migrate(bool retry) {
   }
   if (![NSBundle.mainBundle.bundlePath isEqualToString:@(app_path.c_str())]) return {};
   if (geteuid() == 0) {
-    throw std::runtime_error("Run CrossDesk as the logged-in user to migrate permissions");
+    throw std::runtime_error("Run Farlink as the logged-in user to migrate permissions");
   }
 
   platform::SingleInstanceGuard guard("CrossDeskPermissionMigration");

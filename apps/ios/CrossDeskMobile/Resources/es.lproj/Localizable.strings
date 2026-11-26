@@ -4,7 +4,7 @@
 "%1$@ 条未读" = "%1$@ elementos no leídos";
 "%1$@键盘页" = "Página del teclado %1$@";
 "%1$@，接收 %2$@，发送 %3$@，丢包率 %4$@" = "%1$@, recepción de %2$@, envío de %3$@, tasa de pérdida de paquetes %4$@";
-"CrossDesk 使用局域网发现并建立原生 P2P 远程控制连接。" = "CrossDesk utiliza la red local para descubrir y establecer conexiones nativas de control remoto P2P.";
+"Farlink 使用局域网发现并建立原生 P2P 远程控制连接。" = "Farlink utiliza la red local para descubrir y establecer conexiones nativas de control remoto P2P.";
 "Ctrl+Alt+Del 需要远端启用 Windows 系统服务" = "Ctrl+Alt+Del requiere activación remota de los servicios del sistema Windows";
 "GNU GPL 第 3 版" = "GNU GPL versión 3";
 "OpenFEC 告知" = "Aviso OpenFEC";
@@ -34,7 +34,7 @@
 "公告详情" = "Detalles del anuncio";
 "共 %1$@ 条 · %2$@ 条未读" = "Total de elementos %1$@· Elementos no leídos %2$@";
 "关于" = "Acerca de";
-"关于 CrossDesk" = "Acerca de CrossDesk";
+"关于 Farlink" = "Acerca de Farlink";
 "关于，有新版本" = "Acerca de, hay una nueva versión.";
 "关闭" = "Cerrar";
 "关闭控制栏" = "Cerrar barra de control";

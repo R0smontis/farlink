@@ -53,20 +53,20 @@ std::wstring LockName(const fs::path& app) {
 
 void StopService() {
   SC_HANDLE manager = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
-  if (!manager) throw std::runtime_error("Cannot query CrossDesk service");
+  if (!manager) throw std::runtime_error("Cannot query Farlink service");
   SC_HANDLE service = OpenServiceW(manager, L"CrossDeskService", SERVICE_STOP | SERVICE_QUERY_STATUS);
   const DWORD error = GetLastError();
   CloseServiceHandle(manager);
   if (!service) {
     if (error == ERROR_SERVICE_DOES_NOT_EXIST) return;
-    throw std::runtime_error("Cannot open CrossDesk service");
+    throw std::runtime_error("Cannot open Farlink service");
   }
   SERVICE_STATUS_PROCESS status{};
   DWORD bytes = 0;
   if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
       reinterpret_cast<BYTE*>(&status), sizeof(status), &bytes)) {
     CloseServiceHandle(service);
-    throw std::runtime_error("Cannot query CrossDesk service state");
+    throw std::runtime_error("Cannot query Farlink service state");
   }
   service_was_running = status.dwCurrentState == SERVICE_RUNNING ||
                         status.dwCurrentState == SERVICE_START_PENDING;
@@ -74,7 +74,7 @@ void StopService() {
   if (status.dwCurrentState != SERVICE_STOPPED && status.dwCurrentState != SERVICE_STOP_PENDING &&
       !ControlService(service, SERVICE_CONTROL_STOP, &ignored)) {
     CloseServiceHandle(service);
-    throw std::runtime_error("Cannot stop CrossDesk service");
+    throw std::runtime_error("Cannot stop Farlink service");
   }
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
   while (std::chrono::steady_clock::now() < deadline) {
@@ -87,7 +87,7 @@ void StopService() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
   CloseServiceHandle(service);
-  throw std::runtime_error("CrossDesk service did not stop");
+  throw std::runtime_error("Farlink service did not stop");
 }
 }  // namespace
 
@@ -244,7 +244,7 @@ void WaitForApplicationExit(const fs::path& application) {
     if (!running) return;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   } while (std::chrono::steady_clock::now() < deadline);
-  throw std::runtime_error("CrossDesk is still running in this or another session");
+  throw std::runtime_error("Farlink is still running in this or another session");
 }
 
 void InstallPackage(const fs::path& package, const fs::path& application) {
@@ -256,13 +256,13 @@ void InstallPackage(const fs::path& package, const fs::path& application) {
   const auto cwd = package.parent_path();
   if (!CreateProcessW(package.c_str(), command.data(), nullptr, nullptr, FALSE,
       CREATE_NO_WINDOW, nullptr, cwd.c_str(), &startup, &process))
-    throw std::runtime_error("Cannot start CrossDesk installer");
+    throw std::runtime_error("Cannot start Farlink installer");
   WaitForSingleObject(process.hProcess, INFINITE);
   DWORD code = 1;
   GetExitCodeProcess(process.hProcess, &code);
   CloseHandle(process.hThread);
   CloseHandle(process.hProcess);
-  if (code != 0) throw std::runtime_error("CrossDesk installer failed: " + std::to_string(code));
+  if (code != 0) throw std::runtime_error("Farlink installer failed: " + std::to_string(code));
 }
 
 void RestoreServices() {

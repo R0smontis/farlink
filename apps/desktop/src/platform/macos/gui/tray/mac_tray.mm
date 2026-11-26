@@ -120,7 +120,7 @@ struct MacTrayImpl {
       return;
     }
 
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"CrossDesk"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:NSStringFromUtf8(tooltip)];
     [menu setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]];
 
     NSString *show_main_window_title =

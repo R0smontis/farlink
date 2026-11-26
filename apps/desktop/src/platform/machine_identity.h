@@ -15,10 +15,20 @@ namespace crossdesk::platform {
 // Machine-level application identity of this fork. This is the ONLY
 // definition; every per-machine resource — single-instance locks, the
 // activation socket, config/cache/log directory names, the LaunchAgent and
-// autostart entries — derives from it. User-visible strings, wire protocol
-// tokens, signalling hostnames and bundle metadata of upstream interoperability
-// do NOT use this constant; they are not machine-level identity.
+// autostart entries — derives from it. Because this fork is itself named
+// Farlink, the user-visible product name (window/session titles, tray tooltip,
+// notification titles, process messages) is the same value and also derives
+// from it, so a title that is matched functionally can never drift from the
+// name the window was created with. What does NOT use this constant are the
+// upstream-interoperability surfaces: wire protocol tokens, JSON type values,
+// signalling hostnames and upstream service URLs — those must stay byte-for-
+// byte as stock CrossDesk expects or the fork could no longer talk to peers.
 inline constexpr char kMachineAppName[] = "Farlink";
+
+// The same product name as a wide string, for the Windows tray tooltip and
+// MessageBox surfaces that take UTF-16. Identical ASCII bytes; kept next to
+// kMachineAppName so the user-visible name never diverges by platform.
+inline constexpr wchar_t kMachineAppNameWide[] = L"Farlink";
 
 // Canonical, symlinks-resolved configuration root for the current launch —
 // the portable data directory in portable builds, otherwise the backend's

@@ -126,7 +126,7 @@ std::string Platform() {
 }  // namespace
 
 std::string DiagnosticFileName() {
-  return "CrossDesk-diagnostics-" +
+  return "Farlink-diagnostics-" +
          TimeText(std::time(nullptr), "%Y%m%d-%H%M%S") + ".zip";
 }
 
@@ -167,9 +167,9 @@ ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
   if (entries.empty()) return {ExportError::no_logs};
   const auto& identity = GetBuildIdentity();
   std::string info =
-      "CrossDesk diagnostics\nVersion: " + version +
-      "\nCrossDesk commit: " + identity.crossdesk_revision +
-      "\nCrossDesk source state: " + identity.crossdesk_state +
+      "Farlink diagnostics\nVersion: " + version +
+      "\nFarlink commit: " + identity.crossdesk_revision +
+      "\nFarlink source state: " + identity.crossdesk_state +
       "\nMiniRTC commit: " + identity.minirtc_revision +
       "\nMiniRTC source state: " + identity.minirtc_state +
       "\nPlatform: " + Platform() +

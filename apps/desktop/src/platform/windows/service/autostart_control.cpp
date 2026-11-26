@@ -91,7 +91,7 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
     CSimpleIniA legacy;
     legacy.SetUnicode(true);
     if (legacy.LoadFile(config.c_str()) < 0) {
-      error = "Could not read the previous CrossDesk settings";
+      error = "Could not read the previous Farlink settings";
       return false;
     }
     // SimpleIni's generic boolean reader also accepts truncated or malformed

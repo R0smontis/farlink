@@ -243,7 +243,7 @@ class MacPrivacyBackend final : public PrivacyBackend {
               [NSString stringWithUTF8String:(text.allow_local_unlock ? text.unlock_hint : text.locked_hint).c_str()],
               text.allow_local_unlock, text.black_screen);
           if (!content) {
-            state->failure = "Could not load the CrossDesk privacy screen logo";
+            state->failure = "Could not load the Farlink privacy screen logo";
             break;
           }
           m.cover = MakePanel(m.frame, CGWindowLevelForKey(kCGScreenSaverWindowLevelKey) + 1);
@@ -271,7 +271,7 @@ class MacPrivacyBackend final : public PrivacyBackend {
         if (!UpdateMacPrivacyCoverView(monitor.cover.contentView,
             [NSString stringWithUTF8String:(text.allow_local_unlock ? text.unlock_hint : text.locked_hint).c_str()],
             text.allow_local_unlock, text.black_screen)) {
-          state->failure = "Could not load the CrossDesk privacy screen logo";
+          state->failure = "Could not load the Farlink privacy screen logo";
           break;
         }
       }

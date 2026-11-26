@@ -6,7 +6,7 @@
     <string name="text_23ebae95d26dfe5e" formatted="false">" dispositivos"</string>
     <string name="text_a7f4dfd234a43b16" formatted="false">" Artigo · "</string>
     <string name="text_2c894057fc526576" formatted="false">" itens não lidos"</string>
-    <string name="text_d0ac753c6681e578" formatted="false">"Conexão remota CrossDesk"</string>
+    <string name="text_957c79e49d0de639" formatted="false">"Conexão remota Farlink"</string>
     <string name="text_0991c6fc1de4ffd6" formatted="false">"GNU GPL versão 3"</string>
     <string name="text_5ae7dc4079223967" formatted="false">"Aviso OpenFEC"</string>
     <string name="text_69ad29820a259526" formatted="false">"Licença e fonte OpenFEC"</string>
@@ -35,7 +35,7 @@
     <string name="text_2428420e407fe2e8" formatted="false">"Total "</string>
     <string name="text_d977c7568cc5201e" formatted="false">"Total de itens {0}· Itens não lidos {1}"</string>
     <string name="text_52d25a9e30ba94f1" formatted="false">"Sobre"</string>
-    <string name="text_459c1e980c1c8ce2" formatted="false">"Sobre o CrossDesk"</string>
+    <string name="text_c3ec71e505162929" formatted="false">"Sobre o Farlink"</string>
     <string name="text_390a95b65eb33052" formatted="false">"Sobre, há uma nova versão"</string>
     <string name="text_3fd47edce45b3603" formatted="false">"Fechar"</string>
     <string name="text_56a18c93e12fdc4e" formatted="false">"Fechar barra de controle"</string>
@@ -235,7 +235,7 @@
     <string name="text_dd6c465847af1b60" formatted="false">"A senha de acesso está errada, digite-a novamente."</string>
     <string name="text_defba1d2989bfab4" formatted="false">"Falha na verificação do certificado · Clique para tentar novamente"</string>
     <string name="text_44f3d4d52347095a" formatted="false">"Por favor, preencha primeiro a autorização online"</string>
-    <string name="text_2a07ca002bc5093d" formatted="false">"Ative o serviço do sistema CrossDesk na extremidade remota e tente novamente"</string>
+    <string name="text_58ffa08e765c94b1" formatted="false">"Ative o serviço do sistema Farlink na extremidade remota e tente novamente"</string>
     <string name="text_990fd23c62de5ccf" formatted="false">"A solicitação expirou e o status da tela de privacidade do computador não foi confirmado."</string>
     <string name="text_e5c8fa6dcf7b2a8b" formatted="false">"Aguarde o envio do arquivo atual."</string>
     <string name="text_9305d9d72b06110d" formatted="false">"Insira uma porta no intervalo 1–65535"</string>

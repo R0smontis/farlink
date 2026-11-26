@@ -16,6 +16,7 @@
 #include <mutex>
 #include <utility>
 
+#include "platform/machine_identity.h"
 #include "platform/window_drag.h"
 #include "rd_log.h"
 
@@ -92,7 +93,7 @@
 }
 
 - (instancetype)initWithWindow:(NSWindow*)window {
-  NSString* title = window.title.length > 0 ? window.title : @"CrossDesk";
+  NSString* title = window.title.length > 0 ? window.title : [NSString stringWithUTF8String:crossdesk::platform::kMachineAppName];
   NSFont* font = [NSFont boldSystemFontOfSize:13.0];
   const CGFloat text_width =
       ceil([title sizeWithAttributes:@{NSFontAttributeName : font}].width);

@@ -51,11 +51,11 @@ void WaitForApplicationExit(const fs::path& application) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(45);
   do {
     const int count = proc_listallpids(nullptr, 0);
-    if (count <= 0) throw std::runtime_error("Cannot enumerate CrossDesk processes");
+    if (count <= 0) throw std::runtime_error(std::string("Cannot enumerate ") + platform::kMachineAppName + " processes");
     std::vector<pid_t> pids(static_cast<std::size_t>(count) + 256);
     const int length = proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
     if (length <= 0 || length >= static_cast<int>(pids.size()))
-      throw std::runtime_error("Cannot inspect all CrossDesk processes");
+      throw std::runtime_error(std::string("Cannot inspect all ") + platform::kMachineAppName + " processes");
     bool running = false;
     for (int i = 0; i < length; ++i) {
       char path[PROC_PIDPATHINFO_MAXSIZE]{};
@@ -70,7 +70,7 @@ void WaitForApplicationExit(const fs::path& application) {
     if (!running) return;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   } while (std::chrono::steady_clock::now() < deadline);
-  throw std::runtime_error("CrossDesk is still running in another session");
+  throw std::runtime_error(std::string(platform::kMachineAppName) + " is still running in another session");
 }
 void InstallPackage(const fs::path& package, const fs::path&) {
   if (Run("/usr/sbin/installer", {"-pkg", package.string(), "-target", "/"}) != 0)

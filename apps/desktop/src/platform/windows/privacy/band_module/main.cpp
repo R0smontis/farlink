@@ -97,7 +97,7 @@ class Windows {
           return Fail(L"Reposition high-band cover");
         continue;
       }
-      HWND hwnd = create_(kCoverStyles, atom_, L"CrossDesk Privacy", WS_POPUP,
+      HWND hwnd = create_(kCoverStyles, atom_, L"Farlink Privacy", WS_POPUP,
                           rect.left, rect.top, rect.right - rect.left,
                           rect.bottom - rect.top, nullptr, nullptr, module,
                           this, kPrivacyWindowBand);

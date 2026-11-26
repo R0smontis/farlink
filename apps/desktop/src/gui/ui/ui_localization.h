@@ -81,7 +81,7 @@ inline int ApplyMainWindowStrings(
   feedback.set_github(Text(localization::Literal("前往 GitHub 反馈", language)));
   feedback.set_github_hint(Text(localization::Literal("报告问题或提出功能建议。", language)));
   feedback.set_export(Text(localization::Literal("导出诊断日志", language)));
-  feedback.set_export_hint(Text(localization::Literal("将 CrossDesk、MiniRTC 日志和基本版本信息保存为 ZIP 文件。", language)));
+  feedback.set_export_hint(Text(localization::Literal("将 Farlink、MiniRTC 日志和基本版本信息保存为 ZIP 文件。", language)));
   feedback.set_exporting(Text(localization::Literal("正在导出…", language)));
   feedback.set_attachment_hint(Text(localization::Literal("请在 GitHub Issue 中附上导出的 ZIP 日志包，便于排查问题。", language)));
   feedback.set_close(Text(localization::message_close[language]));

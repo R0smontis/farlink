@@ -6,7 +6,7 @@
     <string name="text_23ebae95d26dfe5e" formatted="false">" devices"</string>
     <string name="text_a7f4dfd234a43b16" formatted="false">" Article · "</string>
     <string name="text_2c894057fc526576" formatted="false">" unread items"</string>
-    <string name="text_d0ac753c6681e578" formatted="false">"CrossDesk remote connection"</string>
+    <string name="text_957c79e49d0de639" formatted="false">"Farlink remote connection"</string>
     <string name="text_0991c6fc1de4ffd6" formatted="false">"GNU GPL version 3"</string>
     <string name="text_5ae7dc4079223967" formatted="false">"OpenFEC notice"</string>
     <string name="text_69ad29820a259526" formatted="false">"OpenFEC license and source"</string>
@@ -35,7 +35,7 @@
     <string name="text_2428420e407fe2e8" formatted="false">"Total "</string>
     <string name="text_d977c7568cc5201e" formatted="false">"Total {0} items ·{1} unread items"</string>
     <string name="text_52d25a9e30ba94f1" formatted="false">"About"</string>
-    <string name="text_459c1e980c1c8ce2" formatted="false">"About CrossDesk"</string>
+    <string name="text_c3ec71e505162929" formatted="false">"About Farlink"</string>
     <string name="text_390a95b65eb33052" formatted="false">"About, there is a new version"</string>
     <string name="text_3fd47edce45b3603" formatted="false">"Close"</string>
     <string name="text_56a18c93e12fdc4e" formatted="false">"Close control bar"</string>
@@ -235,7 +235,7 @@
     <string name="text_dd6c465847af1b60" formatted="false">"The access password is wrong, please re-enter it."</string>
     <string name="text_defba1d2989bfab4" formatted="false">"Certificate verification failed · Click to try again"</string>
     <string name="text_44f3d4d52347095a" formatted="false">"Please complete the online authorization first"</string>
-    <string name="text_2a07ca002bc5093d" formatted="false">"Please enable the CrossDesk system service on the remote end and try again"</string>
+    <string name="text_58ffa08e765c94b1" formatted="false">"Please enable the Farlink system service on the remote end and try again"</string>
     <string name="text_990fd23c62de5ccf" formatted="false">"The request timed out and the computer\'s privacy screen status has not been confirmed."</string>
     <string name="text_e5c8fa6dcf7b2a8b" formatted="false">"Please wait for the current file to be sent."</string>
     <string name="text_9305d9d72b06110d" formatted="false">"Please enter a port in the range 1–65535"</string>

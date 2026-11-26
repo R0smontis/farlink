@@ -4,7 +4,7 @@
 "%1$@ 条未读" = "%1$@ unread items";
 "%1$@键盘页" = "%1$@ keyboard page";
 "%1$@，接收 %2$@，发送 %3$@，丢包率 %4$@" = "%1$@, receiving %2$@, sending %3$@, packet loss rate %4$@";
-"CrossDesk 使用局域网发现并建立原生 P2P 远程控制连接。" = "CrossDesk uses the local network to discover and establish native P2P remote control connections.";
+"Farlink 使用局域网发现并建立原生 P2P 远程控制连接。" = "Farlink uses the local network to discover and establish native P2P remote control connections.";
 "Ctrl+Alt+Del 需要远端启用 Windows 系统服务" = "Ctrl+Alt+Del requires remote activation of Windows system services";
 "GNU GPL 第 3 版" = "GNU GPL version 3";
 "OpenFEC 告知" = "OpenFEC notice";
@@ -34,7 +34,7 @@
 "公告详情" = "Announcement details";
 "共 %1$@ 条 · %2$@ 条未读" = "Total %1$@ items ·%2$@ unread items";
 "关于" = "About";
-"关于 CrossDesk" = "About CrossDesk";
+"关于 Farlink" = "About Farlink";
 "关于，有新版本" = "About, there is a new version";
 "关闭" = "Close";
 "关闭控制栏" = "Close control bar";

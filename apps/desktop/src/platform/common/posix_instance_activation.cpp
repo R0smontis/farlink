@@ -247,7 +247,7 @@ bool RequestInstanceActivation(std::string& error, const std::string& applicatio
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   } while (true);
   close(fd);
-  error = "Cannot notify the existing CrossDesk window in this graphical session: " +
+  error = std::string("Cannot notify the existing ") + kMachineAppName + " window in this graphical session: " +
           std::string(strerror(last_error));
   return false;
 }

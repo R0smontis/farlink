@@ -124,7 +124,7 @@ int Coordinate(const fs::path& job) {
         if (client_result == platform::InstanceResult::kAcquired &&
             launcher_result == platform::InstanceResult::kAcquired) break;
         if (std::chrono::steady_clock::now() >= exit_deadline)
-          throw std::runtime_error("CrossDesk did not exit; no files were installed");
+          throw std::runtime_error("Farlink did not exit; no files were installed");
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
       exited = true;
@@ -151,14 +151,14 @@ int Coordinate(const fs::path& job) {
         if (!fs::exists(job / "started")) {
           success = false;
           WriteText(job / "result.json", nlohmann::json{{"success", false},
-              {"error", "Installation finished but the new application did not confirm startup. Open CrossDesk or run the installer manually."}}.dump(2));
+              {"error", "Installation finished but the new application did not confirm startup. Open Farlink or run the installer manually."}}.dump(2));
         }
       }
     }
     catch (const std::exception& exception) {
       success = false;
       WriteText(job / "result.json", nlohmann::json{{"success", false},
-          {"error", std::string("Could not restart CrossDesk: ") + exception.what()}}.dump(2));
+          {"error", std::string("Could not restart Farlink: ") + exception.what()}}.dump(2));
     }
   }
   if (success) {

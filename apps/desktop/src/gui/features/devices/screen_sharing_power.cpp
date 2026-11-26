@@ -18,7 +18,7 @@ namespace crossdesk {
 #if defined(__linux__) && !defined(__OHOS__)
 namespace {
 
-constexpr const char* kApplication = "CrossDesk";
+constexpr const char* kApplication = "Farlink";
 constexpr const char* kReason = "Sharing the desktop with a remote controller";
 constexpr int kDbusTimeoutMs = 1000;
 
@@ -61,7 +61,7 @@ struct ScreenSharingPower::Impl {
   bool system = false;
 
   void Start() {
-    wchar_t reason_text[] = L"CrossDesk is sharing the desktop";
+    wchar_t reason_text[] = L"Farlink is sharing the desktop";
     REASON_CONTEXT reason{};
     reason.Version = POWER_REQUEST_CONTEXT_VERSION;
     reason.Flags = POWER_REQUEST_CONTEXT_SIMPLE_STRING;
@@ -94,7 +94,7 @@ struct ScreenSharingPower::Impl {
   IOPMAssertionID system = kIOPMNullAssertionID;
 
   void Start() {
-    const auto reason = CFSTR("CrossDesk is sharing the desktop");
+    const auto reason = CFSTR("Farlink is sharing the desktop");
     // A connecting controller is user activity: if the display has already
     // gone to sleep, wake it. Prevention-only assertions cannot do that — a
     // capture stream started against a sleeping display dies immediately
