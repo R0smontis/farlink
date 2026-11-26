@@ -37,14 +37,15 @@ class ScreenCapturerSckImpl;
 
 static const int kFullDesktopScreenId = -1;
 static constexpr auto kCaptureStartTimeout = std::chrono::seconds(5);
-// A healthy stream delivers its first frame within one frame interval of
-// startCapture completing — measured 8 ms at 60 fps in the round-8 matrix.
-// A stream that has delivered nothing after 1.5 s is a zombie: replayd
-// accepted the start but never produces frames, and every one of those
-// zombies in 48 experiment runs stayed silent for the full 5 s. Bounding the
-// wait at 1.5 s (90x the frame interval) costs nothing healthy and turns a
-// zombie retry cycle from 5+2 s into 1.5+2 s.
-static constexpr auto kFirstFrameTimeout = std::chrono::milliseconds(1500);
+// Zombie detector budget, measured from startCapture completion
+// (ConfigurationFinished), not from issuing the operation: the completion
+// itself keeps the kCaptureStartTimeout budget above. Distribution across
+// 44 healthy starts in the round-8/acceptance logs: completion->first frame
+// median 3 ms, p90 7 ms, max 52 ms; no frame ever arrived after 100 ms. All
+// 39 observed zombies (start accepted, frames never produced) stayed silent
+// for the full detector window. 1 s is 20x the worst healthy start and still
+// shrinks a zombie retry cycle from 5+2 s to 1+2 s.
+static constexpr auto kFirstFrameTimeout = std::chrono::seconds(1);
 
 static std::string NSErrorToString(NSError *error) {
   if (!error) {
@@ -200,6 +201,9 @@ class API_AVAILABLE(macos(14.0)) ScreenCapturerSckImpl : public ScreenCapturer {
   using Clock = std::chrono::steady_clock;
   Clock::time_point capture_attempt_started_{};
   Clock::time_point configuration_started_{};
+  // Armed when startCapture completes successfully (ConfigurationFinished);
+  // the zombie detector measures completion->first-frame silence from here.
+  Clock::time_point stream_started_at_{};
   Clock::time_point enumeration_started_{};
   bool enumeration_in_flight_ = false;
   bool enumeration_stall_logged_ = false;
@@ -882,6 +886,7 @@ void ScreenCapturerSckImpl::ConfigurationFinished(SCStream* source, uint64_t gen
     reconfigure_pending_ = false;
     if (!error) {
       stream_running_ = true;
+      if (!received_frame_) stream_started_at_ = Clock::now();
       applied_configuration_ = configuration;
       if (privacy_) privacy_->CaptureChanged(true);
       if (complete && !refresh && generation == configuration_generation_)
@@ -916,6 +921,7 @@ void ScreenCapturerSckImpl::RecoverCapture(uint64_t generation,
     configuration_in_flight_ = reconfigure_pending_ = false;
     enumeration_in_flight_ = false;
     capture_attempt_started_ = {};
+    stream_started_at_ = {};
     applied_configuration_ = nil;
     suspended_since_ = {};
     ++configuration_generation_; // Revoke pending completions and frames.
@@ -971,9 +977,17 @@ bool ScreenCapturerSckImpl::CheckCaptureHealth(uint64_t session) {
     } else if (configuration_in_flight_ &&
                now - configuration_started_ >= kCaptureStartTimeout) {
       failure = "ScreenCaptureKit configuration timed out";
+    } else if (stream_running_ && !received_frame_ &&
+               stream_started_at_ != Clock::time_point{} &&
+               now - stream_started_at_ >= kFirstFrameTimeout) {
+      failure = "ScreenCaptureKit stream produced no frames after starting";
     } else if ((!stream_running_ || !received_frame_) &&
                capture_attempt_started_ != Clock::time_point{} &&
-               now - capture_attempt_started_ >= kFirstFrameTimeout) {
+               now - capture_attempt_started_ >= kCaptureStartTimeout) {
+      // Catch-all for attempts that die without completing or entering
+      // recovery (for example a filter-construction failure path): this keeps
+      // the original whole-attempt budget. The short budget above only
+      // applies once the stream start has actually completed.
       failure = "ScreenCaptureKit did not deliver its first frame";
     } else if (suspended_since_ != Clock::time_point{} &&
                now - suspended_since_ >= kCaptureStartTimeout) {
