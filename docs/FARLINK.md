@@ -327,14 +327,20 @@ teardown 压力循环，全程约 6 分钟。它是纯进程内仿真，不读�
   8. MaintainResolution 之外的偏好（Balanced/MaintainResolution 在 4K 不可持续配置下）未在矩阵覆盖。
   9. 多通道/多屏并发共享同一编码器时的 ceiling 归因未验证。
   10. 长时间稳定性未测（最长 300s；小时级 ceiling 状态漂移、退避封顶后长期行为、内存/句柄累积未知）。
+- **macOS 部署目标现已固定 14.0，但旧机实测仍缺**：仓库在 `xmake.lua` 顶层以
+  `set_config("target_minver", "14.0")` 固定了部署目标（上游只在 CI 传 `--target_minver` 旗标；
+  此前本机构建默认为宿主机 SDK 版本 27.2，低版本系统上的行为是未定义的——已修复并验证
+  bundle 内全部 Mach-O 均为 `minos 14.0 / sdk 27.2`、`pkg_arm64.sh` 自带的 `verify_app.sh`
+  通过）。但**没有任何一台低于 27.2 的 Mac 实际运行过此包**，14.0–26.x 上的真实行为未验证。
 - **游戏模式相对鼠标只经单元测试与注入工具验证**（`macos_relative_mouse_injection_test`、
   各 `macos_relative_mouse_*_tool`），从未由人在真实会话里实操过。
 - **音频路径只经进程内仿真验证**（`audio_receive_e2e_test` 的网络模型），从未真正用耳朵
   听过声音——音质、杂音、音画同步在真实听觉下如何，未验证。
 - **从未对 对标商业远控 本身做过任何测量**：「对标 对标商业远控」是目标，不是结果；没有任何一组
   数字是与 对标商业远控 并排测出来的。
-- **工作树在 `/tmp` 下**（`/tmp/farlink-build-audio` 及兄弟目录 `/tmp/farlink-build-e2e`、`/tmp/farlink-build-tools`
-  等）：`/tmp` 在重启后会被系统清理，这些树**扛不过一次重启**。要长期保留，需把仓库树
-  移到 `/tmp` 之外的位置（例如用户 home 下的某个目录）——本次只指出位置风险，未实际移动。
-- `/tmp/farlink-build-dist/Farlink.app` 是**过时**构建（早于更新器移除，仍带更新器），
-  **不要启动它**，最终重新打包时会被替换。
+- **工作树已完成搬迁**：仓库、打包产物、端到端脚本与文档已移至 `~/Projects/farlink/`
+  （自包含，含两仓库全历史 git bundle 备份；工具链环境为 `~/Projects/farlink/toolchain/env.sh`，
+  xmake 本体需按其中说明另行下载）。`/tmp` 下的原始工作树（`/tmp/farlink-build-audio` 等）
+  保留未动但仍**扛不过一次重启**；`/tmp/farlink-build-dist/Farlink.app` 是**过时**构建
+  （早于更新器移除，仍带更新器），**不要启动它**。
+

@@ -58,7 +58,7 @@ The fork extends upstream CrossDesk in three independent areas:
 | `libs/wire/src/remote_action.cpp` | Serialize/parse the new capability flags. |
 | `libs/wire/tests/wire_test.cpp` | Wire round-trip test updates. |
 | `localization/catalog.json` | New localized strings. |
-| `xmake.lua` | Build wiring for new targets. |
+| `xmake.lua` | Build wiring for new targets; pins `target_minver=14.0` so local macOS builds match upstream CI's deployment target (upstream passes it only as a CI flag). |
 
 ## Added files
 
