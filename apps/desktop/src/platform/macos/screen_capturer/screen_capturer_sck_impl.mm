@@ -37,6 +37,14 @@ class ScreenCapturerSckImpl;
 
 static const int kFullDesktopScreenId = -1;
 static constexpr auto kCaptureStartTimeout = std::chrono::seconds(5);
+// A healthy stream delivers its first frame within one frame interval of
+// startCapture completing — measured 8 ms at 60 fps in the round-8 matrix.
+// A stream that has delivered nothing after 1.5 s is a zombie: replayd
+// accepted the start but never produces frames, and every one of those
+// zombies in 48 experiment runs stayed silent for the full 5 s. Bounding the
+// wait at 1.5 s (90x the frame interval) costs nothing healthy and turns a
+// zombie retry cycle from 5+2 s into 1.5+2 s.
+static constexpr auto kFirstFrameTimeout = std::chrono::milliseconds(1500);
 
 static std::string NSErrorToString(NSError *error) {
   if (!error) {
@@ -965,7 +973,7 @@ bool ScreenCapturerSckImpl::CheckCaptureHealth(uint64_t session) {
       failure = "ScreenCaptureKit configuration timed out";
     } else if ((!stream_running_ || !received_frame_) &&
                capture_attempt_started_ != Clock::time_point{} &&
-               now - capture_attempt_started_ >= kCaptureStartTimeout) {
+               now - capture_attempt_started_ >= kFirstFrameTimeout) {
       failure = "ScreenCaptureKit did not deliver its first frame";
     } else if (suspended_since_ != Clock::time_point{} &&
                now - suspended_since_ >= kCaptureStartTimeout) {

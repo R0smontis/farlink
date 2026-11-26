@@ -13,7 +13,12 @@
 #include "speaker_capturer_macosx.h"
 
 namespace {
-constexpr auto kCaptureTimeout = std::chrono::seconds(2);
+// A healthy enumeration+start sequence completes in ~140 ms end to end
+// (measured across the round-7/round-8 session logs). A dead request — the
+// same replayd disruption that kills video streams — never completes at all,
+// and at 2 s per operation a dead enumeration plus a dead start can hold the
+// retry loop for over 4 s per attempt. 750 ms is 5x the healthy total.
+constexpr auto kCaptureTimeout = std::chrono::milliseconds(750);
 
 std::string NSErrorToString(NSError* error) {
   if (!error) return "";
