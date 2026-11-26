@@ -23,6 +23,8 @@
 #include <vector>
 #include <algorithm>
 
+#include "udp_shaper.h"
+
 #include <nlohmann/json.hpp>
 
 #include "minirtc.h"
@@ -49,12 +51,32 @@ struct Config {
   // When > 0, raise the video bitrate ceiling so congestion control can ramp
   // toward the LAN's real capacity instead of the default budget.
   int max_bitrate_bps = 0;
+  // Direct-session start bitrate. Zero keeps the harness default; set it to
+  // the production value to measure the real start-of-session ramp.
+  int start_bitrate_bps = 0;
+  // Bottleneck shaping. Zero keeps the direct baseline path; a positive
+  // rate routes both endpoints' media through the in-process UDP shaper
+  // by rewriting the port of every signaled ICE candidate to the shaper's
+  // relay port. See udp_shaper.h for the mechanism.
+  int bottleneck_kbps = 0;
+  int bottleneck_delay_ms = 0;
+  int bottleneck_queue_bytes = 65536;
+  int bottleneck_burst_bytes = 1500;
+  int bottleneck_port = 39201;
 };
 
 struct Endpoint {
   MiniRtcPeerPtr* peer = nullptr;
   std::mutex signal_mutex;
   std::string pending_signals;
+};
+
+// One decoded frame's timing and resolution, recorded for offline bucketing.
+struct FrameRecord {
+  int64_t capture_us = 0;
+  int64_t decoded_us = 0;
+  int width = 0;
+  int height = 0;
 };
 
 struct SharedState {
@@ -65,6 +87,12 @@ struct SharedState {
   std::atomic<uint64_t> decoded_frames{0};
   std::mutex latency_mutex;
   std::vector<int64_t> latencies_us;
+  // Per-frame decode records for fine-grained (100 ms) bucketing: capture
+  // instant, decode-completion instant (both library clock, microseconds),
+  // and decoded resolution. Exact frame identity comes from the barcode;
+  // this log preserves the per-frame timing the aggregate latency vector
+  // discards, so the start-of-session ramp can be bucketed offline.
+  std::vector<FrameRecord> frame_records;
   // Capture instant (library clock, microseconds) indexed by absolute frame
   // sequence number. Decoded frames carry their sequence in a codec-robust
   // barcode, so latency pairing is exact even when the encoder drops frames.
@@ -97,6 +125,66 @@ struct SharedState {
 
 SharedState g_state;
 std::string g_session_id;
+// Active in shaped runs only. Owned by RunHarness; the signal rewrite reads
+// just the relay port, which never changes after startup.
+crossdesk::UdpShaper* g_shaper = nullptr;
+uint16_t g_shaper_port = 0;
+
+// Rewrite the port field of one ICE candidate string (with or without the
+// leading "a="). The candidate grammar the direct protocol accepts is fixed:
+// "candidate:<foundation> 1 UDP <priority> <ip> <port> typ host" — the port
+// is the sixth whitespace-separated token. Validation inside minirtc checks
+// only the IP against the pinned remote address and re-emits the candidate
+// with the port intact (minirtc direct_ice_policy.h NormalizeDirectCandidate:
+// the equality check at line 62 compares addresses, not ports, and the
+// re-emission at line 66-67 carries the original port through), so a
+// rewritten port survives validation and reaches libnice unmodified.
+std::string RewriteCandidatePort(const std::string& candidate, uint16_t port) {
+  // Tokenize on spaces, keeping offsets so the string can be reassembled
+  // with a single substitution.
+  size_t positions[6] = {};
+  size_t token = 0;
+  size_t i = 0;
+  // Skip a leading "a=" prefix; it is part of the first token.
+  while (i < candidate.size() && token < 6) {
+    while (i < candidate.size() && candidate[i] == ' ') ++i;
+    if (i >= candidate.size()) break;
+    positions[token++] = i;
+    while (i < candidate.size() && candidate[i] != ' ') ++i;
+  }
+  if (token < 6) return candidate;
+  // The port token starts at positions[5] and runs to the next space.
+  size_t port_start = positions[5];
+  size_t port_end = candidate.find(' ', port_start);
+  if (port_end == std::string::npos) port_end = candidate.size();
+  const std::string replacement = std::to_string(port);
+  return candidate.substr(0, port_start) + replacement +
+         candidate.substr(port_end);
+}
+
+// Rewrite every "a=candidate:" line's port inside an SDP blob. Trickle ICE
+// means these rarely carry candidates in this harness, but the rewrite is
+// cheap insurance for partial-gathering offers.
+std::string RewriteSdpPorts(const std::string& sdp, uint16_t port) {
+  std::string out;
+  out.reserve(sdp.size());
+  size_t pos = 0;
+  while (pos < sdp.size()) {
+    size_t line_end = sdp.find('\n', pos);
+    if (line_end == std::string::npos) line_end = sdp.size();
+    std::string line = sdp.substr(pos, line_end - pos);
+    if (line.rfind("a=candidate:", 0) == 0) {
+      // Strip the trailing \r for rewriting, then restore it.
+      const bool cr = !line.empty() && line.back() == '\r';
+      std::string body = cr ? line.substr(0, line.size() - 1) : line;
+      line = RewriteCandidatePort(body, port) + (cr ? "\r" : "");
+    }
+    out += line;
+    if (line_end < sdp.size()) out += '\n';
+    pos = line_end + 1;
+  }
+  return out;
+}
 
 bool ReadSequence(const uint8_t* nv12, int width, int height, uint32_t* out);
 
@@ -129,6 +217,12 @@ void OnReceiveVideoFrame(const MiniRtcVideoFrame* frame, const char*, size_t,
   const int64_t latency =
       static_cast<int64_t>(frame->decoded_timestamp) - capture;
   g_state.latencies_us.push_back(latency);
+  FrameRecord record;
+  record.capture_us = capture;
+  record.decoded_us = static_cast<int64_t>(frame->decoded_timestamp);
+  record.width = frame->width;
+  record.height = frame->height;
+  g_state.frame_records.push_back(record);
 }
 
 void AppendSignal(Endpoint* endpoint, const char* message, size_t size) {
@@ -152,10 +246,16 @@ std::string TranslateSignal(const char* message, size_t size,
     nlohmann::json out;
     if (type == "offer" || type == "answer") {
       out = {{"type", type}, {"sdp", j.at("sdp")}};
+      if (g_shaper_port)
+        out["sdp"] = RewriteSdpPorts(out["sdp"].get<std::string>(),
+                                     g_shaper_port);
     } else if (type == "new_candidate") {
       out = {{"type", "candidate"}, {"ufrag", j.at("ufrag")}};
       if (j.at("sdp") == "a=end-of-candidates\r\n")
         out["end_of_candidates"] = true;
+      else if (g_shaper_port)
+        out["candidate"] = RewriteCandidatePort(j.at("sdp").get<std::string>(),
+                                                g_shaper_port);
       else
         out["candidate"] = j.at("sdp");
     } else {
@@ -275,7 +375,8 @@ void PumpSignals() {
 }
 
 MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware, int frame_rate,
-                         MiniRtcVideoDegradationPreference preference) {
+                         MiniRtcVideoDegradationPreference preference,
+                         int start_bitrate_bps) {
   MiniRtcParams params{};
   params.use_cfg_file = false;
   params.hardware_acceleration = hardware;
@@ -288,7 +389,13 @@ MiniRtcParams MakeParams(const char* user_id, void* user_data, bool hardware, in
   params.video_frame_rate = frame_rate;
   params.video_degradation_preference = preference;
   params.desktop_encoding_mode = MiniRtcDesktopEncodingMode::LowLoad;
-  params.direct_start_bitrate_bps = 20000000;
+  // The harness historically forced a 20 Mbps direct start, which sits above
+  // the steady-state need of every tested configuration and therefore hides
+  // the production start-of-session ramp entirely. Zero selects the 20 Mbps
+  // default for backward compatibility; pass the production value (or any
+  // value) to measure the real ramp from the actual session-start bitrate.
+  params.direct_start_bitrate_bps =
+      start_bitrate_bps > 0 ? start_bitrate_bps : 20000000;
   params.relay_start_bitrate_bps = 1500000;
   params.disable_receiver_padding_probing = true;
   params.on_signal_status = NoopSignalStatus;
@@ -402,13 +509,37 @@ int Percentile(std::vector<int64_t> sorted, double p) {
 int RunHarness(const Config& config) {
   const std::string session_id = "harnesssession01";
   g_session_id = session_id;
+
+  // Shaped mode: bring up the relay before the peers so the port rewrite is
+  // active from the very first signal. The shaper binds on the same LAN IP
+  // the endpoints use, so relayed traffic arrives from an address byte-
+  // identical to the rewritten candidates — ICE sees a consistent path.
+  crossdesk::UdpShaper shaper;
+  if (config.bottleneck_kbps > 0) {
+    crossdesk::UdpShaperConfig shaper_config;
+    shaper_config.rate_bps =
+        static_cast<uint64_t>(config.bottleneck_kbps) * 1000;
+    shaper_config.burst_bytes =
+        static_cast<uint32_t>(config.bottleneck_burst_bytes);
+    shaper_config.queue_bytes =
+        static_cast<uint32_t>(config.bottleneck_queue_bytes);
+    shaper_config.delay_ms = static_cast<uint32_t>(config.bottleneck_delay_ms);
+    if (!shaper.Start(config.address,
+                      static_cast<uint16_t>(config.bottleneck_port),
+                      shaper_config)) {
+      std::fprintf(stderr, "udp shaper failed to start\n");
+      return 2;
+    }
+    g_shaper = &shaper;
+    g_shaper_port = shaper.BoundPort();
+  }
   const std::string sender_local = "sender0000000001";
   const std::string receiver_local = "receiver00000001";
 
   // Sender: hardware acceleration to use the real VideoToolbox encoder.
-  MiniRtcParams sender_params = MakeParams(sender_local.c_str(), nullptr, true, config.fps, config.preference);
+  MiniRtcParams sender_params = MakeParams(sender_local.c_str(), nullptr, true, config.fps, config.preference, config.start_bitrate_bps);
   // Receiver: decode side does not need hardware encoding.
-  MiniRtcParams receiver_params = MakeParams(receiver_local.c_str(), nullptr, true, config.fps, config.preference);
+  MiniRtcParams receiver_params = MakeParams(receiver_local.c_str(), nullptr, true, config.fps, config.preference, config.start_bitrate_bps);
 
   MiniRtcPeerPtr* sender =
       MiniRtcCreatePeerWithVideoCodec(&sender_params, "", config.codec);
@@ -549,6 +680,7 @@ int RunHarness(const Config& config) {
   {
     std::lock_guard<std::mutex> lock(g_state.latency_mutex);
     g_state.latencies_us.clear();
+    g_state.frame_records.clear();
   }
   const uint64_t decoded_before = g_state.decoded_frames.load();
   const int64_t measure_start = NowUs();
@@ -577,6 +709,16 @@ int RunHarness(const Config& config) {
   // that averages 108 fps but dips to 44 periodically is a different product
   // than one holding 108 every second, and the mean alone cannot see it.
   std::vector<uint64_t> per_second_fps;
+  // Shaper throughput sampling, one sample per trajectory tick. Direction 0
+  // carries the sender's media in practice, but the sum of both directions
+  // is the bottleneck's total achieved throughput either way.
+  uint64_t last_shaper_bytes = 0;
+  if (g_shaper) {
+    const auto snapshot = g_shaper->Snapshot();
+    last_shaper_bytes =
+        snapshot.forwarded_bytes[0] + snapshot.forwarded_bytes[1];
+  }
+  std::vector<double> per_second_shape_mbps;
   while (NowUs() < measure_end) {
     submit(sequence);
     ++sequence;
@@ -588,11 +730,30 @@ int RunHarness(const Config& config) {
       const uint64_t second_fps = decoded_now - last_sample_decoded;
       per_second_fps.push_back(second_fps);
       std::fprintf(stderr,
-                   "traj t=%ds enc=%dx%d fps=%llu video_bitrate=%lld\n",
+                   "traj t=%ds enc=%dx%d fps=%llu video_bitrate=%lld",
                    ++sample_index, g_state.decoded_width.load(),
                    g_state.decoded_height.load(),
                    static_cast<unsigned long long>(second_fps),
                    static_cast<long long>(video_bitrate));
+      if (g_shaper) {
+        const auto snapshot = g_shaper->Snapshot();
+        const uint64_t total_bytes =
+            snapshot.forwarded_bytes[0] + snapshot.forwarded_bytes[1];
+        const double mbps =
+            (total_bytes - last_shaper_bytes) * 8.0 / 1000000.0;
+        per_second_shape_mbps.push_back(mbps);
+        std::fprintf(stderr,
+                     " shape_mbps=%.2f shape_drops=%llu shape_qmax=%llu",
+                     mbps,
+                     static_cast<unsigned long long>(
+                         snapshot.dropped_packets[0] +
+                         snapshot.dropped_packets[1]),
+                     static_cast<unsigned long long>(std::max(
+                         snapshot.max_queue_bytes[0],
+                         snapshot.max_queue_bytes[1])));
+        last_shaper_bytes = total_bytes;
+      }
+      std::fprintf(stderr, "\n");
       last_sample_decoded = decoded_now;
       next_sample_us += 1000000LL;
     }
@@ -608,9 +769,52 @@ int RunHarness(const Config& config) {
   const uint32_t sent = sequence - first_sequence;
 
   std::vector<int64_t> latencies;
+  std::vector<FrameRecord> records;
   {
     std::lock_guard<std::mutex> lock(g_state.latency_mutex);
     latencies = g_state.latencies_us;
+    records = g_state.frame_records;
+  }
+
+  // Bucket the per-frame records into 100 ms bins keyed off capture time so
+  // the start-of-session ramp can be read as a time series. The first frame's
+  // capture instant is t=0. Each bin reports the number of frames decoded in
+  // it (x10 for fps), the encoded resolution of its last frame, and the p50
+  // encode-to-decode latency of the frames in it. Emitted one "ramp100" line
+  // per non-empty bin on stderr alongside the per-second "traj" lines, so the
+  // final JSON on stdout stays machine-consumable.
+  if (!records.empty()) {
+    std::sort(records.begin(), records.end(),
+              [](const FrameRecord& a, const FrameRecord& b) {
+                return a.capture_us < b.capture_us;
+              });
+    const int64_t t0 = records.front().capture_us;
+    const int64_t kBucketUs = 100000;
+    size_t bin_index = 0;
+    size_t i = 0;
+    while (i < records.size()) {
+      const int64_t bin_end = t0 + static_cast<int64_t>(bin_index + 1) * kBucketUs;
+      std::vector<int64_t> bin_lat;
+      int bw = 0, bh = 0;
+      size_t count = 0;
+      while (i < records.size() && records[i].capture_us < bin_end) {
+        bin_lat.push_back(records[i].decoded_us - records[i].capture_us);
+        bw = records[i].width;
+        bh = records[i].height;
+        ++count;
+        ++i;
+      }
+      if (count > 0) {
+        std::sort(bin_lat.begin(), bin_lat.end());
+        const int64_t p50 = bin_lat[bin_lat.size() / 2] / 1000;
+        std::fprintf(stderr,
+                     "ramp100 t=%lldms fps=%llu enc=%dx%d lat_p50_ms=%lld\n",
+                     static_cast<long long>(bin_index * 100),
+                     static_cast<unsigned long long>(count * 10), bw, bh,
+                     static_cast<long long>(p50));
+      }
+      ++bin_index;
+    }
   }
 
   // Dropped = sent but never decoded (approximate; excludes warmup).
@@ -639,6 +843,22 @@ int RunHarness(const Config& config) {
       g_state.encode_queue_dropped_frames.load(),
       g_state.encode_queue_dropped_pending_tasks.load(),
       g_state.encode_queue_dropped_in_flight.load()};
+  // Shaper totals across both directions. Achieved throughput is measured
+  // over the measurement window only; the warmup/session-tail forwarding is
+  // excluded by differencing counters sampled at window start and end.
+  uint64_t shaper_bytes_end = 0, shaper_dropped_end = 0, shaper_qmax = 0;
+  if (g_shaper) {
+    const auto snapshot = g_shaper->Snapshot();
+    shaper_bytes_end = snapshot.forwarded_bytes[0] + snapshot.forwarded_bytes[1];
+    shaper_dropped_end = snapshot.dropped_packets[0] + snapshot.dropped_packets[1];
+    shaper_qmax =
+        std::max(snapshot.max_queue_bytes[0], snapshot.max_queue_bytes[1]);
+  }
+  double shape_mean_mbps = 0;
+  if (!per_second_shape_mbps.empty()) {
+    for (double v : per_second_shape_mbps) shape_mean_mbps += v;
+    shape_mean_mbps /= per_second_shape_mbps.size();
+  }
   std::printf(
       "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
@@ -653,6 +873,9 @@ int RunHarness(const Config& config) {
       "\"win_encode_queue_dropped\":%llu,"
       "\"win_encode_queue_dropped_pending\":%llu,"
       "\"win_encode_queue_dropped_in_flight\":%llu,"
+      "\"bottleneck_kbps\":%d,\"shape_mean_mbps\":%.2f,"
+      "\"shape_forwarded_bytes\":%llu,\"shape_dropped_packets\":%llu,"
+      "\"shape_max_queue_bytes\":%llu,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
@@ -673,6 +896,10 @@ int RunHarness(const Config& config) {
       static_cast<unsigned long long>(counters_after[4] - counters_before[4]),
       static_cast<unsigned long long>(counters_after[5] - counters_before[5]),
       static_cast<unsigned long long>(counters_after[6] - counters_before[6]),
+      config.bottleneck_kbps, shape_mean_mbps,
+      static_cast<unsigned long long>(shaper_bytes_end),
+      static_cast<unsigned long long>(shaper_dropped_end),
+      static_cast<unsigned long long>(shaper_qmax),
       g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
 
@@ -685,6 +912,10 @@ int RunHarness(const Config& config) {
   // retained buffer the pool is about to release.
   if (native_source) native_source->Destroy();
 #endif
+  // Tear the globals down before the stack-local shaper so no late signal
+  // callback can observe a dangling relay port.
+  g_shaper = nullptr;
+  g_shaper_port = 0;
   return 0;
 }
 
@@ -720,6 +951,18 @@ int main(int argc, char** argv) {
     }
     else if (arg == "--native") config.native_source = true;
     else if (arg == "--max-bitrate") config.max_bitrate_bps = std::atoi(next("--max-bitrate"));
+    else if (arg == "--start-bitrate") config.start_bitrate_bps = std::atoi(next("--start-bitrate"));
+    else if (arg == "--bottleneck-mbps")
+      config.bottleneck_kbps =
+          static_cast<int>(std::atof(next("--bottleneck-mbps")) * 1000);
+    else if (arg == "--bottleneck-delay-ms")
+      config.bottleneck_delay_ms = std::atoi(next("--bottleneck-delay-ms"));
+    else if (arg == "--bottleneck-queue-bytes")
+      config.bottleneck_queue_bytes = std::atoi(next("--bottleneck-queue-bytes"));
+    else if (arg == "--bottleneck-burst-bytes")
+      config.bottleneck_burst_bytes = std::atoi(next("--bottleneck-burst-bytes"));
+    else if (arg == "--bottleneck-port")
+      config.bottleneck_port = std::atoi(next("--bottleneck-port"));
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");
