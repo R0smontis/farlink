@@ -18,6 +18,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace crossdesk {
 
@@ -312,6 +313,28 @@ class VideoLatencyStats
       observability_->frame_width.store(width, std::memory_order_relaxed);
       observability_->frame_height.store(height, std::memory_order_relaxed);
     }
+    if (width > 0 && height > 0) {
+      const int64_t sec = std::chrono::duration_cast<std::chrono::seconds>(
+                              Clock::now().time_since_epoch())
+                              .count();
+      std::lock_guard lock(persecond_mutex_);
+      if (resolution_series_.empty() ||
+          resolution_series_.back().width != width ||
+          resolution_series_.back().height != height) {
+        resolution_series_.push_back({sec, width, height});
+      }
+    }
+  }
+
+  struct ResolutionEvent {
+    int64_t sec;
+    int width;
+    int height;
+  };
+
+  std::vector<ResolutionEvent> ResolutionSeries() const {
+    std::lock_guard lock(persecond_mutex_);
+    return resolution_series_;
   }
 
   uint64_t FramesDecodedTotal() const {
@@ -344,6 +367,46 @@ class VideoLatencyStats
     return !first_presented_consumed_.exchange(true, std::memory_order_acq_rel);
   }
 
+  // Per-second wall-clock histogram of true presentations, for machine-
+  // readable session measurement (fps per second, freezes). True
+  // presentations only — never estimates, redraws, or out-of-order
+  // deliveries: those do not represent a fresh frame reaching the screen.
+  // Buckets are retained for the whole session; the harness runs are
+  // minutes-long, so at one bucket per second this stays tiny.
+  void RecordPresentedWallSecond(Clock::time_point now) {
+    const int64_t sec = std::chrono::duration_cast<std::chrono::seconds>(
+                            now.time_since_epoch())
+                            .count();
+    std::lock_guard lock(persecond_mutex_);
+    if (persecond_first_sec_ < 0) {
+      persecond_first_sec_ = sec;
+    }
+    const int64_t index = sec - persecond_first_sec_;
+    if (index < 0) return;
+    if (static_cast<size_t>(index) >= persecond_counts_.size()) {
+      persecond_counts_.resize(static_cast<size_t>(index) + 1, 0);
+    }
+    ++persecond_counts_[static_cast<size_t>(index)];
+  }
+
+  struct PerSecondSnapshot {
+    // Wall-clock epoch (seconds, steady-clock domain) of bucket 0; -1 when
+    // nothing was ever presented. Counts[i] is the number of true
+    // presentations in second (first_sec + i); missing trailing seconds are
+    // zero-padded by the resize above, so gaps inside the vector are real
+    // zero-presentation seconds.
+    int64_t first_sec = -1;
+    std::vector<uint32_t> counts;
+  };
+
+  PerSecondSnapshot TakePerSecondSnapshot() const {
+    std::lock_guard lock(persecond_mutex_);
+    PerSecondSnapshot result;
+    result.first_sec = persecond_first_sec_;
+    result.counts = persecond_counts_;
+    return result;
+  }
+
   void Record(const VideoLatencyFrame& frame, Clock::time_point now,
               bool estimated = false) {
     const double ms =
@@ -359,6 +422,7 @@ class VideoLatencyStats
           first_presented_time_ns_.store(
               std::chrono::duration_cast<std::chrono::nanoseconds>(
                   now.time_since_epoch()).count(), std::memory_order_relaxed);
+        RecordPresentedWallSecond(now);
       }
       RecordStageLocked(frame, VideoFrameStage::presented, now, 0);
     }
@@ -580,6 +644,17 @@ class VideoLatencyStats
   std::atomic<int64_t> first_presented_time_ns_{0};
   std::atomic<bool> first_presented_consumed_{false};
   std::shared_ptr<SessionObservability> observability_;
+  // Per-second presentation histogram; separate mutex so the render hot
+  // path never contends with harness snapshot reads. Record() holds mutex_
+  // while calling RecordPresentedWallSecond, which takes only
+  // persecond_mutex_; the snapshot reader takes only persecond_mutex_, so
+  // there is no lock-order inversion.
+  mutable std::mutex persecond_mutex_;
+  int64_t persecond_first_sec_ = -1;
+  std::vector<uint32_t> persecond_counts_;
+  // Decoded-resolution change series, same steady-clock-second epoch as the
+  // fps histogram; guarded by persecond_mutex_ as documented above.
+  std::vector<ResolutionEvent> resolution_series_;
 };
 
 inline void VideoLatencyFrame::MarkSubmitted(Clock::time_point now) const {

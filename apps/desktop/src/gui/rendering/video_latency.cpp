@@ -28,6 +28,36 @@ double MsSinceEpochNs(int64_t anchor_ns,
   return std::chrono::duration<double, std::milli>(now - anchor).count();
 }
 
+// Serialize the per-second presentation histogram compactly: the bare counts
+// comma-separated behind the steady-clock epoch of bucket zero, e.g.
+// "fps_seconds=start=12345 counts=58,59,0,57". A zero inside the list is a
+// real zero-presentation second (freeze); the histogram is cumulative since
+// the first presented frame, so the session-end emission alone carries the
+// whole series and no intermediate ticks are needed.
+std::string SerializePerSecond(const VideoLatencyStats::PerSecondSnapshot& snap) {
+  if (snap.first_sec < 0 || snap.counts.empty()) return {};
+  std::string out = "start=" + std::to_string(snap.first_sec) + " counts=";
+  for (size_t i = 0; i < snap.counts.size(); ++i) {
+    if (i) out += ',';
+    out += std::to_string(snap.counts[i]);
+  }
+  return out;
+}
+
+// Serialize decoded-resolution changes as "sec:WxH" entries in the same
+// steady-clock-second epoch as the fps series, so a reader can align the
+// two timelines exactly.
+std::string SerializeResolutionSeries(
+    const std::vector<VideoLatencyStats::ResolutionEvent>& events) {
+  std::string out;
+  for (size_t i = 0; i < events.size(); ++i) {
+    if (i) out += ',';
+    out += std::to_string(events[i].sec) + ":" + std::to_string(events[i].width) +
+           "x" + std::to_string(events[i].height);
+  }
+  return out;
+}
+
 }  // namespace
 
 void LogVideoFirstFramePresented(const VideoLatencyStats& stats,
@@ -91,6 +121,20 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
       "codec={} fps_tier={}",
       context->remote_id, duration_s, decoded, presented, avg_presented_fps,
       resolved.empty() ? "unknown" : resolved, fps_tier);
+  // Machine-readable per-session series, emitted once at teardown on the
+  // same consume-once guard as the human summary. fps_seconds counts are
+  // true presentations per steady-clock second (zero = a freeze second);
+  // resolution_series lists decoded-resolution changes as sec:WxH in the
+  // same epoch so the two timelines align exactly.
+  const auto snap = stats.TakePerSecondSnapshot();
+  const std::string fps_series = SerializePerSecond(snap);
+  const std::string resolutions = SerializeResolutionSeries(
+      stats.ResolutionSeries());
+  LOG_INFO(
+      "Session metrics (controller): remote={} {} resolutions={}",
+      context->remote_id,
+      fps_series.empty() ? "fps_seconds=none" : "fps_seconds " + fps_series,
+      resolutions.empty() ? "none" : resolutions);
 }
 
 }  // namespace crossdesk

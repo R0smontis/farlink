@@ -654,6 +654,24 @@ void PeerEventHandler::OnNetStatusReport(
   // only display client side net status if connected to itself
   if (!(runtime->peer_reserved_ && !strstr(client_id, "C-"))) {
     props->net_traffic_stats_.Store(*net_traffic_stats);
+    // Periodic machine-readable network sample. The transport reports
+    // roughly once per second; logging the raw counters here is the only
+    // durable record — the cache above exists for UI display and is reset
+    // on teardown. Loss rate is the receive-path fraction [0,1]; bitrate is
+    // the reporting interval's inbound video bits/second. RTT is -1 until
+    // the first valid sample.
+    if (net_traffic_stats->video_inbound_stats.bitrate > 0 ||
+        net_traffic_stats->rtt_ms >= 0) {
+      LOG_INFO(
+          "Net sample: remote={} rtt_ms={:.1f} video_in_bps={} "
+          "video_in_loss={:.4f} audio_in_bps={} local_ep={} remote_ep={}",
+          remote_id, net_traffic_stats->rtt_ms,
+          net_traffic_stats->video_inbound_stats.bitrate,
+          net_traffic_stats->video_inbound_stats.loss_rate,
+          net_traffic_stats->audio_inbound_stats.bitrate,
+          net_traffic_stats->local_endpoint,
+          net_traffic_stats->remote_endpoint);
+    }
     // Mirror the negotiated decoder into the session observability context.
     // The render path cannot reach this cache after session teardown.
     const char* decoder = net_traffic_stats->video_decoder;
