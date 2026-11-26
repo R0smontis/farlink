@@ -61,6 +61,52 @@ inline int VideoFrameRateForIndex(int index) {
   return kVideoFrameRateTiers[index];
 }
 
+// Highest tier a display refresh rate (Hz) can actually present. Fractional
+// rates round to their nominal tier — 59.94 (NTSC 60000/1001) rounds to 60,
+// 119.88 to 120 — so a panel is credited with the tier it is sold as, not the
+// tier just below its exact rate. A non-positive refresh rate means the rate
+// is unknown and imposes no restriction, so it returns the top tier.
+inline int MaxVideoFrameRateForRefresh(double refresh_hz) {
+  if (!(refresh_hz > 0.0)) return kMaxVideoFrameRate;
+  // Round half up: 59.94 -> 60, 119.88 -> 120, exact 60/90/120/144 unchanged.
+  const long rounded = static_cast<long>(refresh_hz + 0.5);
+  int best = kVideoFrameRateTiers[0];
+  for (int index = 0; index < kVideoFrameRateTierCount; ++index) {
+    if (kVideoFrameRateTiers[index] <= rounded) best = kVideoFrameRateTiers[index];
+  }
+  return best;
+}
+
+// Whether a tier is offered to the user. The 30/60 tiers are always available
+// (they are the legacy baseline every peer accepts). A higher tier requires
+// both that the peer advertised high-frame-rate support AND that the display
+// the stream window is on can present it. display_refresh_hz <= 0 means the
+// rate is unknown, which imposes no restriction beyond the peer capability.
+inline bool VideoFrameRateTierOffered(int frame_rate, bool peer_supports_high_fps,
+                                      double display_refresh_hz) {
+  if (!IsValidVideoFrameRate(frame_rate)) return false;
+  if (frame_rate <= 60) return true;
+  if (!peer_supports_high_fps) return false;
+  return frame_rate <= MaxVideoFrameRateForRefresh(display_refresh_hz);
+}
+
+// The effective tier to run at: the requested tier if it is offered, otherwise
+// the highest tier that is. 60 is always offered, so the result is never
+// invalid. This is the single decision point shared by session start (the
+// persisted preference) and re-evaluation when the window changes displays.
+inline int EffectiveVideoFrameRate(int requested, bool peer_supports_high_fps,
+                                   double display_refresh_hz) {
+  if (!IsValidVideoFrameRate(requested)) requested = 60;
+  if (VideoFrameRateTierOffered(requested, peer_supports_high_fps, display_refresh_hz))
+    return requested;
+  for (int index = kVideoFrameRateTierCount - 1; index >= 0; --index) {
+    const int tier = kVideoFrameRateTiers[index];
+    if (VideoFrameRateTierOffered(tier, peer_supports_high_fps, display_refresh_hz))
+      return tier;
+  }
+  return 60;
+}
+
 // Single decision point for how a stream degrades under load, derived purely
 // from its negotiated frame rate. At or below 60 fps the encoder can generally
 // sustain the native desktop resolution, so spatial detail is worth preserving

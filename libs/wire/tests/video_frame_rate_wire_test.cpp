@@ -182,5 +182,67 @@ int main() {
                    crossdesk::DegradationPreferenceForFrameRate(61) == 0,
                "60 fps degradation boundary moved");
 
+  // --- Display-refresh-aware tier selection (peer x refresh x requested) ---
+  // Fractional panel rates round to their nominal tier: NTSC-style 59.94 is a
+  // 60 Hz panel, 119.88 is a 120 Hz panel, so the panel is credited with the
+  // tier it is sold as rather than the one below its exact rate.
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(59.94) == 60 &&
+                   crossdesk::MaxVideoFrameRateForRefresh(60.0) == 60,
+               "60 Hz-class panel must cap at 60");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(119.88) == 120 &&
+                   crossdesk::MaxVideoFrameRateForRefresh(120.0) == 120,
+               "120 Hz-class panel must cap at 120");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(143.86) == 144 &&
+                   crossdesk::MaxVideoFrameRateForRefresh(144.0) == 144,
+               "144 Hz-class panel must cap at 144");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(75.0) == 60 &&
+                   crossdesk::MaxVideoFrameRateForRefresh(100.0) == 90,
+               "odd panel rates must cap at the highest tier not above them");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(165.0) == 144,
+               "panel faster than any tier must cap at the top tier");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(0.0) == 144 &&
+                   crossdesk::MaxVideoFrameRateForRefresh(-1.0) == 144,
+               "unknown refresh must impose no restriction");
+  ok &= Expect(crossdesk::MaxVideoFrameRateForRefresh(24.0) == 30,
+               "panel slower than every tier still offers the base tier");
+
+  // 30/60 are always offered regardless of capability or panel; high tiers
+  // need both the peer capability and a panel that can present them.
+  for (int legacy : {30, 60}) {
+    ok &= Expect(crossdesk::VideoFrameRateTierOffered(legacy, false, 60.0),
+                 "legacy tier must always be offered");
+  }
+  ok &= Expect(!crossdesk::VideoFrameRateTierOffered(120, false, 144.0),
+               "high tier offered without peer capability");
+  ok &= Expect(!crossdesk::VideoFrameRateTierOffered(120, true, 60.0),
+               "high tier offered on a panel too slow for it");
+  ok &= Expect(crossdesk::VideoFrameRateTierOffered(120, true, 120.0),
+               "120 tier must be offered on a 120 Hz panel with a capable peer");
+  ok &= Expect(crossdesk::VideoFrameRateTierOffered(120, true, 119.88),
+               "120 tier must be offered on a fractional 120 Hz panel");
+  ok &= Expect(crossdesk::VideoFrameRateTierOffered(144, true, 0.0),
+               "unknown refresh must not restrict offered tiers");
+  ok &= Expect(!crossdesk::VideoFrameRateTierOffered(61, true, 144.0),
+               "invalid tier must never be offered");
+
+  // Effective tier: requested when offered, else the highest offered tier.
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, true, 144.0) == 144,
+               "capable 144 request on a 144 panel must be honoured");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, true, 60.0) == 60,
+               "144 request on a 60 Hz panel must drop to 60");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, true, 120.0) == 120,
+               "144 request on a 120 Hz panel must drop to 120, not 60");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, false, 144.0) == 60,
+               "high request without peer capability must drop to 60");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(90, true, 119.88) == 90,
+               "90 request on a 120 panel must be honoured");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(60, true, 60.0) == 60,
+               "60 must always be selectable");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(30, false, 60.0) == 30,
+               "30 must remain selectable on a stock peer");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(0, true, 144.0) == 60,
+               "invalid request must fall back to 60");
+  ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, true, 0.0) == 144,
+               "unknown refresh must honour a capable request");
   return ok ? 0 : 1;
 }
