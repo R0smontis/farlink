@@ -79,6 +79,7 @@ The fork extends upstream CrossDesk in three independent areas:
 | `apps/desktop/tests/captured_mouse_queue_test.cpp` | Captured-mouse queue tests. |
 | `apps/desktop/tests/captured_mouse_queue_tsan_stress.cpp` | TSan stress test for the mouse queue. |
 | `apps/desktop/tests/encode_throughput_probe.cpp` | Encoder throughput probe. |
+| `apps/desktop/tests/encoder_ceiling_reprobe_test.cpp` | Encoder-ceiling re-probe policy/property test. |
 | `apps/desktop/tests/frame_rate_harness.cpp` | Two-endpoint frame-rate measurement harness. |
 | `apps/desktop/tests/game_mode_buttons_test.cpp` | Game-mode button tests. |
 | `apps/desktop/tests/game_mode_capture_state_test.cpp` | Game-mode capture-state tests. |
@@ -94,6 +95,8 @@ The fork extends upstream CrossDesk in three independent areas:
 | `apps/desktop/tests/macos_relative_mouse_injection_test.cpp` | Relative-mouse injection tests. |
 | `apps/desktop/tests/macos_relative_mouse_roundtrip_tool.mm` | Relative-mouse roundtrip tool. |
 | `apps/desktop/tests/minirtc_direct_harness.cpp` | Direct two-peer MiniRTC harness. |
+| `apps/desktop/tests/udp_shaper.cpp` | Test-only UDP bottleneck shaper for constrained-link measurement. |
+| `apps/desktop/tests/udp_shaper.h` | Declarations for the UDP bottleneck shaper. |
 | `apps/desktop/tests/video_toolbox_in_flight_test.cpp` | VideoToolbox in-flight contract test. |
 | `libs/wire/include/video_frame_rate.h` | Frame-rate tiers and degradation-preference logic. |
 | `libs/wire/tests/video_frame_rate_wire_test.cpp` | Frame-rate wire round-trip tests. |

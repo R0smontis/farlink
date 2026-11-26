@@ -89,6 +89,32 @@ codec H265，首帧约 1–2.9s（`/tmp/farlink-build-e2e/NOTES.md` round-7）�
 | 移除以 Farlink 名义呈现的上游渠道 | 反馈面板改作诊断用途、不再指向上游 | `249493f`、`aa50882` |
 | 修正 About 面的归属 | About 正确反映 fork 归属 | `08b819d` |
 
+### 2.9 编码吞吐上限与分辨率恢复（本轮合并线）
+
+这一节是本次合并进来的编码器吞吐/分辨率自适应工作。全部实测数字来自
+**合成噪声帧 harness**（`frame_rate_harness` 用动画噪声帧制造恒定运动，`frame_rate_harness.cpp:416`）、
+**M1 Pro 单编码器 VideoToolbox HEVC**、**loadavg 5–13 的高负载笔记本**——不是真实采集内容、不是
+空闲机基准。逐项机制与证据见 `docs/farlink/GAP.md` round-7/8/9；此处只摘事实与数字。
+
+| 改动 | 用户可见效果 | 实测数据（合成噪声帧 harness，M1 Pro，loadavg 5–13） | 提交 / 位置 |
+|------|--------------|------------------------------------------------------|-------------|
+| 修复「探测失败成本」根因：测量改与 `FitVideoResolution` 拟合尺寸匹配（原按阶梯 raw 值精确匹配，宽差 2px 永不命中 → 测量从未启动，每次失败探测空等 5s 超时） | 升档探测失败时快速回滚而非卡 5s | 探测开始→回滚从 ~5s 降到 **0.579s/0.576s**（loadavg 12.86；apply ~70ms + 测量 ~505ms） | GAP round-7-1；子模块 `7db702a`；`video_adaptation_policy.h`（`ProbeEncodedSize`/`IsProbeFrameRateConclusivelyLow`） |
+| ceiling 门从「ceiling 面积固定比例」改为「最大安全基准面积」（原比例假设在 floor/cap 钳制步上破裂） | 升档被正确限在编码器可持续尺寸内，既不误堵也不漏堵 | 阶梯性质测试 **336 对相邻档全绿 violations=0**（7 源 × 3 画质档） | GAP round-7-2；`encoder_throughput_ceiling.h`（增 `base_area`）；门 `video_adaptation_policy.h:239`；子模块 `40e7a51` |
+| 首秒画质：初始快速恢复（`initial_fast_recovery`）去掉 `balanced_screen_content` 门，前 30s 内用多档直跳 + 快探测节奏 | 直连会话开局几秒内升到原生分辨率，而非逐档慢爬 | time-to-native ≈ **3.8s**（修复前 10s 末无一达原生；修复后 10s 末全配置达原生，含 4K 单跳 828×538→3024×1964） | GAP round-8；`ice_transport_controller.cpp:1474-1477`（合并后行号）；子模块 `74ce077` |
+| 多档直跳失败回滚改为「跳前基档」+ ceiling 基准=失败档之下最高梯档（修复 round-8 引入的钉死回归） | 直跳失败后能逐档恢复，而非钉死在起始档 30s | 4K@120/144 直跳失败后逐档快爬，t15 恢复面积高于慢速 parent；time-to-native 压缩到 **3.22–3.30s**（n=5 交错，前后区间不重叠） | GAP round-9-1/9-3；`ice_transport_controller.cpp:1992-1994`（合并后行号）；子模块 `051688d`、`65942f7` |
+| 编码吞吐 ceiling 改 rung 粒度 + 指数退避重探（非永久） | 编码器饱和时降级稳定，条件改善后能重探回升 | 4K@144 重探测退避实测阶梯 **30→60→120s 封顶**（相邻重探测间距 60.6s/120.6s 与阶梯吻合） | GAP round-9-6a；`encoder_throughput_ceiling.h`；子模块 `e86c201` |
+
+**补充事实（GAP round-8/9）**：
+
+- **真瓶颈是分辨率自适应节奏而非码率爬坡**：即使从生产 2.5 Mbps 起始，encoder target 也在
+  ~220ms 内冲到 78 Mbps，码率不是限制；限制来自分辨率逐档探测的节奏（round-8 item-2）。
+- **受限链路退避正确**：4 Mbps 经 `UdpShaper` 时零丢包、正确退避到 ~1102×620 而非硬冲原生；
+  对比高起始（15M）在受限链路反而更差（fps 44 vs 58、142–167 丢包）——故生产起始码率保持低位
+  （round-8 item-4、round-9-2）。
+- **encoder target 上限是平帽**：`ClampEncoderTargetBitrate` 平帽 `kDefaultMaxEncoderBitrateBps=30Mbps`
+  （`bitrate_limits.h:41`、`:12`），无分辨率缩放；且实测编码器对噪声内容产出远低于帽
+  （1080p60 peak 5.37 Mbps、4K@60 peak 6.45 Mbps），编码器是内容约束而非 target/帽约束（round-9-5）。
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、
@@ -289,6 +315,18 @@ teardown 压力循环，全程约 6 分钟。它是纯进程内仿真，不读�
   （如快速用户切换下同机两个会话各跑一个实例）是否会撞到，**未实测**。
 - **没有跑过任何真实游戏 / 3D 负载**：整条采集→编码→传输→解码→呈现流水线从未用真实
   游戏画面验证过，所有画面都是桌面/测试内容。
+- **编码吞吐/分辨率自适应线（§2.9）的未验证项**——见 `docs/farlink/GAP.md` round-9-7 的十条清单，
+  逐条一句话概括：
+  1. 全部数值来自合成噪声帧 harness，非真实采集内容（真实桌面/游戏的编码器负载与码率曲线不同）。
+  2. 单一编码器 VideoToolbox HEVC、M1 Pro；未测 H.264 及其他 Apple silicon / 软硬件编码器组合。
+  3. loopback 单机 + 用户态 `UdpShaper`，非真实网络（无真实丢包/抖动/RTT/跨设备时钟）。
+  4. 所有 4K 行跑在 loadavg 5–13，无空闲机 baseline（数值为负载指示性，非干净基准）。
+  5. 该线只在本分支 11 个测试二进制上验证过；集成分支合并后有 26 个，其中 15 个该线从未跑过。
+  6. 30s 快节奏窗过期后的稳态探测节奏、以及会话中途源分辨率变化后的行为，未专门测量。
+  7. ceiling 重探测的**成功**路径未在真实编码器上观察（所有重探测都失败；成功→清除只覆盖在策略级测试）。
+  8. MaintainResolution 之外的偏好（Balanced/MaintainResolution 在 4K 不可持续配置下）未在矩阵覆盖。
+  9. 多通道/多屏并发共享同一编码器时的 ceiling 归因未验证。
+  10. 长时间稳定性未测（最长 300s；小时级 ceiling 状态漂移、退避封顶后长期行为、内存/句柄累积未知）。
 - **游戏模式相对鼠标只经单元测试与注入工具验证**（`macos_relative_mouse_injection_test`、
   各 `macos_relative_mouse_*_tool`），从未由人在真实会话里实操过。
 - **音频路径只经进程内仿真验证**（`audio_receive_e2e_test` 的网络模型），从未真正用耳朵

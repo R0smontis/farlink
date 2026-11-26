@@ -1,0 +1,224 @@
+# 对标商业远控 体验基准（Farlink 对标）
+
+> 目的：把"体验像 对标商业远控"拆成可验收的能力项。每条都带来源；官方未公开、只能从第三方或截图推断的，标 `未证实` 或 `评测`，不做猜测性补全。
+>
+> **来源缩写**（表内 `来源` 列使用缩写 + 行内位置）：
+>
+> | 缩写 | 含义 | URL / 路径 |
+> | --- | --- | --- |
+> | S1 | 官网首页 | https://benchmark-vendor.invalid/ |
+> | S2 | 官网·远程游戏 | https://benchmark-vendor.invalid/games/ |
+> | S3 | 官网·远程办公 | https://benchmark-vendor.invalid/features/work/ |
+> | S4 | 官网·真彩 4:4:4 | https://benchmark-vendor.invalid/features/color/ |
+> | S5 | 官网·远程协助 | https://benchmark-vendor.invalid/features/support/ |
+> | S6 | 官网·精简协助版 | https://benchmark-vendor.invalid/features/sos/ |
+> | S7 | 官网帮助·电脑控电脑（含官方截图） | https://benchmark-vendor.invalid/help/20241203/40220_1197651.html |
+> | S8 | 官网帮助·控制 Mac | https://benchmark-vendor.invalid/help/macos.html |
+> | S9 | 官网帮助·远程协助他人 | https://benchmark-vendor.invalid/help/20241204/40220_1197664.html |
+> | S10 | 官网帮助·手柄 | https://benchmark-vendor.invalid/help/20241203/40221_1197714.html |
+> | S11 | 官网帮助·文件传输 | https://benchmark-vendor.invalid/help/20241210/40220_1199229.html |
+> | S12 | 官网博客·延迟实测口径 | https://benchmark-vendor.invalid/blog/20260804-nkyxejyxs.html |
+> | S13 | 官网博客·防卡顿（P2P/Relay） | https://benchmark-vendor.invalid/blog/guide-worker-20250711.html |
+> | S14 | 官网博客·功能评测（HDR/账号同步） | https://benchmark-vendor.invalid/blog/20261103-deffg.html |
+> | S15 | 官网博客·画质参数（4K/144/4:4:4/HDR/500Mbps） | https://benchmark-vendor.invalid/blog/20260902-nkyckzrj2.html |
+> | S16 | 官网博客·免密/双重验证 | https://benchmark-vendor.invalid/blog/mianmixiezhu.html |
+> | S17 | 官网下载页（平台/版本/系统要求） | https://benchmark-vendor.invalid/download/ |
+> | S18 | 官网·远程开机 WoL | https://benchmark-vendor.invalid/features/wol/ |
+> | S19 | 官网·游戏页（H.265 编码表述） | https://benchmark-vendor.invalid/games/eldenring |
+> | S20 | 官网帮助·真彩开启条件 | https://benchmark-vendor.invalid/help/20241216/40221_1200122.html |
+> | P1 | 本地包 Info.plist | /Applications/BenchmarkProduct.app/Contents/Info.plist |
+> | P2 | 本地包 streamer 动态库 | /Applications/BenchmarkProduct.app/Contents/Frameworks/libstreamer.dylib |
+> | P3 | 本地包 streamer 配置 | /Applications/BenchmarkProduct.app/Contents/Resources/streamer-config.json |
+> | P4 | 本地包 launchd 模板 | /Applications/BenchmarkProduct.app/Contents/Resources/com.benchmark.redacted.*.plist |
+> | R1 | 评测·CSDN 半年使用（延迟/4:4:4） | https://blog.csdn.net/sinat_41617212/article/details/164154172 |
+> | R2 | 评测·火山引擎 五款横评（码率档位/帧率档） | https://developer.volcengine.com/articles/7664845208652185626 |
+> | R3 | 评测·知乎 无线副屏 | https://zhuanlan.zhihu.com/p/2018004911674128226 |
+>
+> 本机安装版本：`4.48.3 (635)`；官网 macOS 当前版本 `4.48.4`（S17，2026-11-23）。官方截图中的文案/数字由本机 OCR 读取（Vision），标注为"官方截图 OCR"。
+
+## 1. 连接流程
+
+| 能力 | 观察到的具体行为 | 来源 |
+| --- | --- | --- |
+| 设备 ID 格式 | **9 位纯数字，按 3+6 分组显示**（官方截图：`293 874622`；输入框示例 `453564798`） | 官网 S9 官方截图 OCR |
+| 设备 ID 输入 | 主控端"伙伴的设备 ID"单框输入，支持粘贴整段协助信息后**智能粘贴**自动填入（Windows 主控 4.41.0+，可在设置关闭） | 官网 S9 |
+| 临时验证码格式 | **8 位字母数字混合**（官方截图：`7788h520`），旁边有"显示/隐藏"眼睛按钮与"铅笔"自定义按钮 | 官网 S9 官方截图 OCR |
+| 验证码刷新 | `自动刷新` 可选：每次远控结束 / 每小时 / 每 12 小时 / 每 24 小时 / 关闭；关闭后可点`立即刷新`。官方截图显示"每 24 小时刷新" | 官网 S9 |
+| 固定密码（自定义验证码） | 支持"仅使用自定义验证码"或"同时使用两种验证码"；长度 **8–16 个字符，必须同时含数字和大写字母** | 官网 S9 |
+| 验证方式（三选一） | `验证码连接`（默认，校验通过直连）/ `免密连接`（只输 ID，被控 60s 内点允许）/ `双重验证`（验证码 + 被控人工同意）。**免密与双重仅 Windows 被控端；macOS 被控只支持验证码连接** | 官网 S9、S16 |
+| 邀请链接 | 复制并分享的内容含 `https://benchmark-vendor.invalid/invite/{邀请码}`，默认 **30 分钟**有效 | 官网 S9 |
+| 账号 / 设备列表 | 主界面左栏：`我的设备`（公司电脑/家里电脑/书房电脑…）、`全部设备`、`云设备`、`远程协助`（开始协助/收藏设备）；同账号设备自动同步 | 官网 S7 官方截图 OCR、S14 |
+| 被控免登录（协助） | 被协助方无需登录即可接受协助；`远程开机`、`客户端安全锁` 等账号能力仍需登录 | 官网 S9 |
+| 收藏与最近连接 | 收藏设备支持备注/验证码/删除，**按账号云端同步**；`最近连接` PC 端最多 **8 条**，可一键复连/清空 | 官网 S9 |
+| 局域网 vs 广域 | 同账号远控走云端信令 + P2P/中继；官方文档**未见 IP 直连入口**（是否隐藏入口=未证实）。局域网只在"远程开机"场景被强调：辅助机须与被控同网段 | 官网 S9、S18 |
+| P2P vs 中继 | 官方口径：**自研 UDP 私有协议 + P2P 直连**，"直连优先，Relay 中转"；不通时走专网中转 | 官网 S13、S12 |
+| 专网规模 | 首页称"全球超 200 个网络布点"；游戏页称"300 多个节点机房"（两处口径不一致） | 官网 S1、S2 |
+| 连接时长 | 内网 1080P/120 帧平均 16–21ms；5G 手机控电脑 18–25ms；跨运营商晚高峰 <30ms（官方博客转述实测，非 SLA） | 官网 S12、S15 |
+
+## 2. 画质与流畅度
+
+| 能力 | 观察到的具体行为 | 来源 |
+| --- | --- | --- |
+| 分辨率 | 最高 **4K（3840×2160）**；会话内分辨率菜单：`跟随当前显示屏 (3840×2160)` / `跟随被控端 (1920×1080)` / `其他分辨率` | 官网 S1、S3、S7 官方截图 OCR |
+| 画面缩放 | 会话内 `缩放 100% / 125%（推荐）/ 150% / 175% / 200%`，与分辨率选项并列 | 官网 S7 官方截图 OCR |
+| 帧率 | 宣称**最高 144 帧**；具体档位官方未列全，评测称 `30/60/90/144`，官方博客另提"1080P 120 帧模式" | 官网 S1、S2；评测 R2；官网 S12 |
+| 编码 | **H.265/HEVC**（官方游戏页多处明示）+ **H.264**（真彩条件以 H264/H265 编码器配对举例）；**AV1 未证实** | 官网 S19、S20；AV1 未证实 |
+| 4:4:4 真彩 | `真彩` 开启后 4:4:4 色度采样，文字/设计稿边缘更清晰；与"原画"不能同时生效 | 官网 S4 |
+| 真彩设备条件 | 主控 Windows：被控 NVIDIA 均可；被控 Intel 需两端编码一致（如被控 H265、主控 H264 则不可）；被控 AMD 不支持；iOS 全支持；macOS 仅部分新系统/显卡；**Android 全不支持** | 官网 S4、S20 |
+| HDR | 官方博客称支持 HDR 输出（与 4K/144/4:4:4 并列），产品页未单列 | 官网 S14、S15（博客，未在功能页复述） |
+| 自定义码率 | 会话内 `传输画质 → 自定义 → 启动自定义码率` 滑块，**最高 500 Mbps** | 官网 S3、S2 |
+| 码率档位 | 有 `自动` 档（按设备与网络自动选择）；评测称预设为 `原画 20M / 超清(高清) 8M / 高清(清晰) 2M / 自定义`，两份评测命名不一致 | 官网 S2（自动）、评测 R2、R3 |
+| 画质预设入口 | PC：`控制中心 → 显示 → 传输画质`；移动端：`操作 → 显示 → 帧率与画面` | 官网 S2 FAQ |
+| 延迟宣称 | "毫秒级低延迟、操作跟手"；官方博客给 15–30ms 公网 / 18–25ms 5G；评测给局域网 5–15ms | 官网 S1、S12；评测 R1 |
+| 帧率不足的官方排查 | 提示"设备性能受限，当前画质帧率不支持"→ 降分辨率/帧率/画质；笔记本省电模式、双端独显、垂直同步、ms/loss 异常均被列为原因 | 官网 S2 FAQ |
+
+## 3. 输入
+
+| 能力 | 观察到的具体行为 | 来源 |
+| --- | --- | --- |
+| 键鼠 | 蓝牙键鼠、磁吸键盘即连即用；"优化按键识别，减少系统拦截" | 官网 S2 |
+| 游戏/相对鼠标 | `沉浸式鼠标`（转视角更顺手），即相对位移模式 | 官网 S2 |
+| 组合键 | 支持系统组合键透传；macOS 控制端需授予"输入监控"并保持远端窗口激活，且**已知不支持 Control+方向键** | 官网 S8 |
+| 手柄直连 | 最多同时 **4 个**手柄（含被控本机已接的），按接入顺序生效；支持震动 | 官网 S2、S10 |
+| 手柄型号 | Windows：Xbox 全系、PS5；Android：Xbox/PS4/5/Switch Pro/Joycon；iOS：Xbox/PS4/5/Switch Pro/Joycon（iOS16+）；Mac：Xbox/PS4/5/Switch Pro；第三方需切 Xbox 模式 | 官网 S10 |
+| 虚拟手柄 | 移动端可把手机模拟为 Xbox 手柄；不支持陀螺仪、触摸板 | 官网 S2、S10 |
+| 云键位 | `大神云键位` **400+ 款游戏**开箱即用，可自定义键位并通过**分享码**导入/导出 | 官网 S2 FAQ |
+| 多点触控 | 多点触控 + 3D 视角控制；移动端可切"触控/虚拟鼠标/键鼠/手柄" | 官网 S2 |
+| 手柄映射范围 | 明确不支持多手柄同时操作 MuMu 模拟器；锁屏时手柄不生效 | 官网 S10 |
+
+## 4. 附加功能
+
+| 能力 | 观察到的具体行为 | 来源 |
+| --- | --- | --- |
+| 被控端声音 | 会话内`声音`开关（播放/静音）；`被控端静音`是隐私防护的一项 | 官网 S7 官方截图、S3 |
+| 麦克风 | 支持"远程通话"：plist 声明 `NSMicrophoneUsageDescription`；精简版与完整版**共用麦克风驱动** | 本地包 P1；官网 S6 |
+| 剪贴板 | 文本/图片/文件/文件夹复制粘贴；移动端与 Windows 仅同步纯文本，**长文本上限 6 万汉字** | 官网 S11 |
+| 文件传输 | `文件传输`独立入口（仅同账号远控）：不限数量/格式/大小、**断点续传**、批量任务；协助场景只能会话内拖拽或复制粘贴 | 官网 S3、S11 |
+| 拖拽传输 | 拖入远控窗口即保存到落点目录；被控端拖到右下角 **桌面悬浮球**可反向发送；拖拽不支持断点续传 | 官网 S11 |
+| 多屏 | 最多同时连 **5 个屏幕**，`Ctrl+Alt+←/→` 快速切屏 | 官网 S3、S7 官方截图 OCR |
+| 虚拟屏 | 最多创建 **3 个虚拟屏**，无需额外显示器 | 官网 S3 |
+| 无线副屏 | 手机/平板变副屏；分辨率 1360×768–3840×2160 可调（评测） | 官网 S3；评测 R3 |
+| 隐私防护 | `防窥黑屏`（被控本地黑屏）、`静音`、`结束后锁屏`；链路 `DTLS`、`AES` | 官网 S3 |
+| 远程开机 | WoL，需同局域网内一台常在线"辅助设备"（Windows/macOS/Android）发 Magic Packet；被控需开启`开机自动启动`+`允许通过远程开机启动`并在 BIOS/网卡启用 WOL | 官网 S18 |
+| 终端 / 端口映射 | 会话内可"进入远端命令行"，可映射远端端口访问内网服务 | 官网 S3 |
+| 会话统计 | 官方 FAQ 以 `ms`、`loss` 作为排障指标；会话顶部有连接时长计时（`00:02:01`）；完整统计面板项（码率/fps/编解码器）**未证实** | 官网 S2 FAQ、S7 官方截图 OCR |
+| 精简协助版 | Windows 免安装、免登录被控端（.exe），仅被控；与完整版可并存 | 官网 S6 |
+| 安全认证 | ISO 27001、ISO 27701、渗透测试、卓信大数据成员 | 官网 S1 |
+
+## 5. 平台矩阵
+
+| 平台 | 主控（发起） | 被控（接受） | 来源 |
+| --- | --- | --- | --- |
+| Windows 8/10/11 | 是 | 是 | 官网 S17、S9 |
+| macOS 11.0+ | 是 | 是（需`允许本设备被控`+辅助功能+录屏与系统录音） | 官网 S8、S17 |
+| iOS 14.0+ | 是 | **否** | 官网 S7、S9、S17 |
+| Android 8.0+ | 是 | **否** | 官网 S7、S9、S17 |
+| Android TV 8.0+ | 是 | **否**（明确"暂不支持被控"） | 官网 S17 |
+| HarmonyOS | 官网首页称"全面覆盖"，下载页无入口 | 未证实 | 官网 S1、S17 |
+| Linux | 官网首页称"全面覆盖"，下载页无入口 | 未证实 | 官网 S1、S17 |
+| 浏览器 | 仅邀请链接可唤起协助流程，无完整 Web 客户端 | 未证实 | 官网 S9 |
+
+被控端版本要求：远程协助双端 `4.7.0+`（S8）；文件传输建议 `4.43.0+`（S11）；macOS 被控 `4.7.0+`（S8）。
+
+## 6. 主界面与会话界面的信息结构
+
+**主窗口**（官方截图 OCR，S7 + S9）：
+
+| 区域 | 内容 | 来源 |
+| --- | --- | --- |
+| 左栏顶部 | 返回箭头 + `该商业产品` 标题 | 官网 S7 官方截图 OCR |
+| 左栏设备区 | `我的设备`（分组：公司电脑 / 家里电脑 / 书房电脑 …）、`全部设备`、`云设备`——即"设备清单优先"，不是"输入框优先" | 官网 S7 官方截图 OCR |
+| 左栏功能入口 | `远程协助` → `开始协助`、`收藏设备`；底部 `设置` | 官网 S7、S9 官方截图 OCR |
+| 主区（选中设备） | 设备名 + `在线` 状态点；主按钮 **`进入桌面`**；并列 `文件传输`；`⋯ 更多`、`应用管理`、`添加` | 官网 S7 官方截图 OCR |
+| 主区下半 | `快速启动` 游戏宫格（永劫无间、梦幻西游、燕云十六声、新倩女幽魂、天下3、我的世界、MuMu模拟器、同厂商加速器产品…） | 官网 S7 官方截图 OCR |
+| 协助页 | 左：`本设备`/`本设备ID`/验证码（含眼睛、铅笔）+`验证方式：仅临时验证码`+`每24小时刷新`+`复制并分享`、`允许远程协助`开关；右：`远控伙伴设备`→`伙伴的设备ID`输入+`连接`+智能粘贴提示；下：`最近连接`卡片墙（含`清除记录`） | 官网 S9 官方截图 OCR |
+
+**会话窗口**（官方截图 OCR，S7）：
+
+| 位置 | 内容 | 来源 |
+| --- | --- | --- |
+| 顶部 | 会话计时 `00:02:01` 等状态；右上 `控制中心`、窗口按钮 | 官网 S7 官方截图 OCR |
+| 控制中心一级菜单 | `显示屏1 (DELL U2723…)`、`画质`、`窗口`、`声音`、`安全`、`外设`、`更多`、`全屏 (Ctrl+Alt+F)`、`退出远控` | 官网 S7 官方截图 OCR |
+| 分辨率子菜单 | `跟随当前显示屏`、`跟随被控端`、`其他分辨率`、`缩放 100/125（推荐）/150/175/200%`、提示`Ctrl+Alt+←/→ 快速切换屏幕` | 官网 S7 官方截图 OCR |
+| 移动端 | 底部/悬浮 `操作` → `显示`（帧率与画面、真彩）、`按键映射`（切换操作方式/我的方案/分享码）、`安全`（同步剪贴板）、`更多`（文件传输） | 官网 S2 FAQ、S3、S4 |
+
+设计含义：对标产品把"画质/分辨率/缩放/切屏"放在**同一层**（控制中心 → 显示），不要求断开重连；移动端用"操作"一个入口收敛所有会话内设置。
+
+## 7. 本地包技术线索（只读元数据）
+
+| 项 | 值 | 来源 |
+| --- | --- | --- |
+| Bundle ID / 版本 | `com.benchmark.redacted`，`4.48.3`，build `635` | 本地包 P1 |
+| 最低系统 | `LSMinimumSystemVersion = 11.0` | 本地包 P1 |
+| 架构 / 体积 | universal `x86_64 + arm64`；整包 185 MB | 本地包（`lipo -archs`、`du -sh`） |
+| 签名 | `Developer ID Application: Hangzhou Bobo Technology Co Ltd (PU9BNSBJW7)`，hardened runtime，非沙盒 | 本地包（`codesign -dv --verbose=2`） |
+| Entitlements | 仅 `com.apple.security.device.audio-input`、`...device.bluetooth`；**无 app-sandbox**（故可用 AX/录屏 TCC 直接控制本机） | 本地包（`codesign -d --entitlements -`） |
+| 权限声明 | 只声明 2 条：`NSMicrophoneUsageDescription`（远程通话）、`NSDownloadsFolderUsageDescription`（接收拖拽文件）；录屏/辅助功能走 TCC 无 usage key | 本地包 P1 |
+| URL Scheme | `<REDACTED>` | 本地包 P1 |
+| 主程序依赖 | AppKit、SwiftUI(weak)、Combine、VideoToolbox、AudioToolbox/CoreAudio、AVFoundation、CoreMedia、Metal/MetalKit、Network、GameController、Carbon、IOKit、LocalAuthentication、CryptoKit、Security、SystemConfiguration、Accelerate、AdSupport/AppTrackingTransparency、MetricKit | 本地包（`otool -L Contents/MacOS/BenchmarkRemote`） |
+| 自研流媒体库 | `Contents/Frameworks/libstreamer.dylib`（26 MB），依赖 **ScreenCaptureKit(weak)、VideoToolbox、AudioUnit、Network.framework、Metal、IOSurface**；**未链接 libwebrtc / FFmpeg / Qt / Electron** | 本地包 P2 |
+| 辅助进程 | `Contents/MacOS/BenchmarkDaemon`、`BenchmarkService`、`Contents/Helpers/BenchmarkServer`(26MB)、`bench-cli`(2.5MB)、`tmux`、`BenchmarkUpdater.app`、`XPCServices/BenchmarkHelper.xpc` | 本地包（目录列表） |
+| 常驻方式 | launchd：`com.netease.benchmarkremote.daemon`（RunAtLoad+KeepAlive，MachService `com.benchmarkremote.daemon`）；`com.netease.benchmarkremote.agent`（LoginWindow+Aqua，MachServices `com.benchmarkremote.agent.controller` / `.controlled`）；`com.163.benchmarkproduct.Agent` 登录项 | 本地包 P4 |
+| 第三方 Swift 包 | SwiftProtobuf、SwiftTerm（终端）、CryptoSwift、Sentry、Lottie、FeedbackSDK | 本地包（Resources 列表） |
+| 服务端下发的编码策略 | `disable_h265_codec`：Windows 主控 + GTX 7/9 系旧卡禁用 H.265；`set_max_decoder_cap`：联想 TB371FC 限制解码上限 | 本地包 P3 |
+
+技术栈判断（`[INFERENCE]`）：原生 AppKit/SwiftUI + 自研 C++ 采集/编码库（VideoToolbox + ScreenCaptureKit + Metal 渲染），Protobuf 自定义信令，Network.framework 上跑私有 UDP 传输；不是 WebRTC/Electron 方案。终端功能内置 tmux + SwiftTerm。
+
+## 8. 与 CrossDesk 公开能力的差距
+
+依据：`R` = /tmp/crossdesk/README_ZH.md，`G` = /tmp/crossdesk/docs/USER_GUIDE.md（行号均指这两个文件）。`有` = 文档明确支持；`部分` = 有相近能力但形态/范围不同；`无` = 文档未提供。
+
+| 对标能力 | 商业产品实况 | CrossDesk | 依据 |
+| --- | --- | --- | --- |
+| 9 位设备 ID | 3+6 分组 | 有（9 位） | R:114、R:210 |
+| 6 位连接密码 | 支持显示/刷新/手改 | 有（6 位数字或字母） | G:47 |
+| 临时验证码 8 位 + 周期刷新 | 每次结束/1h/12h/24h/关闭 | 无（仅手动刷新） | G:47 |
+| 固定验证码（8–16 位自定义） | 支持 | 部分（密码可自定义但固定 6 位，无独立验证码概念） | G:47 |
+| 免密 / 双重验证（被控确认） | 支持（仅 Windows 被控） | 无 | S9、S16 |
+| 协助方免登录 | 支持 | 部分（ID+密码即可，无账号体系） | R:114、G:43 |
+| 邀请链接 | 30 分钟有效 | 无 | S9 |
+| 收藏设备云端同步 | 支持 | 部分（近期连接可别名/分组，未提云同步） | R:115、G:45 |
+| 局域网 IP 直连 | 无公开入口 | 有（IPv4/IPv6 + 独立 6 位密码 + 默认 52888） | R:58、G:72 |
+| P2P + TURN 中继 | 有（直连优先） | 有（可强制中继） | R:65、G:191 |
+| 4K | 最高 4K | 部分（桌面墙分辨率上限可选 3840×2160） | G:235 |
+| 144 帧 | 最高 144 | 无（30/60，桌面墙 15/30/60） | G:164、G:236 |
+| H.265/HEVC | 支持 | 有（双端 HEVC 硬编硬解时可选） | R:61 |
+| AV1 | 未证实 | 有（桌面端软编解） | R:61、G:191 |
+| 4:4:4 真彩 | 支持（有条件） | 无 | S4 |
+| HDR | 官方博客称支持 | 无 | S14 |
+| 自定义码率 | 滑块至 500 Mbps | 部分（仅起始带宽 config.ini，300k–20Mbps） | G:206 |
+| 画质档位 | 自动/原画/超清/高清/自定义 + 真彩 | 部分（低/中/高） | G:164 |
+| 延迟/丢包统计 | ms、loss | 部分（网络状态含视频延时、丢包、编解码器） | G:105、G:124 |
+| 手柄直连/虚拟手柄 | 4 手柄 + 震动 + 云键位 | 无 | S2、S10 |
+| 多点触控手势 | 多点触控/3D 视角 | 部分（双指滚动、捏合、长按右键、相对/绝对鼠标） | G:293 |
+| 组合键发送 | 支持 | 有 | G:118 |
+| 麦克风（远程通话） | 支持 | 无（文档只有远端音频播放） | R:61 |
+| 文本/文件剪贴板 | 支持（移动端文本 6 万字） | 有（文本 + 文件按需粘贴，iOS 128 KiB） | R:62、R:299 |
+| 双栏文件传输 | 支持（断点续传、悬浮球、拖拽） | 有（双栏、拖放、任务列表；未提断点续传） | R:62、G:121 |
+| 多屏切换 | 最多 5 屏 | 有（切换显示器） | R:62 |
+| 虚拟屏 | 最多 3 个 | 部分（仅 Windows 无显示器时尝试虚拟显示器；Linux Xvfb） | R:323 |
+| 隐私屏 | 防窥黑屏 + 静音 + 结束锁屏 | 有（隐私屏开关、被连接时自动开启） | G:124、G:193 |
+| 远程开机 WoL | 支持（需同网辅助机） | 无 | S18 |
+| 会话内终端 | 支持（进入远端命令行） | 部分（CLI 是"终端当主控"，不是会话内终端） | R:210 |
+| 端口映射 | 支持 | 无 | S3 |
+| 会话工具栏 | 控制中心 9 项 | 有（10 项，含画面设置/网络状态） | G:118-124 |
+| 免安装精简被控端 | 支持（仅 Windows） | 无 | S6 |
+| 移动端作为被控 | 不支持 | 不支持 | R:299 |
+| Windows 登录前无人值守 | 支持 | 部分（仅 Windows 安装版） | R:323 |
+| Web 客户端 | 未证实 | 有 | R:71 |
+| macOS 被控 | 支持（11.0+） | 有（14.0+） | R:76 |
+
+结论：CrossDesk 在**连接模型（9 位 ID + 6 位密码 + IP 直连 + P2P/TURN + 可信设备）**、**桌面墙/多设备**、**文件与剪贴板**、**Web/CLI/MCP 多入口**上已超过对标商业产品或形态不同；差距集中在 **画质上限（144/4:4:4/HDR/码率）、低延迟输入手感（沉浸式鼠标/手柄/多点触控）、会话内控制中心的信息密度、隐私与远程开机**。
+
+## 9. 对标优先级（按对"商业级体验感"的影响排序）
+
+1. **一键进入桌面**：主界面设备清单 + 大按钮直达，连接前零参数（不暴露 IP/端口/协议选项）。
+2. **9 位 ID + 8 位验证码的极短链路**：复制分享、智能粘贴、最近连接/收藏复用，被控端可免登录。
+3. **会话内即时切画质**：分辨率/缩放/帧率/码率同层可调，不断线、不重连。
+4. **4K 144 + 4:4:4 真彩 + 最高 500 Mbps 自定义码率**（含按显卡能力自动降级/禁用）。
+5. **低延迟输入手感**：P2P 优先、相对/沉浸式鼠标、组合键透传、按键不被系统拦截。
+6. **控制中心的信息密度**：显示/画质/窗口/声音/安全/外设/全屏/退出，一屏可达且有快捷键。
+7. **多屏与虚拟屏**：最多 5 屏切换、3 个虚拟屏、无线副屏，切屏快捷键 `Ctrl+Alt+←/→`。
+8. **隐私三件套**：防窥黑屏、被控静音、结束后锁屏（外加 DTLS/AES 表述）。
+9. **文件与剪贴板**：拖拽即传、悬浮球反向发送、断点续传、文本/文件剪贴板。
+10. **游戏与常在线**：手柄（4 个/震动/云键位）、远程开机 WoL、登录前无人值守。
