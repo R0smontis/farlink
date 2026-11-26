@@ -1,4 +1,4 @@
-> **Farlink is a modified version of [CrossDesk](https://github.com/kunkundi/crossdesk), 2026-11. See [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md) for the notice of modifications.**
+> **Farlink is a modified version of [CrossDesk](https://github.com/kunkundi/crossdesk), 2026-11. See [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md) for the notice of modifications, and [docs/FARLINK.md](docs/FARLINK.md) for this fork's technical documentation. The website, download, app-store, and web-client links below are upstream CrossDesk's own and point to upstream's unmodified releases — they do not distribute this fork.**
 >
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk logo with the icon on the left and a two-tone wordmark on the right" />
