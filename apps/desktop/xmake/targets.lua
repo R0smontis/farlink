@@ -135,6 +135,7 @@ function setup_targets()
         end
         add_deps("rd_log")
         add_files("apps/desktop/src/path_manager/*.cpp")
+        add_files("apps/desktop/src/platform/common/machine_identity.cpp")
         if is_os("windows") then
             add_files("apps/desktop/src/platform/windows/path_backend.cpp")
             add_syslinks("Shell32", "Ole32", {public = true})
@@ -205,6 +206,13 @@ function setup_targets()
         set_default(false)
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/game_mode_exit_ordering_test.cpp")
+
+    target("instance_scope_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("single_instance")
+        add_includedirs("apps/desktop/src")
+        add_files("apps/desktop/tests/instance_scope_test.cpp")
 
     target("game_mode_scale_test")
         set_kind("binary")
@@ -278,6 +286,7 @@ function setup_targets()
 
     target("single_instance")
         set_kind("object")
+        add_deps("path_manager")
         add_includedirs("apps/desktop/src", {public = true})
         if is_os("windows") then
             add_files("apps/desktop/src/platform/windows/single_instance.cpp")

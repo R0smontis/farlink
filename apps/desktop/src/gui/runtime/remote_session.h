@@ -178,6 +178,20 @@ struct RemoteSession {
   size_t video_size_ = 0;
   uint64_t video_frame_sequence_ = 0;
   VideoLatencyFrame video_frame_timing_;
+  // Controller-side connect-request anchor: when this session object was
+  // created for an outgoing connection. Shared with the latency stats so the
+  // render path can emit the once-per-session first-presented line.
+  std::shared_ptr<VideoLatencyStats::SessionObservability> session_observability_ =
+      std::make_shared<VideoLatencyStats::SessionObservability>();
+
+  // Called once when an outgoing controller session is created. The connect
+  // anchor is the session creation time; resolution arrives per frame and the
+  // codec is mirrored when transport reports land.
+  void InitSessionObservability(const std::string& remote_id) {
+    session_observability_->remote_id = remote_id;
+    session_observability_->connect_time = std::chrono::steady_clock::now();
+    video_latency_->SetSessionObservability(session_observability_);
+  }
   std::shared_ptr<VideoLatencyStats> video_latency_ =
       std::make_shared<VideoLatencyStats>();
   std::atomic<bool> frame_dirty_{true};

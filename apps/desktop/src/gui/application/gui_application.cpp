@@ -11,6 +11,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -52,8 +53,10 @@
 #include "features/input/pointer_motion.h"
 #include "features/input/stream_keyboard_focus.h"
 #include "filesystem_utf8.h"
+#include "app/launch_options.h"
 #include "localization.h"
 #include "platform.h"
+#include "platform/machine_identity.h"
 #ifndef __OHOS__
 #include "platform/instance_activation.h"
 #endif
@@ -1272,7 +1275,7 @@ int GuiApplication::Run(bool login_launch) {
   std::string activation_error;
   activation_receiver->Start(activation_error);
 #endif
-  path_manager_ = std::make_unique<PathManager>("CrossDesk");
+  path_manager_ = std::make_unique<PathManager>(platform::kMachineAppName);
   if (!path_manager_) {
     return -1;
   }
@@ -1353,6 +1356,7 @@ int GuiApplication::Run(bool login_launch) {
   if (!InitializeSDL()) {
     return -1;
   }
+  InstallTerminationSignalHandlers();
 #if _WIN32
   const auto backend = ConfigureWindowsSlintBackend();
   if (!backend.success) {
@@ -1390,6 +1394,7 @@ int GuiApplication::Run(bool login_launch) {
     PrepareNativeFileDialog();
 #endif
   }
+  ProcessLanConnectLaunchOption();
   slint::run_event_loop(slint::EventLoopMode::RunUntilQuit);
   Cleanup();
   return 0;
@@ -2704,11 +2709,43 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
   });
 }
 
+namespace {
+
+// Set by the SIGTERM handler; consumed on the UI thread inside Tick.
+// sig_atomic_t is the only write-permitted type from a signal handler.
+volatile sig_atomic_t g_termination_requested = 0;
+
+void HandleTerminationSignal(int) { g_termination_requested = 1; }
+
+}  // namespace
+
+void GuiApplication::InstallTerminationSignalHandlers() {
+#if !defined(_WIN32) && !defined(__OHOS__)
+  // SDL's own SIGTERM translation only reaches pumps that call SDL_PollEvent;
+  // the macOS Slint/winit loop never does, so the stock application ignores
+  // SIGTERM entirely — kill, launchctl bootout and logout can only SIGKILL it,
+  // and every teardown (disconnect notification, lease and socket release) is
+  // skipped. Route the signal into the same exit_ path the tray's Quit uses.
+  struct sigaction action {};
+  action.sa_handler = HandleTerminationSignal;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;  // no SA_RESTART: the event loop must observe EINTR
+  if (sigaction(SIGTERM, &action, nullptr) != 0)
+    LOG_WARN("Could not install the SIGTERM handler: {}", std::strerror(errno));
+#endif
+}
+
 void GuiApplication::Tick() {
 #if _WIN32
   if (ui_) {
     ui_->session_end.Start();  // Retry a transient native-window creation failure.
     if (ui_->session_end.Ending()) exit_ = true;
+  }
+#endif
+#if !defined(_WIN32) && !defined(__OHOS__)
+  if (g_termination_requested && !exit_) {
+    LOG_INFO("SIGTERM received: shutting down through the normal quit path");
+    exit_ = true;
   }
 #endif
   if (exit_) {
@@ -3017,6 +3054,9 @@ void GuiApplication::PollUpdateCheck() {
 #endif
   // The first tick runs after show()/event-loop startup. Poll never waits for
   // networking and all application/model changes remain on this UI thread.
+  // Self-hosted deployments point at their own signalling infrastructure and
+  // manage updates themselves; the public version service is never contacted.
+  if (config_center_->IsSelfHosted()) return;
   if (!update_checker_->Poll() ||
       update_checker_->status() == UpdateChecker::Status::Failed) {
     return;
@@ -5420,6 +5460,7 @@ void GuiApplication::ConnectFromUi(const std::string& input) {
       }
     return;
   }
+
   const std::string remote_id = CompactPeerId(input);
   if (!gallery::Workspace::ValidId(remote_id)) {
     ui_->main->set_connection_input_error(
@@ -5441,6 +5482,49 @@ void GuiApplication::ConnectFromUi(const std::string& input) {
     }
   }
   ConnectTo(remote_id, "", false);
+}
+
+void GuiApplication::ProcessLanConnectLaunchOption() {
+  const auto& options = GetLaunchOptions();
+  if (!options.lan_connect) return;
+  if (options.view_only) lan_view_only_pending_ = true;
+  const std::string endpoint = Trim(options.lan_endpoint);
+  // Validate with the same parser the UI dialog uses. Malformed input lands
+  // in the same error surface instead of reaching the transport.
+  std::string address;
+  unsigned port = 0;
+  try {
+    const auto parsed = lan::ParseEndpoint(endpoint, 52888);
+    address = parsed.first;
+    port = parsed.second;
+  } catch (const std::exception& error) {
+    LOG_WARN("--lan-connect rejected: {}", error.what());
+    ui_->main->set_connection_input_error(UiText(error.what()));
+    return;
+  }
+  if (!LanAvailable()) {
+    LOG_WARN("--lan-connect for {} dropped: LAN transport unavailable", endpoint);
+    ui_->main->set_connection_input_error(
+        UiText(lan_error_.empty() ? "Busy" : lan_error_));
+    return;
+  }
+  // The password never travels through argv. With FARLINK_LAN_PASSWORD set,
+  // connect through the exact runtime entry the UI password dialog uses.
+  const char* password = std::getenv("FARLINK_LAN_PASSWORD");
+  if (password && password[0] != '\0') {
+    LOG_INFO("--lan-connect {} (view-only={})", endpoint, options.view_only);
+    ConnectLan(address, port, std::string(password), false);
+    if (!lan_error_.empty()) LOG_WARN("--lan-connect {} failed: {}", endpoint, lan_error_);
+    ui_->main->set_lan_connecting(lan_connecting_ != nullptr);
+    ui_->main->set_lan_message(UiText(lan_error_));
+    return;
+  }
+  // Without a password, open the ordinary dialog with the endpoint filled
+  // in. This is the identical code path a user triggers by typing the
+  // address into the main window: validation, remembered-password prefill
+  // and retry-after display all come from the same callback.
+  LOG_INFO("--lan-connect {}: no password in FARLINK_LAN_PASSWORD, opening the UI dialog", endpoint);
+  ui_->main->invoke_request_lan_connection(UiText(endpoint));
 }
 
 void GuiApplication::ShowStreamWindow(const std::shared_ptr<RemoteSession>& session) {

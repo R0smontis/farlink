@@ -7,8 +7,16 @@
 #include <stdexcept>
 #include <thread>
 
+#include "platform/machine_identity.h"
+
 namespace crossdesk::updater {
 namespace {
+// Installed layout of the fork bundle: the packaging scripts produce
+// Farlink.app with the executable named Farlink. Both the install path check
+// and the process-name scan derive from the one machine identity.
+const std::string kInstalledAppPath =
+    std::string("/Applications/") + platform::kMachineAppName +
+    ".app/Contents/MacOS/" + platform::kMachineAppName;
 std::string ShellQuote(const std::string& value) {
   std::string result = "'";
   for (char c : value) result += c == '\'' ? "'\\''" : std::string(1, c);
@@ -31,7 +39,7 @@ fs::path ExecutablePath() {
   return fs::canonical(buffer.data());
 }
 bool SupportedInstallation(const fs::path& application) {
-  return application == fs::path("/Applications/CrossDesk.app/Contents/MacOS/CrossDesk") &&
+  return application == fs::path(kInstalledAppPath) &&
          fs::is_regular_file(HelperPath(application));
 }
 int RunElevated(const fs::path& executable, const fs::path& job) {
@@ -55,7 +63,7 @@ void WaitForApplicationExit(const fs::path& application) {
         if (fs::path(path) == application) running = true;
       } else {
         char name[1024]{};
-        if (proc_name(pids[i], name, sizeof(name)) > 0 && std::string(name) == "CrossDesk")
+        if (proc_name(pids[i], name, sizeof(name)) > 0 && std::string(name) == platform::kMachineAppName)
           running = true;
       }
     }
@@ -70,6 +78,6 @@ void InstallPackage(const fs::path& package, const fs::path&) {
 }
 std::vector<std::string> RestartArguments() { return {}; }
 void Restart(const fs::path&, const std::vector<std::string>&) {
-  Launch("/usr/bin/open", {"/Applications/CrossDesk.app"});
+  Launch("/usr/bin/open", {std::string("/Applications/") + platform::kMachineAppName + ".app"});
 }
 }  // namespace crossdesk::updater

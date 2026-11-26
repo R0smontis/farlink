@@ -22,6 +22,7 @@
 #include "desktop_transition_policy.h"
 #include "named_pipe_deadline.h"
 #include "path_manager.h"
+#include "platform/machine_identity.h"
 #include "rd_log.h"
 #include "session_helper_shared.h"
 #include "secure_text_input.h"
@@ -103,7 +104,7 @@ std::wstring QuoteWindowsArgument(const std::wstring& value) {
 void InitializeServiceLogger() {
   static std::once_flag once_flag;
   std::call_once(once_flag, []() {
-    PathManager path_manager("CrossDesk");
+    PathManager path_manager(platform::kMachineAppName);
     std::filesystem::path log_path = path_manager.GetLogPath() / "service";
     if (!log_path.empty() && path_manager.CreateDirectories(log_path)) {
       InitLogger(log_path.string());

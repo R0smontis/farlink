@@ -391,6 +391,11 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         }
 
         props->connection_established_ = true;
+        // Ice-ready anchor for the first-presented observability line.
+        props->session_observability_->connected_since_epoch_ns.store(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count(),
+            std::memory_order_relaxed);
         props->was_connected_ = true;
         props->recent_connection_dirty_ = true;
         break;
@@ -649,6 +654,15 @@ void PeerEventHandler::OnNetStatusReport(
   // only display client side net status if connected to itself
   if (!(runtime->peer_reserved_ && !strstr(client_id, "C-"))) {
     props->net_traffic_stats_.Store(*net_traffic_stats);
+    // Mirror the negotiated decoder into the session observability context.
+    // The render path cannot reach this cache after session teardown.
+    const char* decoder = net_traffic_stats->video_decoder;
+    if (decoder[0] != '\0') {
+      props->session_observability_->StoreCodec(
+          std::string(decoder,
+                      strnlen(decoder,
+                              sizeof(net_traffic_stats->video_decoder))));
+    }
   }
 }
 std::string GuiRuntime::BuildHostInformation(bool advertise_trust,

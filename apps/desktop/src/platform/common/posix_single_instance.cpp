@@ -1,4 +1,5 @@
 #include "platform/single_instance.h"
+#include "platform/machine_identity.h"
 
 #include <cerrno>
 #include <cstring>
@@ -24,11 +25,15 @@ InstanceResult SingleInstanceGuard::TryAcquire(InstanceRole role,
     error = "Invalid single-instance application name";
     return InstanceResult::kError;
   }
-  // A fixed local path also coordinates launches with different TMPDIR/XDG
-  // settings. O_CLOEXEC prevents unrelated desktop/helper processes retaining it.
-  const std::string path = "/tmp/" + application_ + "-" +
-                           std::to_string(geteuid()) + "-" +
-                           InstanceRoleName(role) + ".lock";
+  // The lease scope is the configuration root: launches sharing it are the
+  // same instance, launches with different roots (separate portable copies,
+  // XDG/HOME isolation) run side by side. The root enters the file name only
+  // as a bounded hex digest, keeping the path short for long roots.
+  // O_CLOEXEC prevents unrelated desktop/helper processes retaining it.
+  const std::string scope = InstanceScopeHash();
+  const std::string path =
+      "/tmp/" + application_ + "-" + std::to_string(geteuid()) + "-" +
+      InstanceRoleName(role) + (scope.empty() ? "" : "-" + scope) + ".lock";
   const int fd = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (fd < 0) {
     error = "Cannot open single-instance lock: " + std::string(std::strerror(errno));

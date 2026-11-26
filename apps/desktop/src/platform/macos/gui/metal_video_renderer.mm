@@ -1439,6 +1439,11 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
           presented_time, host_now, now);
       if (visible_at_submit && presented_at) {
         timing.MarkPresented(*presented_at);
+        // TRUE presentation is the drawable presented handler. Exactly once
+        // per session, report ms since connect request/Ice ready.
+        if (timing.stats && timing.stats->ConsumeFirstPresented()) {
+          LogVideoFirstFramePresented(*timing.stats, *presented_at);
+        }
       }
     }];
     [command_buffer presentDrawable:drawable];

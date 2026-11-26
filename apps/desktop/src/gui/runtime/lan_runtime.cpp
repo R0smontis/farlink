@@ -162,10 +162,20 @@ void GuiRuntime::ConnectLan(const std::string& address, unsigned port,
     props->remember_password_ = remember_password;
     if (remember_password && lan::ValidPassword(password))
       std::memcpy(props->remote_password_, password.data(), password.size());
+    // Consume the one-shot view-only launch flag regardless of how this
+    // connection was initiated. It applies before any input capture can
+    // start: capture is only armed on stream-open events, which are always
+    // delivered after ConnectLan returns on this same thread.
+    if (lan_view_only_pending_) {
+      props->control_mouse_ = false;
+      props->enable_mouse_control_ = false;
+    }
+    lan_view_only_pending_ = false;
     auto session = lan_->Connect(address, port, std::move(password));
     lan_connecting_ = session;
     props->lan_session_ = session;
     props->remote_id_ = session->key;
+    props->InitSessionObservability(session->key);
     props->connection_status_ = MiniRtcConnectionStatus::MiniRtcConnectionConnecting;
     props->connection_auth_.Complete();
     {

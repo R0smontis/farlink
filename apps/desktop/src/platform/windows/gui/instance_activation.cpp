@@ -9,8 +9,8 @@
 namespace crossdesk::platform {
 namespace {
 
-constexpr wchar_t kWindowClass[] = L"CrossDesk.InstanceActivationWindow";
-constexpr wchar_t kActivationMessage[] = L"CrossDesk.ActivateMainWindow.v1";
+constexpr wchar_t kWindowClass[] = L"Farlink.InstanceActivationWindow";
+constexpr wchar_t kActivationMessage[] = L"Farlink.ActivateMainWindow.v1";
 constexpr ULONGLONG kStartupWaitMs = 5000;
 
 std::wstring ActivationWindowName(const std::string& application,
@@ -42,8 +42,13 @@ std::wstring ActivationWindowName(const std::string& application,
         "Cannot format activation user SID: " + std::to_string(GetLastError());
     return {};
   }
+  // Same scope key as the single-instance lease: the activation endpoint is
+  // per configuration root, so parallel portable instances never activate
+  // each other's windows.
+  const std::string scope = InstanceScopeHash();
   const std::wstring name =
-      std::wstring(application.begin(), application.end()) + L".Activation." + sid;
+      std::wstring(application.begin(), application.end()) + L".Activation." + sid +
+      (scope.empty() ? L"" : L"." + std::wstring(scope.begin(), scope.end()));
   LocalFree(sid);
   return name;
 }

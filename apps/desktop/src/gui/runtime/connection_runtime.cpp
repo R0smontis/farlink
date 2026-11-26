@@ -317,6 +317,20 @@ void GuiRuntime::CloseRemoteSession(std::shared_ptr<RemoteSession> props) {
     return;
   }
   if (props->closing_.exchange(true)) return;
+  // Session-end summary exactly once, whichever teardown path runs first —
+  // user disconnect resets resources, process exit only closes sessions.
+  {
+    auto codecs = props->net_traffic_stats_.LoadVideoCodecs();
+    std::string codec = !codecs.local_decoder.empty() ? codecs.local_decoder
+                                                      : codecs.remote_encoder;
+    int fps_tier = 0;
+    {
+      std::lock_guard lock(props->video_settings_mutex_);
+      fps_tier = props->video_settings_.frame_rate;
+    }
+    LogVideoSessionSummary(*props->video_latency_,
+                           VideoLatencyFrame::Clock::now(), codec, fps_tier);
+  }
   MuteRemoteAudio(props);
   if (props->peer_events_) {
     props->peer_events_->StopAccepting();
@@ -566,6 +580,19 @@ void GuiRuntime::WaitForSessionCleanup() {
 
 void GuiRuntime::ResetRemoteSessionResources(
     std::shared_ptr<RemoteSession> props) {
+  // Once per session end, before any reset clears the transport codec report.
+  {
+    auto codecs = props->net_traffic_stats_.LoadVideoCodecs();
+    std::string codec = !codecs.local_decoder.empty() ? codecs.local_decoder
+                                                      : codecs.remote_encoder;
+    int fps_tier = 0;
+    {
+      std::lock_guard lock(props->video_settings_mutex_);
+      fps_tier = props->video_settings_.frame_rate;
+    }
+    LogVideoSessionSummary(*props->video_latency_,
+                           VideoLatencyFrame::Clock::now(), codec, fps_tier);
+  }
   props->net_traffic_stats_.Reset();
   props->received_video_stats_.Reset();
   {
@@ -702,6 +729,7 @@ int GuiRuntime::ConnectTo(const std::string& remote_id, const char* password,
         auto props = remote_sessions_[remote_id];
         props->local_id_ = "C-" + std::string(client_id_);
         props->remote_id_ = remote_id;
+        props->InitSessionObservability(remote_id);
         props->device_preference_key_ = nlohmann::json::array({"signal",
             config_center_->GetSignalServerHost(), config_center_->GetSignalServerPort(),
             remote_id}).dump();

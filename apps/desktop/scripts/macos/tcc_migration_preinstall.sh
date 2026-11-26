@@ -2,6 +2,12 @@
 set -u
 export LC_ALL=C
 
+# NOTE (Farlink fork): this script is retained for reference but is inert for
+# the Farlink fork. It exists to migrate TCC permissions for legacy upstream
+# CrossDesk installations; the fork's bundle identifier cn.farlink.app never
+# matches the legacy bundle-id list in the case statement below, so the script
+# always exits 0 before doing any work. No behavioral change.
+
 # Migration is best effort. Installing the application must remain possible
 # even when its old privacy records or the migration directory are unavailable.
 if [[ $# -lt 3 ]]; then

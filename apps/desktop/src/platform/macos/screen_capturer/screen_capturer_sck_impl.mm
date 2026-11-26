@@ -45,8 +45,13 @@ static std::string NSErrorToString(NSError *error) {
 
   const char *description = [error.localizedDescription UTF8String];
   const char *domain = [error.domain UTF8String];
+  // The failure reason often carries the actual cause where the localized
+  // description is only a generic translation. userInfo is intentionally
+  // omitted: its multi-line formatting breaks single-line log greppability.
+  const char *reason = [error.localizedFailureReason UTF8String];
   return std::string(domain ? domain : "NSError") + ":" +
-      std::to_string(error.code) + " " + (description ? description : "");
+      std::to_string(error.code) + " " + (description ? description : "") +
+      (reason ? std::string(" reason=") + reason : "");
 }
 
 static void RetainCapturedPixelBuffer(void *owner) {
@@ -187,6 +192,20 @@ class API_AVAILABLE(macos(14.0)) ScreenCapturerSckImpl : public ScreenCapturer {
   using Clock = std::chrono::steady_clock;
   Clock::time_point capture_attempt_started_{};
   Clock::time_point configuration_started_{};
+  Clock::time_point enumeration_started_{};
+  bool enumeration_in_flight_ = false;
+  bool enumeration_stall_logged_ = false;
+  // Cached shareable content. SCShareableContent is immutable and the filter
+  // construction retains its SCDisplay/SCWindow objects, so retries within a
+  // few seconds can safely reuse one enumeration instead of repeating the
+  // multi-second window-list round trip. Keyed on the privacy revision: a
+  // cover change bumps the revision and thereby forces fresh enumeration,
+  // which the exclusion logic depends on. Screen-parameter notifications
+  // invalidate the entry explicitly.
+  SCShareableContent* __strong cached_content_ = nil;
+  uint64_t cached_content_revision_ = 0;
+  Clock::time_point cached_content_time_{};
+
   Clock::time_point suspended_since_{};
   Clock::time_point next_recovery_{};
   bool invalid_stream_id_logged_ = false;
@@ -207,7 +226,19 @@ class API_AVAILABLE(macos(14.0)) ScreenCapturerSckImpl : public ScreenCapturer {
                              NSError* error);
   void RetryPrivacyFilter();
   bool CheckCaptureHealth(uint64_t session);
-  void CaptureConfigurationChanged() { StartOrReconfigureCapturer(); }
+  // Screen geometry/topology changed: the cached window and display lists are
+  // no longer trustworthy, so the next configuration must enumerate again.
+  void CaptureConfigurationChanged() {
+    {
+      std::lock_guard<std::mutex> lock(lock_);
+      cached_content_ = nil;
+    }
+    StartOrReconfigureCapturer();
+  }
+  // Privacy covers changed. The cover list publication always bumps the
+  // privacy revision, which already invalidates the revision-keyed content
+  // cache; no explicit invalidation is needed here.
+  void PrivacyCoversChanged() { StartOrReconfigureCapturer(); }
   void CaptureStopped(SCStream* source, NSError* error);
   void CaptureSuspended(SCStream* source);
   // Called by SckHelper to notify of a newly captured frame. May run on an arbitrary thread.
@@ -393,6 +424,19 @@ int ScreenCapturerSckImpl::Init(const int fps, cb_desktop_data cb) {
     return -1;
   }
 
+  // Seed the retry cache with the startup enumeration while it is fresh.
+  // Startup enumerations complete in ~100ms on an idle process; session-time
+  // enumerations can take seconds, so a session starting shortly after launch
+  // should never pay for another one. The same revision keying and validity
+  // window apply, so privacy cover changes and expiry force re-enumeration
+  // exactly as they do for capture-time seeding.
+  if (completed && !capture_error && content) {
+    std::lock_guard<std::mutex> lock(lock_);
+    cached_content_ = content;
+    cached_content_revision_ = GetMacPrivacyCaptureState().revision;
+    cached_content_time_ = Clock::now();
+  }
+
   std::vector<CGDirectDisplayID> display_ids;
   if (completed && !capture_error) {
     for (SCDisplay *display in content.displays)
@@ -455,7 +499,8 @@ int ScreenCapturerSckImpl::Start(bool show_cursor) {
     stream_running_ = received_frame_ = recovery_pending_ = false;
     recovery_attempt_ = 0;
     suspended_since_ = {};
-    capture_attempt_started_ = Clock::now();
+    capture_attempt_started_ = {};
+    enumeration_stall_logged_ = false;
     session = ++capture_session_;
     helper = helper_;
     invalid_stream_id_logged_ = false;
@@ -543,6 +588,8 @@ int ScreenCapturerSckImpl::Stop() {
   suspended_since_ = {};
   ++capture_session_;
   configuration_in_flight_ = reconfigure_pending_ = false;
+  enumeration_in_flight_ = false;
+  capture_attempt_started_ = {};
   applied_configuration_ = nil;
   ++configuration_generation_;
   if (stream_) {
@@ -559,11 +606,25 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
                                                      uint64_t generation, uint64_t revision) {
   {
     std::lock_guard<std::mutex> lock(lock_);
+    // Cache even before the generation check: a completion that arrives after
+    // its attempt was abandoned is useless for that generation, but its
+    // content cost seconds to enumerate and remains perfectly valid input for
+    // the retry. The revision key keeps stale-revision entries unusable, and
+    // screen-parameter changes still invalidate explicitly.
+    if (capture_requested_ && content && content != cached_content_) {
+      // The timestamp is only refreshed for genuinely new content: reusing
+      // the cached object must not extend its validity window, or retries
+      // could keep it alive forever.
+      cached_content_ = content;
+      cached_content_revision_ = revision;
+      cached_content_time_ = Clock::now();
+    }
     if (!capture_requested_ || generation != configuration_generation_) {
       LOG_INFO("Ignoring stale ScreenCaptureKit display refresh after stop");
       return;
     }
     configuration_in_flight_ = false;
+    enumeration_in_flight_ = false;
   }
 
   // The window list belongs to the privacy revision present when the request
@@ -670,6 +731,14 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
   // Newly registered transparent covers may need another enumeration. Never
   // acknowledge a partial exclusion or remove an active cover's filter.
   const bool privacy_filter_complete = excluded.count == excluded_ids.size();
+  if (!privacy_filter_complete) {
+    // This enumeration provably missed windows the privacy system expects.
+    // The retries below exist to pick up covers WindowServer is still
+    // registering, so they must re-enumerate: drop the cached entry instead
+    // of letting them reuse this stale window list.
+    std::lock_guard<std::mutex> lock(lock_);
+    if (cached_content_ == content) cached_content_ = nil;
+  }
   LOG_INFO("macOS privacy filter: generation={}, revision={}, requested={}, excluded={}",
            generation, privacy_capture.revision, excluded_ids.size(),
            excluded.count);
@@ -719,6 +788,11 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
     return;
   }
   configuration_in_flight_ = true;
+  // Arm the health clocks only now that the stream operation is actually
+  // being issued. Content enumeration — which can cost seconds inside this
+  // process — must never consume the stream-start budget.
+  configuration_started_ = Clock::now();
+  capture_attempt_started_ = Clock::now();
 
   if (stream_) {
     SckHelper* helper = helper_;
@@ -832,6 +906,8 @@ void ScreenCapturerSckImpl::RecoverCapture(uint64_t generation,
     stream_ = nil;
     stream_running_ = received_frame_ = false;
     configuration_in_flight_ = reconfigure_pending_ = false;
+    enumeration_in_flight_ = false;
+    capture_attempt_started_ = {};
     applied_configuration_ = nil;
     suspended_since_ = {};
     ++configuration_generation_; // Revoke pending completions and frames.
@@ -868,13 +944,27 @@ bool ScreenCapturerSckImpl::CheckCaptureHealth(uint64_t session) {
     if (recovery_pending_) {
       if (now >= next_recovery_) {
         recovery_pending_ = false;
-        capture_attempt_started_ = now;
+        capture_attempt_started_ = {};
         retry = true;
+      }
+    } else if (enumeration_in_flight_) {
+      // The enumeration is a distinct operation with its own budget. It must
+      // not consume the stream-start budget, and a stalled enumeration must
+      // not wedge recovery forever either: abandoning the attempt revokes
+      // the late completion through the generation bump and the retry can
+      // re-enumerate or reuse a cached result.
+      if (now - enumeration_started_ >= kCaptureStartTimeout) {
+        failure = "ScreenCaptureKit content enumeration timed out";
+      } else if (!enumeration_stall_logged_ &&
+                 now - enumeration_started_ >= std::chrono::seconds(1)) {
+        enumeration_stall_logged_ = true;
+        LOG_INFO("ScreenCaptureKit content enumeration still pending after 1 s");
       }
     } else if (configuration_in_flight_ &&
                now - configuration_started_ >= kCaptureStartTimeout) {
       failure = "ScreenCaptureKit configuration timed out";
     } else if ((!stream_running_ || !received_frame_) &&
+               capture_attempt_started_ != Clock::time_point{} &&
                now - capture_attempt_started_ >= kCaptureStartTimeout) {
       failure = "ScreenCaptureKit did not deliver its first frame";
     } else if (suspended_since_ != Clock::time_point{} &&
@@ -983,6 +1073,7 @@ void ScreenCapturerSckImpl::StartOrReconfigureCapturer() {
   SckHelper *local_helper;
   uint64_t generation;
   uint64_t revision;
+  SCShareableContent* cached = nil;
   {
     std::lock_guard lock(lock_);
     if (!capture_requested_ || recovery_pending_) return;
@@ -990,11 +1081,38 @@ void ScreenCapturerSckImpl::StartOrReconfigureCapturer() {
     // Include content enumeration in the in-flight operation so screen-change
     // notifications cannot keep superseding a slow request while locked.
     configuration_in_flight_ = true;
+    // Arm both clocks at the start of the attempt. They are re-armed when the
+    // stream operation is actually issued, so a slow enumeration never eats
+    // the stream-start budget. While enumeration is in flight the health
+    // check's enumeration branch takes precedence over these clocks; should
+    // an attempt die without issuing a stream operation or entering recovery,
+    // the attempt-start first-frame clock remains the catch-all that restarts
+    // the capture.
     configuration_started_ = Clock::now();
+    capture_attempt_started_ = Clock::now();
     reconfigure_pending_ = false;
     local_helper = helper_;
     generation = ++configuration_generation_;
     revision = GetMacPrivacyCaptureState().revision;
+    // The window/display topology does not change meaningfully within seconds,
+    // and one in-process enumeration can cost multiple seconds of synchronous
+    // LaunchServices round trips. Reuse the immutable SCShareableContent for
+    // retries inside the validity window. The entry is keyed on the privacy
+    // revision, so any cover change still forces a fresh enumeration, exactly
+    // as the exclusion logic requires. Screen-parameter notifications clear
+    // the entry explicitly in CaptureConfigurationChanged().
+    if (cached_content_ && cached_content_revision_ == revision &&
+        Clock::now() - cached_content_time_ <= std::chrono::seconds(15)) {
+      cached = cached_content_;
+    } else {
+      // The configuration/first-frame health clocks must measure the stream
+      // operation, not the enumeration: they are armed in
+      // OnShareableContentCreated when the stream operation is issued. The
+      // enumeration itself is bounded by its own watchdog in
+      // CheckCaptureHealth and must never eat the stream-start budget.
+      enumeration_started_ = Clock::now();
+      enumeration_in_flight_ = true;
+    }
   }
   if (!local_helper) {
     LOG_ERROR("Cannot reconfigure capturer: helper is null");
@@ -1006,7 +1124,20 @@ void ScreenCapturerSckImpl::StartOrReconfigureCapturer() {
     return;
   }
 
+  if (cached) {
+    // Dispatch through the completion queue like a real enumeration callback
+    // so ordering and the capturer-lock deferral pattern stay identical.
+    [local_helper onShareableContentCreated:cached generation:generation revision:revision];
+    return;
+  }
+
+  const auto enumeration_requested = Clock::now();
   auto handler = ^(SCShareableContent *content, NSError *error) {
+    const auto enumeration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now() - enumeration_requested).count();
+    if (enumeration_ms >= 1000) {
+      LOG_INFO("ScreenCaptureKit content enumeration took {} ms", enumeration_ms);
+    }
     if (error) {
       LOG_ERROR("getShareableContent failed: {}", NSErrorToString(error));
       [local_helper onShareableContentCreated:nil generation:generation revision:revision];
@@ -1042,8 +1173,12 @@ void ScreenCapturerSckImpl::StartOrReconfigureCapturer() {
 }
 
 - (void)privacyCoversChanged:(NSNotification*)notification {
+  // Cover publications always bump the privacy revision, which by itself
+  // invalidates the revision-keyed shareable-content cache. Avoid the
+  // stronger screen-parameters invalidation here: a cover toggle must not
+  // cost another multi-second enumeration beyond the required one.
   std::lock_guard<std::mutex> lock(_capturer_lock);
-  if (_capturer) _capturer->CaptureConfigurationChanged();
+  if (_capturer) _capturer->PrivacyCoversChanged();
 }
 - (void)scheduleHealthCheck:(uint64_t)session {
   // Use the completion queue rather than the UI queue: capture recovery must

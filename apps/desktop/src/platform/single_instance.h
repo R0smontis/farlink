@@ -10,16 +10,19 @@
 #include <cstdint>
 #include <string>
 
+#include "platform/machine_identity.h"
+
 namespace crossdesk::platform {
 
 enum class InstanceRole { kLauncher, kClient, kServiceCli };
 enum class InstanceResult { kAcquired, kAlreadyRunning, kError };
 
-// Per-user ownership, independent of the install/portable directory. The OS
+// Per-user ownership, scoped to the configuration root: launches sharing a
+// root are the same instance; different roots run side by side. The OS
 // releases ownership on process exit, including crashes; no PID files to age out.
 class SingleInstanceGuard {
  public:
-  explicit SingleInstanceGuard(std::string application = "CrossDesk");
+  explicit SingleInstanceGuard(std::string application = kMachineAppName);
   ~SingleInstanceGuard();
   SingleInstanceGuard(const SingleInstanceGuard&) = delete;
   SingleInstanceGuard& operator=(const SingleInstanceGuard&) = delete;

@@ -9,18 +9,30 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 
 namespace crossdesk {
 
 class VideoLatencyStats;
+
+// Emit the single per-session controller-side first-frame and teardown
+// observability lines. Free functions keep the stats object free of logging
+// dependencies. The summary's codec/fps tier are resolved by the caller,
+// which runs where the owning session is still alive.
+void LogVideoFirstFramePresented(const VideoLatencyStats& stats,
+                                 std::chrono::steady_clock::time_point now);
+void LogVideoSessionSummary(const VideoLatencyStats& stats,
+                            std::chrono::steady_clock::time_point now,
+                            const std::string& codec, int fps_tier);
+
 
 enum class VideoFrameStage : uint8_t {
   received,
@@ -65,6 +77,54 @@ class VideoLatencyStats
     : public std::enable_shared_from_this<VideoLatencyStats> {
  public:
   using Clock = VideoLatencyFrame::Clock;
+  // Per-session observability context for controller-side frame reporting.
+  // Plain data only: a presented-handler callback can outlive the owning
+  // session through a queued frame, so nothing here may reference it.
+  struct SessionObservability {
+    std::string remote_id;
+    Clock::time_point connect_time{};
+    // The session-end summary is emitted from whichever teardown path runs
+    // first (user disconnect or process exit); this consumes exactly once.
+    std::atomic<bool> summary_emitted{false};
+    std::atomic<int64_t> connected_since_epoch_ns{-1};
+    std::atomic<int> frame_width{0};
+    std::atomic<int> frame_height{0};
+
+    // Mirrored from the transport report when it arrives; empty means the
+    // codec was not yet reported. The report names the codec implementation
+    // (e.g. "VideoToolbox (H.265)"); the observability lines want the wire
+    // codec family, so it is normalized here to the H265/H264 spelling the
+    // transport summary uses.
+    void StoreCodec(const std::string& codec) {
+      std::lock_guard lock(codec_mutex_);
+      codec_ = NormalizeCodecName(codec);
+    }
+    std::string LoadCodec() const {
+      std::lock_guard lock(codec_mutex_);
+      return codec_;
+    }
+
+    static std::string NormalizeCodecName(const std::string& name) {
+      if (name.find("H.265") != std::string::npos ||
+          name.find("H265") != std::string::npos ||
+          name.find("HEVC") != std::string::npos ||
+          name.find("hevc") != std::string::npos)
+        return "H265";
+      if (name.find("H.264") != std::string::npos ||
+          name.find("H264") != std::string::npos ||
+          name.find("h264") != std::string::npos)
+        return "H264";
+      if (name.find("AV1") != std::string::npos) return "AV1";
+      if (name.find("VP9") != std::string::npos) return "VP9";
+      if (name.find("VP8") != std::string::npos) return "VP8";
+      return name;
+    }
+
+   private:
+    mutable std::mutex codec_mutex_;
+    std::string codec_;
+  };
+
   struct Snapshot {
     double average_ms;
     size_t samples;
@@ -239,6 +299,51 @@ class VideoLatencyStats
     return frame;
   }
 
+  // Cumulative session counters survive Reset/diagnostics windows. They are
+  // non-destructive observability, incremented only in the real frame path:
+  // frames_decoded where decoded frames enter the app, frames_presented in the
+  // presentation recording path below.
+  void RecordDecodedFrame(int width, int height) {
+    if (frames_decoded_total_.fetch_add(1, std::memory_order_relaxed) == 0)
+      first_decoded_time_ns_.store(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              Clock::now().time_since_epoch()).count(), std::memory_order_relaxed);
+    if (observability_ && width > 0 && height > 0) {
+      observability_->frame_width.store(width, std::memory_order_relaxed);
+      observability_->frame_height.store(height, std::memory_order_relaxed);
+    }
+  }
+
+  uint64_t FramesDecodedTotal() const {
+    return frames_decoded_total_.load(std::memory_order_relaxed);
+  }
+
+  uint64_t FramesPresentedTotal() const {
+    return frames_presented_total_.load(std::memory_order_relaxed);
+  }
+
+  // Zero until the first frame of each kind.
+  int64_t FirstDecodedTimeNs() const {
+    return first_decoded_time_ns_.load(std::memory_order_relaxed);
+  }
+
+  int64_t FirstPresentedTimeNs() const {
+    return first_presented_time_ns_.load(std::memory_order_relaxed);
+  }
+
+  void SetSessionObservability(std::shared_ptr<SessionObservability> context) {
+    observability_ = std::move(context);
+  }
+
+  std::shared_ptr<SessionObservability> GetSessionObservability() const {
+    return observability_;
+  }
+
+  // First real presentation is consumed exactly once per session.
+  bool ConsumeFirstPresented() {
+    return !first_presented_consumed_.exchange(true, std::memory_order_acq_rel);
+  }
+
   void Record(const VideoLatencyFrame& frame, Clock::time_point now,
               bool estimated = false) {
     const double ms =
@@ -246,6 +351,15 @@ class VideoLatencyStats
             .count();
     std::lock_guard lock(mutex_);
     if (!estimated) {
+      // Cumulative per-session presentations, deduped like the gap tracker:
+      // redraws and out-of-order delivery must not count twice.
+      if (frame.id > last_presented_id_) {
+        last_presented_id_ = frame.id;
+        if (frames_presented_total_.fetch_add(1, std::memory_order_relaxed) == 0)
+          first_presented_time_ns_.store(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  now.time_since_epoch()).count(), std::memory_order_relaxed);
+      }
       RecordStageLocked(frame, VideoFrameStage::presented, now, 0);
     }
     if (gap_tracking_enabled_ && frame.id > gap_min_frame_id_) {
@@ -439,6 +553,8 @@ class VideoLatencyStats
   std::mutex mutex_;
   uint64_t issued_id_ = 0;
   uint64_t last_id_ = 0;
+  // Guards the cumulative presented counter against redraw/delivery duplicates.
+  uint64_t last_presented_id_ = 0;
   std::deque<Sample> samples_;
   bool gap_tracking_enabled_ = false;
   int gap_stream_index_ = 0;
@@ -453,6 +569,17 @@ class VideoLatencyStats
   };
   std::array<PipelineIdentity, 1024> pipeline_seen_{};
   Clock::time_point diagnostic_window_started_{};
+  // Outside mutex_: cumulative per-session observability. Atomics because the
+  // decode callback, render thread and UI thread touch them concurrently.
+  std::atomic<uint64_t> frames_decoded_total_{0};
+  std::atomic<uint64_t> frames_presented_total_{0};
+  // Nanosecond epoch of the first decoded / presented frame; the summary fps
+  // is anchored here so connect and negotiation latency do not dilute the
+  // steady-state rate.
+  std::atomic<int64_t> first_decoded_time_ns_{0};
+  std::atomic<int64_t> first_presented_time_ns_{0};
+  std::atomic<bool> first_presented_consumed_{false};
+  std::shared_ptr<SessionObservability> observability_;
 };
 
 inline void VideoLatencyFrame::MarkSubmitted(Clock::time_point now) const {
