@@ -211,6 +211,7 @@ function setup_targets()
         -- machine and VideoAdaptationPolicy gate predicates, so it only needs
         -- the minirtc include roots, not the linked library.
         add_includedirs("deps/submodules/minirtc/src/media/resolution_adapter",
+            "deps/submodules/minirtc/src/transport",
             "deps/submodules/minirtc/src/api",
             "deps/submodules/minirtc/src/frame")
         add_files("apps/desktop/tests/encoder_ceiling_reprobe_test.cpp")
