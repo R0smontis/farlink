@@ -69,37 +69,22 @@ bool ProbeResolution(int width, int height, int fps, int frames, bool hevc,
   }
 
   const size_t frame_size = static_cast<size_t>(width) * height * 3 / 2;
-  std::vector<uint8_t> nv12(frame_size);
-  // Moderately compressible noise so rate control stays in budget.
-  for (int row = 0; row < height; ++row) {
-    for (int col = 0; col < width; ++col) {
-      nv12[static_cast<size_t>(row) * width + col] =
-          static_cast<uint8_t>(64 + (((col + row) >> 5) & 0x3f));
-    }
-  }
-  std::memset(nv12.data() + width * height, 0x80, frame_size - width * height);
-
-  std::vector<int64_t> submit_time(frames, 0);
-  std::atomic<int> next_seq{0};
-  auto steady = [] {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
-        .count();
-  };
-
-  const int64_t interval_us = 1000000 / fps;
-  int64_t next_slot = steady();
-  for (int seq = 0; seq < frames; ++seq) {
-    // The input must stress the encoder honestly: a coarse scrolling block
-    // pattern moves as one rigid translation, which the hardware motion
-    // estimator collapses into near-zero residual work, overstating
-    // throughput. Production desktop content is mixed — static regions, local
-    // text-like detail, fine high-frequency structure — so reproduce that with
-    // a gradient base, a moving sharp-edged block grid, and a per-pixel
-    // pseudo-random high-frequency component that re-randomizes every frame.
-    // Deterministic per (row, col, seq) hashing keeps generation cheap while
-    // forcing real motion-compensated residual coding on every macroblock.
-    for (int row = 0; row < height; row += 2) {
+  // Pre-generate a small ring of distinct realistic frames once, so frame
+  // generation cost is amortized out of the measured feed loop. Uncapped feed
+  // (below) submits back-to-back; if generation stayed inline it, not the
+  // encoder, would become the bottleneck at large sizes and the probe would
+  // measure memcpy/hash throughput instead of encode throughput. 8 distinct
+  // frames are enough that the motion estimator cannot collapse the stream
+  // into a single repeated frame, while staying small enough to stay cache
+  // resident. Content per frame is the production-like mix used before: a
+  // gradient base, a moving sharp-edged block grid, and a per-pixel
+  // pseudo-random high-frequency component.
+  constexpr int kFrameRing = 8;
+  std::vector<std::vector<uint8_t>> ring(kFrameRing,
+                                         std::vector<uint8_t>(frame_size));
+  for (int seq = 0; seq < kFrameRing; ++seq) {
+    std::vector<uint8_t>& nv12 = ring[seq];
+    for (int row = 0; row < height; row += 1) {
       uint8_t* yline = nv12.data() + static_cast<size_t>(row) * width;
       for (int col = 0; col < width; ++col) {
         const int base = 64 + (((col + row) >> 5) & 0x3f);
@@ -115,33 +100,55 @@ bool ProbeResolution(int width, int height, int fps, int frames, bool hevc,
         yline[col] = static_cast<uint8_t>(value < 16 ? 16 : value > 235 ? 235 : value);
       }
     }
+    std::memset(nv12.data() + static_cast<size_t>(width) * height, 0x80,
+                frame_size - static_cast<size_t>(width) * height);
+  }
+
+  auto steady = [] {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  };
+
+  // Uncapped saturated feed: keep up to kGate frames in flight and submit a
+  // new frame the instant a completion frees a slot, so the hardware encoder
+  // pipeline is continuously full at every resolution. The completion spacing
+  // then measures pure back-to-back encode service time rather than any
+  // submit cadence — this is what removes the lower-bound (">") ambiguity the
+  // fps-paced feed had at sizes the encoder could keep up with. The gate of 2
+  // mirrors the production transport admission cap (kMaxEncodeFramesInFlight),
+  // so the measurement reproduces the pipeline depth the real stream sees.
+  constexpr int kGate = 2;
+  for (int seq = 0; seq < frames; ++seq) {
+    // Block until a slot is free. Spin with a short yield: completion gaps are
+    // 1-12ms, so sleeping longer than a fraction of that would leave the
+    // pipeline idle and understate throughput. The encoder itself never
+    // blocks in Encode(); backpressure is the in-flight count.
+    while (encoder.FramesInFlight() >= kGate) {
+      std::this_thread::yield();
+    }
+    std::vector<uint8_t>& nv12 = ring[seq % kFrameRing];
     minirtc::RawFrame frame(nv12.data(), frame_size, width, height);
-    const int64_t submit = steady();
-    submit_time[seq] = submit;
     int in_flight = encoder.FramesInFlight();
     int cur_max = result->max_in_flight.load();
     while (in_flight > cur_max &&
            !result->max_in_flight.compare_exchange_weak(cur_max, in_flight)) {
     }
-    encoder.Encode(frame, [result, submit](const minirtc::EncodedFrame& encoded) {
+    encoder.Encode(frame, [result](const minirtc::EncodedFrame& encoded) {
       const int64_t done = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
       if (encoded.Size() > 0) {
         std::lock_guard<std::mutex> lock(result->mutex);
-        result->latencies_us.push_back(done - submit);
         result->completion_us.push_back(done);
       }
       result->completed.fetch_add(1);
       return 0;
     });
-    next_slot += interval_us;
-    const int64_t remaining = next_slot - steady();
-    if (remaining > 0) std::this_thread::sleep_for(std::chrono::microseconds(remaining));
   }
 
   // Drain: wait for completions or timeout.
-  const int64_t drain_deadline = steady() + 3000000;
+  const int64_t drain_deadline = steady() + 5000000;
   while (result->completed.load() < frames && steady() < drain_deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
@@ -159,7 +166,7 @@ int Percentile(std::vector<int64_t> values, int pct) {
 }
 
 // Percentile keeping sub-millisecond precision: returns microseconds. The
-// whole investigation lives in the 4-12ms spacing range, so integer-ms
+// whole investigation lives in the 1-12ms spacing range, so integer-ms
 // rounding would hide exactly the fast/slow split being measured.
 int PercentileUs(std::vector<int64_t> values, int pct) {
   if (values.empty()) return 0;
@@ -190,64 +197,41 @@ int main(int argc, char** argv) {
   for (auto [w, h] : resolutions) {
     Result result;
     if (!ProbeResolution(w, h, fps, frames, hevc, &result)) continue;
-    std::vector<int64_t> lat;
     std::vector<int64_t> comp;
     {
       std::lock_guard<std::mutex> lock(result.mutex);
-      lat = result.latencies_us;
       comp = result.completion_us;
     }
-    // True encoder throughput, isolated from submit cadence. When the encoder
-    // is the bottleneck, frames queue inside VideoToolbox and output
-    // completions reflect back-to-back hardware encode time. When the encoder
-    // is faster than the feed, completions track the (equal) submit cadence
-    // and throughput can only be reported as a lower bound. The discriminator
-    // is queueing: the submit-to-output latency of a saturated pipeline grows
-    // with pipeline depth, so encode-service-time ≈ inter-completion gap of
-    // frames whose latency exceeds one frame interval. Empirically the two
-    // regimes separate cleanly on this machine: saturated frames cluster at
-    // 35-95ms latency, cadence-fed frames at 7-15ms.
-    int steady_gap_us = 0;
-    int saturated_gap_us = 0;
-    int64_t queued_frames = 0;
+    // Uncapped saturated feed keeps the encoder pipeline continuously full, so
+    // the inter-completion spacing in steady state is the pure back-to-back
+    // encode service time at this resolution. Report it directly (microseconds
+    // per frame) together with the derived throughput in fps and megapixels
+    // per second; trim the first and last quartile of completions to drop the
+    // pipeline fill/drain transient.
+    int gap_p50_us = 0, gap_min_us = 0, gap_max_us = 0;
     if (comp.size() > 8) {
-      // Pair completions with their latencies by index: both vectors are
-      // appended under the same mutex in each output callback, so they stay
-      // aligned frame-for-frame in callback order.
-      std::vector<std::pair<int64_t, int64_t>> pairs;
-      const size_t n = std::min(comp.size(), lat.size());
-      pairs.reserve(n);
-      for (size_t i = 0; i < n; ++i) pairs.emplace_back(comp[i], lat[i]);
-      std::sort(pairs.begin(), pairs.end(),
-                [](const auto& a, const auto& b) { return a.first < b.first; });
+      std::sort(comp.begin(), comp.end());
       std::vector<int64_t> gaps;
-      std::vector<int64_t> saturated;
-      const int64_t frame_interval_us = 1000000 / fps;
-      const size_t lo = pairs.size() / 4, hi = pairs.size() * 3 / 4;
-      for (size_t i = lo + 1; i < hi; ++i) {
-        const int64_t gap = pairs[i].first - pairs[i - 1].first;
-        gaps.push_back(gap);
-        // A frame whose latency exceeds 1.5 frame intervals was waiting in
-        // the encoder queue, so its completion spacing measures pure encode
-        // service time rather than submit cadence.
-        if (pairs[i].second > frame_interval_us * 3 / 2 &&
-            pairs[i - 1].second > frame_interval_us * 3 / 2) {
-          saturated.push_back(gap);
-          ++queued_frames;
-        }
+      const size_t lo = comp.size() / 4, hi = comp.size() * 3 / 4;
+      for (size_t i = lo + 1; i < hi; ++i) gaps.push_back(comp[i] - comp[i - 1]);
+      if (!gaps.empty()) {
+        gap_p50_us = PercentileUs(gaps, 50);
+        std::sort(gaps.begin(), gaps.end());
+        gap_min_us = static_cast<int>(gaps.front());
+        gap_max_us = static_cast<int>(gaps.back());
       }
-      steady_gap_us = PercentileUs(gaps, 50);
-      if (!saturated.empty()) saturated_gap_us = PercentileUs(saturated, 50);
     }
+    const double mpx = static_cast<double>(w) * h / 1e6;
+    const double throughput_fps = gap_p50_us > 0 ? 1e6 / gap_p50_us : 0.0;
+    const double throughput_mpx_s = throughput_fps * mpx;
     std::printf(
         "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
-        "\"completed\":%d,\"enc_p50_ms\":%d,\"enc_p95_ms\":%d,\"enc_p99_ms\":%d,"
-        "\"max_in_flight\":%d,\"steady_gap_us\":%d,"
-        "\"saturated_gap_us\":%d,\"saturated_samples\":%lld}\n",
+        "\"completed\":%d,\"gap_p50_us\":%d,\"gap_min_us\":%d,\"gap_max_us\":%d,"
+        "\"throughput_fps\":%.2f,\"throughput_mpx_s\":%.1f,"
+        "\"max_in_flight\":%d}\n",
         w, h, fps, hevc ? "h265" : "h264", result.completed.load(),
-        Percentile(lat, 50), Percentile(lat, 95), Percentile(lat, 99),
-        result.max_in_flight.load(), steady_gap_us,
-        saturated_gap_us, static_cast<long long>(queued_frames));
+        gap_p50_us, gap_min_us, gap_max_us, throughput_fps, throughput_mpx_s,
+        result.max_in_flight.load());
     std::fflush(stdout);
     // Session-configuration readback for the throughput-anomaly comparison:
     // identical fields across resolutions prove VideoToolbox applies the same
