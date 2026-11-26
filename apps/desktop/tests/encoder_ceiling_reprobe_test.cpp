@@ -285,7 +285,11 @@ struct Simulation {
         step = up;
       }
       if (count > 0) {
-        next = rungs[(count - 1) / 2];
+        // Probe the lowest rung inside the interval. A failed trial costs a
+        // second of degraded frame rate, so the recovery does not gamble on
+        // unsustainable sizes; the smallest forward step almost never fails,
+        // and the fast cadence rather than the jump size makes the climb quick.
+        next = rungs[0];
       } else {
         // Even the next rung up already exceeds the ceiling base; nothing
         // legal to probe inside the interval. Fall through to the re-probe
@@ -1014,66 +1018,57 @@ void TestMultiRungJumpDoesNotPinSkippedRungs() {
          "the unreachable size stays blocked after the failed jump");
 }
 
-// Scenario 9 — round-10: the bandwidth-confirmed recovery searches the legal
-// interval [base, ceiling base] by geometric midpoint instead of climbing one
-// rung per cooldown or re-probing just under the failed size. With an encoder
+// Scenario 9 — round-10: the bandwidth-confirmed recovery climbs the legal
+// interval [base, ceiling base] one rung at a time at the fast cadence instead
+// of re-probing just under the failed size or gambling on its geometric
+// midpoint. With an encoder
 // that sustains only the middle rungs, a failed jump to native must be
-// followed by probes that bracket the sustainable rung logarithmically, each
-// rolling back to the pre-probe base rather than into saturated territory, so
-// the stream reaches the largest sustainable rung far sooner than a linear
-// climb and never sits at an over-capacity size outside a probe trial.
+// followed by a recovery that climbs the legal interval [base, ceiling base]
+// without re-probing the failed size and without gambling on unsustainable
+// sizes — the probe target is the lowest unmeasured rung in the interval, so
+// trials almost never fail, and the fast cadence rather than the jump size is
+// what makes the climb quick.
 void TestIntervalSearchConvergesToSustainableRung() {
   std::fprintf(stderr, "[test] interval_search_converges_to_sustainable_rung\n");
 
-  // The midpoint of a rung interval [lo, hi] by count, mirroring the
-  // controller's (count - 1) / 2 selection over the rungs inside the interval.
-  auto midpoint = [](int lo_rung, int hi_rung) {
-    const int count = hi_rung - lo_rung;  // rungs strictly above lo, up to hi
-    return lo_rung + 1 + (count - 1) / 2;
+  // The probe target inside the interval is its lowest rung, mirroring the
+  // controller's rungs[0] selection over the rungs inside (base, ceiling base].
+  auto interval_probe = [](int base_rung, int ceiling_base_rung) {
+    return base_rung + 1 <= ceiling_base_rung ? base_rung + 1 : -1;
   };
-  // Interval (0, 4]: rungs 1,2,3,4 -> count 4 -> mid index (4-1)/2 = 1 -> rung 2.
-  Expect(midpoint(0, kTopRung) == 2,
-         "midpoint of the full interval is the central rung");
-  // Interval (2, 4]: rungs 3,4 -> count 2 -> mid (2-1)/2 = 0 -> rung 3.
-  Expect(midpoint(2, kTopRung) == 3,
-         "midpoint of the upper half is the lower of the two upper rungs");
+  Expect(interval_probe(0, kTopRung - 1) == 1,
+         "the probe target inside the interval is the lowest unmeasured rung");
 
   // Drive the full simulation with an encoder that sustains rungs 0..2 but
-  // collapses above rung 2 (960x540 sustainable, 1280x720 and up not). Seed a
-  // failed jump to native: ceiling base = rung 3 (rung below the failed top),
-  // stream rolled back to the startup rung 0. The binary search must then
-  // converge to rung 2 — the largest sustainable size — without the linear
-  // one-rung climb and without re-probing rung 4/3 pointlessly.
+  // collapses above rung 2. Seed a failed jump to native: ceiling base = rung 3
+  // (rung below the failed top), stream rolled back to the startup rung 0. The
+  // recovery must converge to rung 2 — the largest sustainable size — and must
+  // never re-probe the failed native rung while it is still blocked.
   Simulation sim;
   sim.encoder.throttled = true;
   sim.encoder.throttle_max_rung = 2;
   sim.current_rung = 0;
-  // Seed the ceiling exactly as a failed jump to native would record it:
-  // failed = top rung, ceiling base = rung below it (kTopRung - 1).
   const Rung failed = kLadder[kTopRung];
   const Rung cbase = kLadder[kTopRung - 1];
   sim.ceiling.Set(failed.width, failed.height, cbase.width, cbase.height, 15,
                   0);
   sim.Run(60000);
 
-  // The largest sustainable rung is throttle_max_rung (2). The stream must
-  // end there, not pinned at the startup rung and not oscillating above it.
+  // The largest sustainable rung is throttle_max_rung (2). The stream must end
+  // there, not pinned at the startup rung and not oscillating above it.
   Expect(sim.current_rung == 2,
-         "interval search settles at the largest sustainable rung");
-  // The convergence must take fewer probes than the linear climb's one rung
-  // per trial. A linear climb from rung 0 to rung 2 plus the failing trials
-  // above it would need at least 4 probes (1, 2, 3-fail or 4-fail); the
-  // midpoint search brackets rung 2 in at most 3 trials.
+         "the recovery settles at the largest sustainable rung");
   std::fprintf(stderr, "  probes=%d degraded_ms=%lld final_rung=%d\n",
                sim.probe_launches, static_cast<long long>(sim.degraded_ms),
                sim.current_rung);
-  Expect(sim.probe_launches <= 3,
-         "interval search converges in a logarithmic number of probes");
-  // No probe may target the failed native size again while it is still blocked
-  // — the search stays inside the legal interval.
+  // Because the probe target is the lowest unmeasured rung, the climb is
+  // failure-free until it first tests the ceiling boundary: the only degraded
+  // time is the single trial that discovers rung 3 is over capacity. It must
+  // never hammer the failed native size — the blocked rungs stay untouched
+  // until the re-probe backoff re-examines them.
+  Expect(sim.degraded_ms <= 3000,
+         "the recovery does not gamble on unsustainable sizes");
   for (size_t i = 0; i + 1 < sim.probe_launch_times.size(); ++i) {
-    // Probes are spaced by at least the measurement window; the search never
-    // hammering the same size back-to-back is what bounds the degraded time.
     Expect(sim.probe_launch_times[i + 1] > sim.probe_launch_times[i],
            "successive probes are strictly ordered in time");
   }
