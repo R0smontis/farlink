@@ -7,6 +7,7 @@
 
 #include "launch_options.h"
 
+#include <cstdlib>
 #include <cstring>
 
 namespace crossdesk {
@@ -31,6 +32,8 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
       }
     } else if (std::strcmp(argv[i], "--view-only") == 0) {
       g_launch_options.view_only = true;
+    } else if (std::strcmp(argv[i], "--no-local-capture") == 0) {
+      g_launch_options.no_local_capture = true;
     }
   }
   return valid;

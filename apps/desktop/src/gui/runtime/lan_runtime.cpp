@@ -244,9 +244,19 @@ void GuiRuntime::BeginShutdown() {
   if (stopping_) return;
   stopping_ = true;
   shutdown_report_at_ =
-      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
   if (lan_) lan_->Stop();
   CloseAllRemoteSessions();
+  // Stop capture devices up front. The capture-needs evaluation that would
+  // normally stop them lives in Tick() below the early exit_ return, so it
+  // never runs during shutdown — without this the capture recovery loop
+  // keeps churning (and keeps starting new ScreenCaptureKit XPC operations)
+  // for the whole teardown, and the final stop blocks on whatever is in
+  // flight: measured 4.6-5.5s from SIGTERM to exit. Stopping here lets the
+  // stream drain overlap the session close instead of serializing behind it.
+  devices_.StopScreenCapturer();
+  devices_.StopSpeakerCapturer();
+  devices_.StopMouseController(true);
   RestoreHostDisplayResolutions(true);
 }
 bool GuiRuntime::ShutdownDrained() {
@@ -262,7 +272,7 @@ bool GuiRuntime::ShutdownDrained() {
         lan_ ? lan_->PendingWork() : "none", connection_peer_cleanup_.valid(),
         session_cleanup_tasks_.size(), controller_cleanup_tasks_.size());
     shutdown_report_at_ =
-        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
   }
   return drained;
 }

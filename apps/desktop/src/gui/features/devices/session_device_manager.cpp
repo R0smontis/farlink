@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <utility>
 
+#include "app/launch_options.h"
 #include "device_controller_factory.h"
 #include "screen_capturer_factory.h"
 #include "platform.h"
@@ -196,10 +197,23 @@ void SessionDeviceManager::Initialize() {
 }
 
 int SessionDeviceManager::EnsureCaptureReady() {
+  // A captureless instance reports readiness without initializing anything:
+  // LAN sessions may legitimately be outgoing-only, and the prepare hook must
+  // not abort them. Hosting paths fail later at StartScreenCapturer with a
+  // clear error, which is the correct outcome for --no-local-capture.
+  if (GetLaunchOptions().no_local_capture) return 0;
   return screen_capturer_ ? 0 : InitializeScreenCapturer();
 }
 
 int SessionDeviceManager::InitializeScreenCapturer() {
+  // Controller-only instances never touch capture: on macOS a second
+  // same-machine instance's ScreenCaptureKit enumeration disrupts a capturing
+  // instance's stream startup through replayd (round-8 arm-d evidence: 8/8
+  // zero-failure runs with the controller captureless versus 1/8 baseline).
+  if (GetLaunchOptions().no_local_capture) {
+    LOG_INFO("Local capture disabled by --no-local-capture");
+    return -1;
+  }
 #ifdef __APPLE__
   if (!owner_.EnsureMacScreenRecordingPermission()) {
     return -1;

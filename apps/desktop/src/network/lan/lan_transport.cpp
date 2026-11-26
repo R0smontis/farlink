@@ -15,6 +15,8 @@
 
 #include <minirtc.h>
 
+#include "rd_log.h"
+
 namespace crossdesk::lan {
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -604,13 +606,33 @@ std::vector<Transport::Event> Transport::Poll() {
 }
 void Transport::Shutdown() {
   if (!impl_ || impl_->stopping.exchange(true)) return;
-  asio::post(impl_->io, [this] {
+  const auto started = std::chrono::steady_clock::now();
+  asio::post(impl_->io, [this, started] {
+    LOG_INFO("LAN transport teardown handler entered after {} ms",
+             std::chrono::duration_cast<std::chrono::milliseconds>(
+                 std::chrono::steady_clock::now() - started).count());
     Error e;
     impl_->timer.cancel();
     for (auto& [_, server] : impl_->servers) server->stop_listening(e);
     for (auto& [_, c] : impl_->channels) impl_->Abort(c);
     impl_->work.reset();
+    // Graceful drain is not worth seconds of shutdown time: even with every
+    // channel aborted and the work guard released, the io_context keeps
+    // running for ~5s on connection finalizers nobody is waiting for. All
+    // session state is already terminal at this point, so stop the reactor
+    // outright; anything unfinished is discarded with the process.
+    impl_->io.stop();
+    LOG_INFO("LAN transport teardown handler done after {} ms",
+             std::chrono::duration_cast<std::chrono::milliseconds>(
+                 std::chrono::steady_clock::now() - started).count());
   });
   if (impl_->thread.joinable()) impl_->thread.join();
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - started)
+                      .count();
+  if (ms > 20)
+    LOG_WARN("LAN transport shutdown join took {} ms", ms);
+  else
+    LOG_INFO("LAN transport shutdown join took {} ms", ms);
 }
 }  // namespace crossdesk::lan
