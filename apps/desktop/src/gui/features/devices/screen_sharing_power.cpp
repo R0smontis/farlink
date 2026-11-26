@@ -95,7 +95,20 @@ struct ScreenSharingPower::Impl {
 
   void Start() {
     const auto reason = CFSTR("CrossDesk is sharing the desktop");
-    auto result = IOPMAssertionCreateWithName(
+    // A connecting controller is user activity: if the display has already
+    // gone to sleep, wake it. Prevention-only assertions cannot do that — a
+    // capture stream started against a sleeping display dies immediately
+    // (SCStreamErrorDomain -3805) or delivers nothing, leaving the controller
+    // with a black picture until the next local input event.
+    IOPMAssertionID activity = kIOPMNullAssertionID;
+    auto result = IOPMAssertionDeclareUserActivity(reason, kIOPMUserActiveLocal,
+                                                   &activity);
+    if (result == kIOReturnSuccess) {
+      // UserActivity assertions are one-shot wake requests; the object is
+      // released immediately, the wake itself is not tied to its lifetime.
+      IOPMAssertionRelease(activity);
+    }
+    result = IOPMAssertionCreateWithName(
         kIOPMAssertionTypePreventUserIdleSystemSleep, kIOPMAssertionLevelOn,
         reason, &system);
     if (result != kIOReturnSuccess)
