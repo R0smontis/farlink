@@ -10920,18 +10920,6 @@
       "es": "La nueva versión requiere iOS %1$@ o posterior",
       "pt-BR": "A nova versão requer iOS %1$@ ou posterior"
     },
-    "反馈与建议": {
-      "zh-Hans": "反馈与建议",
-      "en": "Feedback & suggestions",
-      "ru": "Отзывы и предложения",
-      "zh-Hant": "回饋與建議",
-      "ja": "フィードバック・ご提案",
-      "ko": "피드백 및 제안",
-      "de": "Feedback und Vorschläge",
-      "fr": "Avis et suggestions",
-      "es": "Comentarios y sugerencias",
-      "pt-BR": "Comentários e sugestões"
-    },
     "导出诊断日志": {
       "zh-Hans": "导出诊断日志",
       "en": "Export diagnostic logs",
@@ -12883,7 +12871,6 @@
       "开机自启需要安装版 Release；便携版和 Debug 不支持无人值守服务。",
       "无法配置无人值守服务，请检查管理员权限和安装文件。",
       "开机后无需登录即可连接；登录后继续使用同一 ID、密码和完整功能。",
-      "反馈与建议",
       "导出诊断日志",
       "将 Farlink、MiniRTC 日志和基本版本信息保存为 ZIP 文件。",
       "无法保存诊断包，请选择其他位置重试。",

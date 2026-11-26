@@ -77,7 +77,7 @@ inline int ApplyMainWindowStrings(
   trust.set_remove(Text(localization::Literal("移除信任", language)));
   trust.set_close(Text(localization::message_close[language]));
   auto& feedback = window->global<ui::FeedbackStrings>();
-  feedback.set_title(Text(localization::Literal("反馈与建议", language)));
+  feedback.set_title(Text(localization::Literal("导出诊断日志", language)));
   feedback.set_export(Text(localization::Literal("导出诊断日志", language)));
   feedback.set_export_hint(Text(localization::Literal("将 Farlink、MiniRTC 日志和基本版本信息保存为 ZIP 文件。", language)));
   feedback.set_exporting(Text(localization::Literal("正在导出…", language)));
