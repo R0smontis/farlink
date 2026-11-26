@@ -317,6 +317,20 @@ void GuiRuntime::CloseRemoteSession(std::shared_ptr<RemoteSession> props) {
     return;
   }
   if (props->closing_.exchange(true)) return;
+  // Session-end summary exactly once, whichever teardown path runs first —
+  // user disconnect resets resources, process exit only closes sessions.
+  {
+    auto codecs = props->net_traffic_stats_.LoadVideoCodecs();
+    std::string codec = !codecs.local_decoder.empty() ? codecs.local_decoder
+                                                      : codecs.remote_encoder;
+    int fps_tier = 0;
+    {
+      std::lock_guard lock(props->video_settings_mutex_);
+      fps_tier = props->video_settings_.frame_rate;
+    }
+    LogVideoSessionSummary(*props->video_latency_,
+                           VideoLatencyFrame::Clock::now(), codec, fps_tier);
+  }
   MuteRemoteAudio(props);
   if (props->peer_events_) {
     props->peer_events_->StopAccepting();

@@ -83,6 +83,9 @@ class VideoLatencyStats
   struct SessionObservability {
     std::string remote_id;
     Clock::time_point connect_time{};
+    // The session-end summary is emitted from whichever teardown path runs
+    // first (user disconnect or process exit); this consumes exactly once.
+    std::atomic<bool> summary_emitted{false};
     std::atomic<int64_t> connected_since_epoch_ns{-1};
     std::atomic<int> frame_width{0};
     std::atomic<int> frame_height{0};
@@ -282,7 +285,10 @@ class VideoLatencyStats
   // frames_decoded where decoded frames enter the app, frames_presented in the
   // presentation recording path below.
   void RecordDecodedFrame(int width, int height) {
-    frames_decoded_total_.fetch_add(1, std::memory_order_relaxed);
+    if (frames_decoded_total_.fetch_add(1, std::memory_order_relaxed) == 0)
+      first_decoded_time_ns_.store(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              Clock::now().time_since_epoch()).count(), std::memory_order_relaxed);
     if (observability_ && width > 0 && height > 0) {
       observability_->frame_width.store(width, std::memory_order_relaxed);
       observability_->frame_height.store(height, std::memory_order_relaxed);
@@ -295,6 +301,15 @@ class VideoLatencyStats
 
   uint64_t FramesPresentedTotal() const {
     return frames_presented_total_.load(std::memory_order_relaxed);
+  }
+
+  // Zero until the first frame of each kind.
+  int64_t FirstDecodedTimeNs() const {
+    return first_decoded_time_ns_.load(std::memory_order_relaxed);
+  }
+
+  int64_t FirstPresentedTimeNs() const {
+    return first_presented_time_ns_.load(std::memory_order_relaxed);
   }
 
   void SetSessionObservability(std::shared_ptr<SessionObservability> context) {
@@ -321,7 +336,10 @@ class VideoLatencyStats
       // redraws and out-of-order delivery must not count twice.
       if (frame.id > last_presented_id_) {
         last_presented_id_ = frame.id;
-        frames_presented_total_.fetch_add(1, std::memory_order_relaxed);
+        if (frames_presented_total_.fetch_add(1, std::memory_order_relaxed) == 0)
+          first_presented_time_ns_.store(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  now.time_since_epoch()).count(), std::memory_order_relaxed);
       }
       RecordStageLocked(frame, VideoFrameStage::presented, now, 0);
     }
@@ -536,6 +554,11 @@ class VideoLatencyStats
   // decode callback, render thread and UI thread touch them concurrently.
   std::atomic<uint64_t> frames_decoded_total_{0};
   std::atomic<uint64_t> frames_presented_total_{0};
+  // Nanosecond epoch of the first decoded / presented frame; the summary fps
+  // is anchored here so connect and negotiation latency do not dilute the
+  // steady-state rate.
+  std::atomic<int64_t> first_decoded_time_ns_{0};
+  std::atomic<int64_t> first_presented_time_ns_{0};
   std::atomic<bool> first_presented_consumed_{false};
   std::shared_ptr<SessionObservability> observability_;
 };

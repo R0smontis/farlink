@@ -61,12 +61,26 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
       context->connect_time == VideoLatencyStats::Clock::time_point{}) {
     return;
   }
+  if (context->summary_emitted.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
   const double duration_s =
       std::chrono::duration<double>(now - context->connect_time).count();
   const uint64_t decoded = stats.FramesDecodedTotal();
   const uint64_t presented = stats.FramesPresentedTotal();
+  // Anchor the average at the first presented frame: connect, negotiation
+  // and decoder startup are not frame time, and counting them would dilute
+  // the steady-state presentation rate the summary exists to measure. Falls
+  // back to the full duration when nothing was ever presented.
+  const int64_t first_ns = stats.FirstPresentedTimeNs();
+  double fps_window_s = duration_s;
+  if (first_ns != 0) {
+    const auto first_tp = VideoLatencyStats::Clock::time_point(
+        std::chrono::nanoseconds(first_ns));
+    fps_window_s = std::chrono::duration<double>(now - first_tp).count();
+  }
   const double avg_presented_fps =
-      duration_s > 0 ? presented / duration_s : 0;
+      fps_window_s > 0 ? presented / fps_window_s : 0;
   // The transport report is authoritative; fall back to the mirrored copy for
   // sessions where the report never landed before teardown.
   std::string resolved = codec;
