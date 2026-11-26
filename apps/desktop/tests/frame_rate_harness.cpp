@@ -12,6 +12,7 @@
 // delivered frame rate and encode-to-decode latency with exact frame identity.
 // Output is a single JSON line.
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -34,6 +35,74 @@
 #endif
 
 namespace {
+// Session-cumulative inter-presentation gap accumulator for the harness decode
+// path, mirroring the production D8 semantics exactly (video_latency.h
+// InterPresentGapStats): the actual elapsed monotonic time between successive
+// decode-delivery callbacks, a strict >threshold freeze test, and a bounded
+// bucket histogram for a no-per-frame-allocation p95 upper bound. Standalone
+// here because the harness does not link the app layer; the algorithm and the
+// >200ms freeze threshold are deliberately identical so harness numbers are
+// comparable to production inter_present metrics. Fixed memory, O(1) per frame.
+struct InterPresentGap {
+  static constexpr double kFreezeThresholdMs = 200;
+  uint64_t intervals = 0;
+  double interval_total_ms = 0;
+  double interval_max_ms = 0;
+  uint64_t freeze_count = 0;
+  double freeze_total_ms = 0;
+  double freeze_max_ms = 0;
+  static constexpr std::array<double, 12> kBucketEdgesMs{
+      4, 8, 12, 17, 25, 34, 50, 100, 200, 400, 1000, 2000};
+  std::array<uint64_t, kBucketEdgesMs.size() + 1> buckets{};
+  int64_t first_present_us = 0;
+  int64_t last_present_us = 0;
+
+  // Feed one decode-delivery timestamp (microseconds, any monotonic clock).
+  void Present(int64_t present_us) {
+    if (last_present_us != 0 && present_us > last_present_us) {
+      const double interval_ms = (present_us - last_present_us) / 1000.0;
+      ++intervals;
+      interval_total_ms += interval_ms;
+      interval_max_ms = std::max(interval_max_ms, interval_ms);
+      // Strictly greater-than: exactly the threshold is not a freeze.
+      if (interval_ms > kFreezeThresholdMs) {
+        ++freeze_count;
+        freeze_total_ms += interval_ms;
+        freeze_max_ms = std::max(freeze_max_ms, interval_ms);
+      }
+      size_t bucket = 0;
+      while (bucket < kBucketEdgesMs.size() && interval_ms > kBucketEdgesMs[bucket])
+        ++bucket;
+      ++buckets[bucket];
+    }
+    if (first_present_us == 0) first_present_us = present_us;
+    if (present_us > last_present_us) last_present_us = present_us;
+  }
+
+  double MeanIntervalMs() const { return intervals ? interval_total_ms / intervals : 0; }
+  double MeanFreezeMs() const { return freeze_count ? freeze_total_ms / freeze_count : 0; }
+  // Upper bound on the true p95 interval (a bucket upper edge); exact max is
+  // interval_max_ms. 0 when there are no intervals.
+  double ApproxP95IntervalMs() const {
+    if (intervals == 0) return 0;
+    const double rank = 0.95 * intervals;
+    uint64_t cumulative = 0;
+    for (size_t i = 0; i < buckets.size(); ++i) {
+      cumulative += buckets[i];
+      if (cumulative >= rank)
+        return i < kBucketEdgesMs.size() ? kBucketEdgesMs[i] : interval_max_ms;
+    }
+    return interval_max_ms;
+  }
+  // freezes/minute over the exact first-to-last-presentation span — the only
+  // honest denominator. 0 when the window collapses (<2 distinct timestamps).
+  double FreezesPerMin() const {
+    const double window_ms = (last_present_us - first_present_us) / 1000.0;
+    return window_ms > 0 ? freeze_count * 60000.0 / window_ms : 0;
+  }
+  double WindowMs() const { return (last_present_us - first_present_us) / 1000.0; }
+};
+
 
 
 struct Config {
@@ -63,6 +132,18 @@ struct Config {
   int bottleneck_queue_bytes = 65536;
   int bottleneck_burst_bytes = 1500;
   int bottleneck_port = 39201;
+  // Uniform jitter magnitude and random loss for the WAN model, plus the
+  // deterministic seed. The shaper activates when ANY of rate/delay/jitter/
+  // loss is nonzero, so a pure delay+jitter+loss link can run with the rate
+  // limiter off (rate_bps == 0) — see the activation condition in RunHarness.
+  int bottleneck_jitter_ms = 0;
+  double bottleneck_loss_pct = 0;
+  uint64_t bottleneck_seed = 0;
+  // D4 adaptive receive playout buffer. True passes the production default
+  // (enabled); --no-jitter-buffer forces it off for the A/B control arm so the
+  // exact same binary measures both. This flag only flips the harness params;
+  // the mechanism lives in minirtc (MiniRtcParams::disable_video_jitter_buffer).
+  bool jitter_buffer = true;
 };
 
 struct Endpoint {
@@ -93,6 +174,10 @@ struct SharedState {
   // this log preserves the per-frame timing the aggregate latency vector
   // discards, so the start-of-session ramp can be bucketed offline.
   std::vector<FrameRecord> frame_records;
+  // Session-cumulative inter-presentation (decode-delivery) gap accumulator,
+  // fed under latency_mutex in OnReceiveVideoFrame and read once at teardown
+  // under the same lock. Mirrors production D8 inter_present semantics.
+  InterPresentGap inter_present;
   // Capture instant (library clock, microseconds) indexed by absolute frame
   // sequence number. Decoded frames carry their sequence in a codec-robust
   // barcode, so latency pairing is exact even when the encoder drops frames.
@@ -121,6 +206,9 @@ struct SharedState {
   std::atomic<uint64_t> encode_queue_dropped_frames{0};
   std::atomic<uint64_t> encode_queue_dropped_pending_tasks{0};
   std::atomic<uint64_t> encode_queue_dropped_in_flight{0};
+  // Most recent receive-side playout target delay reported by the receiver
+  // peer, in ms; -1 until a non-negative sample arrives (disabled or no video).
+  std::atomic<int> video_target_delay_ms{-1};
 };
 
 SharedState g_state;
@@ -208,6 +296,17 @@ void OnReceiveVideoFrame(const MiniRtcVideoFrame* frame, const char*, size_t,
       nv12 = copy.data();
   }
   if (!nv12 || !frame->decoded_timestamp) return;
+  // Feed the inter-present accumulator for every decode delivery, before the
+  // barcode-dependent early returns below: a frame that decodes but fails its
+  // barcode read is still a delivered/presented frame, and dropping it here
+  // would fabricate a freeze that never happened. The decoded timestamp is the
+  // monotonic library-clock decode-completion instant, which is exactly the
+  // delivery cadence the consumer observes. The accumulator lives under
+  // latency_mutex; take it briefly and release before the heavier barcode work.
+  {
+    std::lock_guard<std::mutex> ip_lock(g_state.latency_mutex);
+    g_state.inter_present.Present(static_cast<int64_t>(frame->decoded_timestamp));
+  }
   uint32_t sequence = 0;
   if (!ReadSequence(nv12, frame->width, frame->height, &sequence)) return;
   std::lock_guard<std::mutex> lock(g_state.latency_mutex);
@@ -340,6 +439,11 @@ void OnNetStatus(const char*, size_t, MiniRtcTraversalMode,
             stats->video_encode_queue_dropped_pending_tasks);
   track_max(g_state.encode_queue_dropped_in_flight,
             stats->video_encode_queue_dropped_in_flight);
+  // The playout target delay is reported only by the receiving peer (it is a
+  // receive-side mechanism). It is a live value, not a cumulative counter, so
+  // track the most recent non-negative sample rather than a max.
+  if (stats->video_target_delay_ms >= 0)
+    g_state.video_target_delay_ms.store(stats->video_target_delay_ms);
 }
 
 
@@ -515,7 +619,12 @@ int RunHarness(const Config& config) {
   // the endpoints use, so relayed traffic arrives from an address byte-
   // identical to the rewritten candidates — ICE sees a consistent path.
   crossdesk::UdpShaper shaper;
-  if (config.bottleneck_kbps > 0) {
+  // The shaper activates when any WAN-shaping dimension is nonzero, not only
+  // the rate limiter: a pure delay/jitter/loss link runs with rate_bps == 0.
+  const bool shaping_active = config.bottleneck_kbps > 0 ||
+      config.bottleneck_delay_ms > 0 || config.bottleneck_jitter_ms > 0 ||
+      config.bottleneck_loss_pct > 0;
+  if (shaping_active) {
     crossdesk::UdpShaperConfig shaper_config;
     shaper_config.rate_bps =
         static_cast<uint64_t>(config.bottleneck_kbps) * 1000;
@@ -524,6 +633,10 @@ int RunHarness(const Config& config) {
     shaper_config.queue_bytes =
         static_cast<uint32_t>(config.bottleneck_queue_bytes);
     shaper_config.delay_ms = static_cast<uint32_t>(config.bottleneck_delay_ms);
+    shaper_config.jitter_ms =
+        static_cast<uint32_t>(config.bottleneck_jitter_ms);
+    shaper_config.loss_pct = config.bottleneck_loss_pct;
+    shaper_config.seed = config.bottleneck_seed;
     if (!shaper.Start(config.address,
                       static_cast<uint16_t>(config.bottleneck_port),
                       shaper_config)) {
@@ -540,6 +653,11 @@ int RunHarness(const Config& config) {
   MiniRtcParams sender_params = MakeParams(sender_local.c_str(), nullptr, true, config.fps, config.preference, config.start_bitrate_bps);
   // Receiver: decode side does not need hardware encoding.
   MiniRtcParams receiver_params = MakeParams(receiver_local.c_str(), nullptr, true, config.fps, config.preference, config.start_bitrate_bps);
+  // The D4 adaptive playout buffer is a receive-side mechanism: it re-times
+  // completed-frame delivery on the decoding peer only. The control arm
+  // (--no-jitter-buffer) disables it here so the exact same binary measures
+  // both arms; the sender's playout setting is irrelevant.
+  receiver_params.disable_video_jitter_buffer = !config.jitter_buffer;
 
   MiniRtcPeerPtr* sender =
       MiniRtcCreatePeerWithVideoCodec(&sender_params, "", config.codec);
@@ -770,10 +888,12 @@ int RunHarness(const Config& config) {
 
   std::vector<int64_t> latencies;
   std::vector<FrameRecord> records;
+  InterPresentGap inter_present;
   {
     std::lock_guard<std::mutex> lock(g_state.latency_mutex);
     latencies = g_state.latencies_us;
     records = g_state.frame_records;
+    inter_present = g_state.inter_present;
   }
 
   // Bucket the per-frame records into 100 ms bins keyed off capture time so
@@ -847,10 +967,13 @@ int RunHarness(const Config& config) {
   // over the measurement window only; the warmup/session-tail forwarding is
   // excluded by differencing counters sampled at window start and end.
   uint64_t shaper_bytes_end = 0, shaper_dropped_end = 0, shaper_qmax = 0;
+  uint64_t shaper_loss_dropped_end = 0;
   if (g_shaper) {
     const auto snapshot = g_shaper->Snapshot();
     shaper_bytes_end = snapshot.forwarded_bytes[0] + snapshot.forwarded_bytes[1];
     shaper_dropped_end = snapshot.dropped_packets[0] + snapshot.dropped_packets[1];
+    shaper_loss_dropped_end =
+        snapshot.loss_dropped_packets[0] + snapshot.loss_dropped_packets[1];
     shaper_qmax =
         std::max(snapshot.max_queue_bytes[0], snapshot.max_queue_bytes[1]);
   }
@@ -859,6 +982,30 @@ int RunHarness(const Config& config) {
     for (double v : per_second_shape_mbps) shape_mean_mbps += v;
     shape_mean_mbps /= per_second_shape_mbps.size();
   }
+  // Inter-present gap metrics, emitted as a nested object mirroring the
+  // production inter_present analyzer schema. Null when fewer than two
+  // presentations occurred (no measurable cadence), never a fake zero block.
+  const bool ip_measured = inter_present.intervals > 0;
+  const double ip_window_ms = inter_present.WindowMs();
+  // Build the inter_present JSON fragment once. null when unmeasured so the
+  // output stays honest rather than emitting a misleading all-zero block.
+  char ip_json[512];
+  if (ip_measured) {
+    std::snprintf(ip_json, sizeof(ip_json),
+        "{\"intervals\":%llu,\"mean_ms\":%.2f,\"max_ms\":%.2f,"
+        "\"p95_max_ms\":%.2f,\"freeze_count\":%llu,\"freeze_mean_ms\":%.2f,"
+        "\"freeze_max_ms\":%.2f,\"freezes_per_min\":%.3f,\"window_ms\":%.0f,"
+        "\"threshold_ms\":200}",
+        static_cast<unsigned long long>(inter_present.intervals),
+        inter_present.MeanIntervalMs(), inter_present.interval_max_ms,
+        inter_present.ApproxP95IntervalMs(),
+        static_cast<unsigned long long>(inter_present.freeze_count),
+        inter_present.MeanFreezeMs(), inter_present.freeze_max_ms,
+        inter_present.FreezesPerMin(), ip_window_ms);
+  } else {
+    std::snprintf(ip_json, sizeof(ip_json), "null");
+  }
+
   std::printf(
       "{\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":\"%s\","
       "\"sent\":%u,\"delivered\":%llu,\"dropped\":%lld,"
@@ -875,7 +1022,10 @@ int RunHarness(const Config& config) {
       "\"win_encode_queue_dropped_in_flight\":%llu,"
       "\"bottleneck_kbps\":%d,\"shape_mean_mbps\":%.2f,"
       "\"shape_forwarded_bytes\":%llu,\"shape_dropped_packets\":%llu,"
-      "\"shape_max_queue_bytes\":%llu,"
+      "\"shape_max_queue_bytes\":%llu,\"shape_loss_dropped_packets\":%llu,"
+      "\"wan_delay_ms\":%d,\"wan_jitter_ms\":%d,\"wan_loss_pct\":%.3f,"
+      "\"wan_seed\":%llu,\"jitter_buffer\":%s,\"video_target_delay_ms\":%d,"
+      "\"inter_present\":%s,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
       static_cast<unsigned long long>(delivered), static_cast<long long>(dropped),
@@ -900,6 +1050,13 @@ int RunHarness(const Config& config) {
       static_cast<unsigned long long>(shaper_bytes_end),
       static_cast<unsigned long long>(shaper_dropped_end),
       static_cast<unsigned long long>(shaper_qmax),
+      static_cast<unsigned long long>(shaper_loss_dropped_end),
+      config.bottleneck_delay_ms, config.bottleneck_jitter_ms,
+      config.bottleneck_loss_pct,
+      static_cast<unsigned long long>(config.bottleneck_seed),
+      config.jitter_buffer ? "true" : "false",
+      g_state.video_target_delay_ms.load(),
+      ip_json,
       g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
 
@@ -963,6 +1120,15 @@ int main(int argc, char** argv) {
       config.bottleneck_burst_bytes = std::atoi(next("--bottleneck-burst-bytes"));
     else if (arg == "--bottleneck-port")
       config.bottleneck_port = std::atoi(next("--bottleneck-port"));
+    else if (arg == "--bottleneck-jitter-ms")
+      config.bottleneck_jitter_ms = std::atoi(next("--bottleneck-jitter-ms"));
+    else if (arg == "--bottleneck-loss-pct")
+      config.bottleneck_loss_pct = std::atof(next("--bottleneck-loss-pct"));
+    else if (arg == "--bottleneck-seed")
+      config.bottleneck_seed =
+          static_cast<uint64_t>(std::strtoull(next("--bottleneck-seed"), nullptr, 10));
+    else if (arg == "--jitter-buffer") config.jitter_buffer = true;
+    else if (arg == "--no-jitter-buffer") config.jitter_buffer = false;
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");
