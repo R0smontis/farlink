@@ -2212,23 +2212,7 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
 #if CROSSDESK_HAS_UPDATER
   main->on_open_website([this] { OpenUrl("https://crossdesk.cn"); });
 #endif
-  main->on_open_feedback_github([this, main] {
-    if (!OpenUrl("https://github.com/kunkundi/crossdesk/issues/new/choose")) {
-      main->set_feedback_succeeded(false);
-      main->set_feedback_status(UiText(localization::Literal(
-          "无法打开浏览器，请访问 GitHub 项目页面。", localization_language_index_)));
-    }
-  });
   main->on_export_diagnostic_logs([this] { ExportDiagnosticLogs(); });
-  main->on_open_afdian_sponsor([this] {
-    OpenUrl("https://afdian.com/a/kunkundi");
-  });
-  main->on_open_github_sponsor([this] {
-    OpenUrl("https://github.com/sponsors/kunkundi");
-  });
-  main->on_open_kofi_sponsor([this] {
-    OpenUrl("https://ko-fi.com/kunkundi");
-  });
   main->on_dismiss_release_welcome([this] {
     ui_->main->set_release_welcome_open(false);
     // Retry if the initial write failed while the dialog was on screen.

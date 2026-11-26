@@ -6636,18 +6636,6 @@
       "es": "Haga clic para cambiar la IP local",
       "pt-BR": "Clique para mudar o IP local"
     },
-    "爱发电": {
-      "zh-Hans": "爱发电",
-      "en": "AFDIAN",
-      "ru": "AFDIAN",
-      "zh-Hant": "愛發電",
-      "ja": "AFDIAN",
-      "ko": "아디안",
-      "de": "AFDIAN",
-      "fr": "AFDIEN",
-      "es": "AFDIANO",
-      "pt-BR": "AFDIAN"
-    },
     "版本": {
       "zh-Hans": "版本",
       "en": "Version",
@@ -8507,30 +8495,6 @@
       "fr": "Impossible d'appliquer les paramètres. Essayer à nouveau.",
       "es": "No se pudieron aplicar las configuraciones. Intentar otra vez.",
       "pt-BR": "Não foi possível aplicar as configurações. Tente novamente."
-    },
-    "特别赞助": {
-      "zh-Hans": "特别赞助",
-      "en": "Special sponsor",
-      "ru": "Особый спонсор",
-      "zh-Hant": "特別贊助",
-      "ja": "特別協賛",
-      "ko": "특별 후원",
-      "de": "Besonderer Sponsor",
-      "fr": "Sponsor spécial",
-      "es": "Patrocinador especial",
-      "pt-BR": "Patrocinador especial"
-    },
-    "赞助支持": {
-      "zh-Hans": "赞助支持",
-      "en": "Sponsorship",
-      "ru": "Поддержка проекта",
-      "zh-Hant": "贊助支援",
-      "ja": "開発を支援",
-      "ko": "후원",
-      "de": "Sponsoring",
-      "fr": "Parrainage",
-      "es": "Patrocinio",
-      "pt-BR": "Patrocínio"
     },
     "跟随系统": {
       "zh-Hans": "跟随系统",
@@ -10956,18 +10920,6 @@
       "es": "La nueva versión requiere iOS %1$@ o posterior",
       "pt-BR": "A nova versão requer iOS %1$@ ou posterior"
     },
-    "前往 GitHub 反馈": {
-      "zh-Hans": "前往 GitHub 反馈",
-      "en": "Give feedback on GitHub",
-      "ru": "Оставить отзыв на GitHub",
-      "zh-Hant": "前往 GitHub 回饋",
-      "ja": "GitHub でフィードバック",
-      "ko": "GitHub에 피드백 보내기",
-      "de": "Feedback auf GitHub geben",
-      "fr": "Donner un avis sur GitHub",
-      "es": "Enviar comentarios en GitHub",
-      "pt-BR": "Enviar comentários no GitHub"
-    },
     "反馈与建议": {
       "zh-Hans": "反馈与建议",
       "en": "Feedback & suggestions",
@@ -11004,18 +10956,6 @@
       "es": "Guarda los registros de Farlink y MiniRTC con la información de versión en un archivo ZIP.",
       "pt-BR": "Salve os logs do Farlink e do MiniRTC com informações de versão em um arquivo ZIP."
     },
-    "报告问题或提出功能建议。": {
-      "zh-Hans": "报告问题或提出功能建议。",
-      "en": "Report a problem or suggest an improvement.",
-      "ru": "Сообщите о проблеме или предложите улучшение.",
-      "zh-Hant": "回報問題或提出功能建議。",
-      "ja": "問題の報告や機能の改善をご提案ください。",
-      "ko": "문제를 보고하거나 개선 사항을 제안하세요.",
-      "de": "Melden Sie ein Problem oder schlagen Sie eine Verbesserung vor.",
-      "fr": "Signalez un problème ou proposez une amélioration.",
-      "es": "Informa de un problema o sugiere una mejora.",
-      "pt-BR": "Relate um problema ou sugira uma melhoria."
-    },
     "无法保存诊断包，请选择其他位置重试。": {
       "zh-Hans": "无法保存诊断包，请选择其他位置重试。",
       "en": "Could not save the diagnostic archive. Choose another location and try again.",
@@ -11027,18 +10967,6 @@
       "fr": "Impossible de sauvegarder l’archive de diagnostic. Choisissez un autre emplacement et réessayez.",
       "es": "No se pudo guardar el archivo de diagnóstico. Elige otra ubicación e inténtalo de nuevo.",
       "pt-BR": "Não foi possível salvar o arquivo de diagnóstico. Escolha outro local e tente novamente."
-    },
-    "无法打开浏览器，请访问 GitHub 项目页面。": {
-      "zh-Hans": "无法打开浏览器，请访问 GitHub 项目页面。",
-      "en": "Could not open the browser. Please visit the project on GitHub.",
-      "ru": "Не удалось открыть браузер. Откройте страницу проекта на GitHub.",
-      "zh-Hant": "無法開啟瀏覽器，請前往 GitHub 專案頁面。",
-      "ja": "ブラウザーを開けません。GitHub のプロジェクトページにアクセスしてください。",
-      "ko": "브라우저를 열 수 없습니다. GitHub 프로젝트 페이지를 방문하세요.",
-      "de": "Der Browser konnte nicht geöffnet werden. Besuchen Sie die Projektseite auf GitHub.",
-      "fr": "Impossible d’ouvrir le navigateur. Consultez la page du projet sur GitHub.",
-      "es": "No se pudo abrir el navegador. Visita la página del proyecto en GitHub.",
-      "pt-BR": "Não foi possível abrir o navegador. Acesse a página do projeto no GitHub."
     },
     "无法读取日志，请稍后重试。": {
       "zh-Hans": "无法读取日志，请稍后重试。",
@@ -11099,18 +11027,6 @@
       "fr": "Journaux de diagnostic exportés. Joignez le ZIP à votre ticket GitHub.",
       "es": "Registros de diagnóstico exportados. Adjunta el ZIP a tu issue de GitHub.",
       "pt-BR": "Logs de diagnóstico exportados. Anexe o ZIP à sua issue do GitHub."
-    },
-    "请在 GitHub Issue 中附上导出的 ZIP 日志包，便于排查问题。": {
-      "zh-Hans": "请在 GitHub Issue 中附上导出的 ZIP 日志包，便于排查问题。",
-      "en": "Attach the exported ZIP log archive to your GitHub issue to help us investigate.",
-      "ru": "Прикрепите экспортированный ZIP-архив журналов к обращению на GitHub, чтобы помочь нам разобраться в проблеме.",
-      "zh-Hant": "請在 GitHub Issue 中附上匯出的 ZIP 日誌封存檔，便於排查問題。",
-      "ja": "問題の調査のため、エクスポートしたログの ZIP ファイルを GitHub Issue に添付してください。",
-      "ko": "문제 조사에 도움이 되도록 내보낸 ZIP 로그 파일을 GitHub 이슈에 첨부해 주세요.",
-      "de": "Hängen Sie das exportierte ZIP-Archiv mit den Protokollen an Ihr GitHub-Issue an, damit wir das Problem untersuchen können.",
-      "fr": "Joignez l’archive ZIP des journaux exportés à votre ticket GitHub pour nous aider à analyser le problème.",
-      "es": "Adjunta el archivo ZIP de los registros exportados a tu issue de GitHub para ayudarnos a investigar el problema.",
-      "pt-BR": "Anexe o arquivo ZIP dos logs exportados à sua issue do GitHub para nos ajudar a investigar o problema."
     },
     "被控端分辨率": {
       "zh-Hans": "被控端分辨率",
@@ -12112,8 +12028,6 @@
     "p2p_closed": "对等连接已关闭",
     "no_such_id": "无此 ID",
     "about": "关于",
-    "sponsorship_title": "赞助支持",
-    "sponsor_via_afdian": "爱发电",
     "notification": "通知",
     "new_version": "新版本",
     "new_version_available": "新版本可用",
@@ -12432,7 +12346,6 @@
     "控制窗口最小化时暂停接收视频，降低本机解码资源占用。",
     "鼠标灵敏度",
     "滚轮灵敏度",
-    "特别赞助",
     "本端地址",
     "对端地址",
     "低负载编码",
@@ -12748,7 +12661,6 @@
       "源码版本：",
       "点击修改端口",
       "点击切换本机 IP",
-      "爱发电",
       "版本",
       "状态",
       "画质优先",
@@ -12846,8 +12758,6 @@
       "请重试或检查本机防火墙。",
       "读取失败",
       "调整失败，请重试。",
-      "特别赞助",
-      "赞助支持",
       "跟随系统",
       "跟随设备设置",
       "跨页 ",
@@ -12973,19 +12883,15 @@
       "开机自启需要安装版 Release；便携版和 Debug 不支持无人值守服务。",
       "无法配置无人值守服务，请检查管理员权限和安装文件。",
       "开机后无需登录即可连接；登录后继续使用同一 ID、密码和完整功能。",
-      "前往 GitHub 反馈",
       "反馈与建议",
       "导出诊断日志",
       "将 Farlink、MiniRTC 日志和基本版本信息保存为 ZIP 文件。",
-      "报告问题或提出功能建议。",
       "无法保存诊断包，请选择其他位置重试。",
-      "无法打开浏览器，请访问 GitHub 项目页面。",
       "无法读取日志，请稍后重试。",
       "日志文件过大，无法导出。",
       "正在导出…",
       "没有找到可导出的日志。",
       "诊断日志已导出，请将 ZIP 附到 GitHub Issue。",
-      "请在 GitHub Issue 中附上导出的 ZIP 日志包，便于排查问题。",
       "正在接收剪贴板文件",
       "剪贴板文件接收完成",
       "剪贴板文件接收失败",

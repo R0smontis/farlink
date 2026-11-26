@@ -2,7 +2,6 @@ import { SurfaceSeparator, FlatSurface, UiSurface } from "ui_surface.slint";
 import { TrustedDevicesDialog, TrustedDeviceEntry, TrustStrings } from "trusted_devices.slint";
 import { ControllerEntry, ServerPanel, ServerStrings } from "server_window.slint";
 import { LanStrings } from "lan_strings.slint";
-import { SpecialSponsorStrip, SponsorDirectory } from "sponsor_strip.slint";
 import { AboutPanel, AboutPage, AboutComponent, AboutStrings, AboutNavigationRow, AboutNavigationGroup, AboutRowSeparator } from "about_panel.slint";
 import { FeedbackPanel, FeedbackStrings } from "feedback_panel.slint";
 import { UiRadius } from "ui_radius.slint";
@@ -45,7 +44,6 @@ export struct ReleaseNoteBlock {
 export enum UpdateCheckStatus { idle, checking, up-to-date, available, failed }
 export enum AutostartStatus { checking, enabled, disabled, unsupported, failed }
 enum CopyFeedback { idle, success, failed }
-enum SponsorPlatform { afdian, kofi, github }
 
 export global UiStrings {
     in-out property <string> window-minimize: "Minimize";
@@ -64,8 +62,6 @@ export global UiStrings {
     in-out property <string> connect: "Connect";
     in-out property <string> settings: "Settings";
     in-out property <string> about: "About";
-    in-out property <string> sponsorship-title: "Sponsorship";
-    in-out property <string> sponsor-via-afdian: "AFDIAN";
     in-out property <string> ok: "OK";
     in-out property <string> cancel: "Cancel";
     in-out property <string> save: "Save";
@@ -151,49 +147,6 @@ export global UiStrings {
     in-out property <string> self-hosted-settings: "Self-hosted server settings";
     in-out property <string> access-website: "Website: ";
     in-out property <string> release-date-label: "Release Date: ";
-}
-
-// Keep sponsor labels, order, and sizing consistent across dialogs.
-component SponsorshipSection inherits VerticalLayout {
-    in property <bool> show-title: true;
-    callback open-afdian;
-    callback open-kofi;
-    callback open-github;
-    vertical-stretch: 0;
-    spacing: 10px;
-    if root.show-title: Text {
-        text: UiStrings.sponsorship-title;
-        color: WorkbenchStyle.text; font-size: 12px; font-weight: 600;
-        wrap: word-wrap;
-    }
-    HorizontalLayout {
-        spacing: 8px;
-        for platform in (GalleryStrings.language == 0
-            ? [SponsorPlatform.afdian, SponsorPlatform.kofi, SponsorPlatform.github]
-            : [SponsorPlatform.kofi, SponsorPlatform.github, SponsorPlatform.afdian]): Rectangle {
-            // Size to the label, icon, and padding, then share extra row space.
-            min-width: sponsor-label-metrics.preferred-width + 56px;
-            preferred-width: self.min-width;
-            horizontal-stretch: 1;
-            height: 32px;
-            SettingsButton {
-                width: parent.width; height: parent.height;
-                icon: platform == SponsorPlatform.afdian ? @image-url("icons/sponsors/afdian.png")
-                    : platform == SponsorPlatform.kofi ? @image-url("icons/sponsors/kofi.png")
-                    : @image-url("icons/sponsors/github.svg");
-                text: platform == SponsorPlatform.afdian ? UiStrings.sponsor-via-afdian
-                    : platform == SponsorPlatform.kofi ? "Ko-fi" : "GitHub Sponsors";
-                sponsor-label-metrics := Text {
-                    visible: false; text: parent.text; font-size: 12px;
-                }
-                clicked => {
-                    if platform == SponsorPlatform.afdian { root.open-afdian(); }
-                    else if platform == SponsorPlatform.kofi { root.open-kofi(); }
-                    else { root.open-github(); }
-                }
-            }
-        }
-    }
 }
 
 // Prompt copy in modal dialogs sits slightly low in the legacy ImGui layout.
@@ -823,9 +776,6 @@ export component MainWindow inherits Window {
     callback confirm-update;
     callback cancel-update;
     callback open-website;
-    callback open-afdian-sponsor;
-    callback open-github-sponsor;
-    callback open-kofi-sponsor;
     callback dismiss-release-welcome;
     callback check-for-updates;
     callback signal-reconnect-requested;
@@ -879,7 +829,6 @@ export component MainWindow inherits Window {
     in property <string> about-source-url;
     in property <string> about-build-url;
     callback open-about-link(string);
-    callback open-feedback-github;
     callback export-diagnostic-logs;
     in-out property <bool> feedback-open: false;
     in property <bool> feedback-exporting: false;
@@ -2466,7 +2415,6 @@ export component MainWindow inherits Window {
             status: root.feedback-status;
             succeeded: root.feedback-succeeded;
             saved-path: root.feedback-saved-path;
-            open-github => { root.open-feedback-github(); }
             export-logs => { root.export-diagnostic-logs(); }
             close => { root.feedback-open = false; }
         }
@@ -3337,15 +3285,6 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
-                if SponsorDirectory.special.length > 0: SpecialSponsorStrip {
-                    active: root.window-active;
-                    open-link(url) => { root.open-about-link(url); }
-                }
-                SponsorshipSection {
-                    open-afdian => { root.open-afdian-sponsor(); }
-                    open-kofi => { root.open-kofi-sponsor(); }
-                    open-github => { root.open-github-sponsor(); }
-                }
                 HorizontalLayout {
                     alignment: end;
                     SettingsButton {
@@ -3471,15 +3410,6 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
-                    }
-                    if SponsorDirectory.special.length > 0: SpecialSponsorStrip {
-                        active: root.window-active;
-                        open-link(url) => { root.open-about-link(url); }
-                    }
-                    SponsorshipSection {
-                        open-afdian => { root.open-afdian-sponsor(); }
-                        open-kofi => { root.open-kofi-sponsor(); }
-                        open-github => { root.open-github-sponsor(); }
                     }
                     VerticalLayout {
                         spacing: 5px;
@@ -3624,12 +3554,6 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
-                }
-
-                SponsorshipSection {
-                    open-afdian => { root.open-afdian-sponsor(); }
-                    open-kofi => { root.open-kofi-sponsor(); }
-                    open-github => { root.open-github-sponsor(); }
                 }
 
                 VerticalLayout {

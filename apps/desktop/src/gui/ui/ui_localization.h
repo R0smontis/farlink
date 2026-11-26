@@ -78,12 +78,9 @@ inline int ApplyMainWindowStrings(
   trust.set_close(Text(localization::message_close[language]));
   auto& feedback = window->global<ui::FeedbackStrings>();
   feedback.set_title(Text(localization::Literal("反馈与建议", language)));
-  feedback.set_github(Text(localization::Literal("前往 GitHub 反馈", language)));
-  feedback.set_github_hint(Text(localization::Literal("报告问题或提出功能建议。", language)));
   feedback.set_export(Text(localization::Literal("导出诊断日志", language)));
   feedback.set_export_hint(Text(localization::Literal("将 Farlink、MiniRTC 日志和基本版本信息保存为 ZIP 文件。", language)));
   feedback.set_exporting(Text(localization::Literal("正在导出…", language)));
-  feedback.set_attachment_hint(Text(localization::Literal("请在 GitHub Issue 中附上导出的 ZIP 日志包，便于排查问题。", language)));
   feedback.set_close(Text(localization::message_close[language]));
   auto& strings = window->global<ui::UiStrings>();
   strings.set_system_permissions(Text(localization::system_permissions[language]));
@@ -129,8 +126,6 @@ inline int ApplyMainWindowStrings(
   strings.set_connect(Text(localization::connect[language]));
   strings.set_settings(Text(localization::settings[language]));
   strings.set_about(Text(localization::about[language]));
-  strings.set_sponsorship_title(Text(localization::sponsorship_title[language]));
-  strings.set_sponsor_via_afdian(Text(localization::sponsor_via_afdian[language]));
   strings.set_ok(Text(localization::ok[language]));
   strings.set_cancel(Text(localization::cancel[language]));
   strings.set_new_password(Text(localization::new_password[language]));

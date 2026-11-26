@@ -276,9 +276,9 @@ export component GalleryNetworkDialog inherits Rectangle {
             x: clamp(list.x + root.hovered-badge-x - self.width / 2, 8px, parent.width - self.width - 8px);
             private property <length> badge-y: list.y + list.viewport-y + root.hovered-index * root.row-height + 30px;
             y: self.badge-y - self.height - 4px;
-            local-label: GalleryStrings.texts[213];
+            local-label: GalleryStrings.texts[212];
             local-address: root.devices[root.hovered-index].local-endpoint;
-            remote-label: GalleryStrings.texts[214];
+            remote-label: GalleryStrings.texts[213];
             remote-address: root.devices[root.hovered-index].remote-endpoint;
         }
         if root.devices.length == 0: NetworkEmptyState {
