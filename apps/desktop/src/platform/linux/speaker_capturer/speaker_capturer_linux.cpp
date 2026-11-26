@@ -10,7 +10,11 @@
 
 namespace crossdesk {
 namespace {
-constexpr size_t kFrameSizeBytes = 480 * sizeof(int16_t);
+// 10 ms stereo at 48 kHz s16: 480 samples x 2 channels x 2 bytes. Desktop
+// audio is overwhelmingly stereo content, and the encoder negotiates
+// per-peer mono downmix internally, so one capture feeds mixed mono/stereo
+// sessions without reconfiguration.
+constexpr size_t kFrameSizeBytes = 480 * 2 * sizeof(int16_t);
 constexpr auto kStartupTimeout = std::chrono::seconds(2);
 constexpr auto kPollInterval = std::chrono::milliseconds(5);
 
@@ -100,7 +104,7 @@ bool SpeakerCapturerLinux::Prepare() {
   ReleaseOperation(operation);
   if (!got_sink || sink.monitor.empty()) return false;
 
-  const pa_sample_spec spec{PA_SAMPLE_S16LE, 48000, 1};
+  const pa_sample_spec spec{PA_SAMPLE_S16LE, 48000, 2};
   stream_ = pa_stream_new(context_, "System audio", &spec, nullptr);
   if (!stream_) return false;
   pa_stream_set_read_callback(

@@ -8,7 +8,8 @@
  * driver. Verifies against real SDL 3.2 conversion semantics: queued bytes
  * are input-format units, and trimming removes the correct amount of the
  * OLDEST audio (ramp pattern check) even when the device output format
- * differs from the s16 mono input.
+ * differs from the s16 mono input — plus the channel-aware stereo path
+ * (1920-byte frames, 150 ms stereo cap = twice the mono cap).
  */
 
 #include <cstdint>
@@ -31,10 +32,12 @@ int failures = 0;
     }                                                              \
   } while (0)
 
-using crossdesk::kAudioOutputInputFrameBytes;
-using crossdesk::kAudioOutputQueueCapBytes;
-constexpr int kInputFrameBytes = kAudioOutputInputFrameBytes;
-constexpr int kCapBytes = kAudioOutputQueueCapBytes;
+using crossdesk::kAudioOutputMonoFrameBytes;
+using crossdesk::kAudioOutputQueueCapBytesMono;
+using crossdesk::kAudioOutputStereoFrameBytes;
+using crossdesk::kAudioOutputQueueCapBytesStereo;
+constexpr int kInputFrameBytes = kAudioOutputMonoFrameBytes;
+constexpr int kCapBytes = kAudioOutputQueueCapBytesMono;
 
 }  // namespace
 
@@ -91,7 +94,7 @@ int main() {
               queued_before * 1000.0 / (48000.0 * 2));
 
   uint64_t dropped = 0;
-  crossdesk::TrimAudioStreamToCap(stream, dropped);
+  crossdesk::TrimAudioStreamToCap(stream, 1, dropped);
 
   const int queued_after = SDL_GetAudioStreamQueued(stream);
   std::printf("queued after trim: %d bytes (%.0f ms input), dropped input bytes: %llu\n",
@@ -173,7 +176,7 @@ int main() {
       SDL_PutAudioStreamData(id_stream, pcm.data(), kInputFrameBytes);
     }
     uint64_t id_dropped = 0;
-    crossdesk::TrimAudioStreamToCap(id_stream, id_dropped);
+    crossdesk::TrimAudioStreamToCap(id_stream, 1, id_dropped);
     const int id_queued = SDL_GetAudioStreamQueued(id_stream);
     CHECK(id_queued <= kCapBytes);
     const int expected_first_frame = static_cast<int>(id_dropped / kInputFrameBytes) + 1;
@@ -198,6 +201,59 @@ int main() {
       CHECK(static_cast<int>(last) == 30);
     }
     SDL_DestroyAudioStream(id_stream);
+  }
+
+  // ---- Stereo stream: 1920-byte frames, cap scales to 150 ms of stereo ----
+  {
+    SDL_AudioSpec stereo_in{};
+    stereo_in.freq = 48000;
+    stereo_in.format = SDL_AUDIO_S16;
+    stereo_in.channels = 2;
+    SDL_AudioStream* stereo = SDL_CreateAudioStream(&stereo_in, &stereo_in);
+    CHECK(stereo != nullptr);
+    // 300 ms of stereo as 10 ms frames, markers 1..30 in both channels.
+    for (int i = 0; i < kFrames; ++i) {
+      std::vector<int16_t> pcm(960, static_cast<int16_t>(i + 1));
+      SDL_PutAudioStreamData(stereo, pcm.data(), kAudioOutputStereoFrameBytes);
+    }
+    const int stereo_queued_before = SDL_GetAudioStreamQueued(stereo);
+    CHECK(stereo_queued_before == kFrames * kAudioOutputStereoFrameBytes);
+    // Stereo cap is exactly twice the mono cap: 150 ms either way.
+    CHECK(kAudioOutputQueueCapBytesStereo == 2 * kAudioOutputQueueCapBytesMono);
+
+    uint64_t stereo_dropped = 0;
+    crossdesk::TrimAudioStreamToCap(stereo, 2, stereo_dropped);
+    const int stereo_queued_after = SDL_GetAudioStreamQueued(stereo);
+    std::printf("stereo: queued %d -> %d (cap %d), dropped input %llu\n",
+                stereo_queued_before, stereo_queued_after,
+                kAudioOutputQueueCapBytesStereo,
+                (unsigned long long)stereo_dropped);
+    CHECK(stereo_queued_after <= kAudioOutputQueueCapBytesStereo);
+    CHECK(stereo_queued_after > 0);
+    // Whole stereo frames dropped.
+    CHECK(stereo_dropped % kAudioOutputStereoFrameBytes == 0);
+    CHECK(stereo_dropped > 0);
+    // 150 ms cap in stereo = exactly 15 frames; excess was 15 frames.
+    CHECK(static_cast<int>(stereo_dropped / kAudioOutputStereoFrameBytes) ==
+          kFrames - 15);
+    // Oldest-first: markers 1..15 dropped, 16 survives first.
+    const int avail = SDL_GetAudioStreamAvailable(stereo);
+    std::vector<uint8_t> out(static_cast<size_t>(avail > 0 ? avail : 1));
+    const int got = SDL_GetAudioStreamData(stereo, out.data(),
+                                           static_cast<int>(out.size()));
+    CHECK(got >= 4);
+    if (got >= 4) {
+      const int16_t* samples = reinterpret_cast<const int16_t*>(out.data());
+      std::printf("stereo first surviving sample: %d (expected exactly 16)\n",
+                  samples[0]);
+      CHECK(static_cast<int>(samples[0]) == 16);
+      // And L/R channels carry the same marker here (uniform fill).
+      CHECK(samples[1] == samples[0]);
+      // Freshest frame (30) survives last.
+      const int16_t last = *reinterpret_cast<const int16_t*>(out.data() + got - 2);
+      CHECK(static_cast<int>(last) == 30);
+    }
+    SDL_DestroyAudioStream(stereo);
   }
 
   SDL_CloseAudioDevice(dev);

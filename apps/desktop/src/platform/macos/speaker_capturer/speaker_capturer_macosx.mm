@@ -76,7 +76,55 @@ struct AudioCallbackState {
   std::mutex mutex;
   crossdesk::SpeakerCapturer::speaker_data_cb callback;
   std::atomic<bool> running{false};
+  // ScreenCaptureKit callbacks do not align to the encoder's fixed 10 ms
+  // stereo grid (1920 bytes), so PCM carries over between callbacks here
+  // instead of dropping the unaligned tail of every callback.
+  std::vector<uint8_t> frame_carry;
 };
+
+// Normalize interleaved s16 of any channel count to stereo interleaved:
+// stereo passes through unchanged, mono duplicates into both channels, and
+// wider layouts fold the extra channels into the first two at reduced gain
+// so nothing clips. Output frame count equals input frames per channel.
+inline std::vector<short> NormalizeToStereo(const short* input, int samples,
+                                            int channels) {
+  std::vector<short> out;
+  if (!input || samples <= 0 || channels <= 0) return out;
+  const int frames = samples / channels;
+  if (channels == 2) {
+    out.assign(input, input + samples);
+    return out;
+  }
+  out.resize(frames * 2);
+  if (channels == 1) {
+    for (int i = 0; i < frames; ++i) {
+      out[2 * i] = input[i];
+      out[2 * i + 1] = input[i];
+    }
+    return out;
+  }
+  // >2 channels: fold extra channels into L/R at 1/4 gain each so the sum
+  // cannot clip beyond the original peak.
+  for (int i = 0; i < frames; ++i) {
+    int32_t left = input[i * channels];
+    int32_t right = input[i * channels + 1];
+    for (int c = 2; c < channels; ++c) {
+      const int32_t extra = input[i * channels + c] / 4;
+      if (c % 2 == 0) {
+        left += extra;
+      } else {
+        right += extra;
+      }
+    }
+    if (left > 32767) left = 32767;
+    if (left < -32768) left = -32768;
+    if (right > 32767) right = 32767;
+    if (right < -32768) right = -32768;
+    out[2 * i] = (short)left;
+    out[2 * i + 1] = (short)right;
+  }
+  return out;
+}
 }  // namespace
 
 @interface SpeakerCaptureDelegate : NSObject <SCStreamDelegate, SCStreamOutput> {
@@ -130,11 +178,16 @@ struct AudioCallbackState {
   }
 
   if (state->callback) {
+    // Convert whatever the system delivers into stereo-interleaved s16.
+    // ScreenCaptureKit is asked for 2 channels, so channelCount is 2 in the
+    // common case; a mono or >2ch source is normalized to stereo here
+    // (mono duplicated, extra channels folded into the first two) so the
+    // downstream contract never depends on the source device.
     std::vector<short> out_pcm16;
+    const int channels = asbd->mChannelsPerFrame;
     if (asbd->mFormatFlags & kAudioFormatFlagIsFloat) {
-      int channels = asbd->mChannelsPerFrame;
-      int samples = (int)(length / sizeof(float));
-      float* floatData = (float*)dataPtr;
+      const int samples = (int)(length / sizeof(float));
+      const float* floatData = (const float*)dataPtr;
       std::vector<short> pcm16(samples);
       for (int i = 0; i < samples; ++i) {
         float v = floatData[i];
@@ -142,48 +195,29 @@ struct AudioCallbackState {
         if (v < -1.0f) v = -1.0f;
         pcm16[i] = (short)(v * 32767.0f);
       }
-
-      if (channels > 1) {
-        int mono_samples = samples / channels;
-        out_pcm16.resize(mono_samples);
-        for (int i = 0; i < mono_samples; ++i) {
-          int sum = 0;
-          for (int c = 0; c < channels; ++c) {
-            sum += pcm16[i * channels + c];
-          }
-          out_pcm16[i] = sum / channels;
-        }
-      } else {
-        out_pcm16 = std::move(pcm16);
-      }
+      out_pcm16 = NormalizeToStereo(pcm16.data(), samples, channels);
     } else if (asbd->mBitsPerChannel == 16) {
-      int channels = asbd->mChannelsPerFrame;
-      int samples = (int)(length / 2);
-      short* src = (short*)dataPtr;
-      if (channels > 1) {
-        int mono_samples = samples / channels;
-        out_pcm16.resize(mono_samples);
-        for (int i = 0; i < mono_samples; ++i) {
-          int sum = 0;
-          for (int c = 0; c < channels; ++c) {
-            sum += src[i * channels + c];
-          }
-          out_pcm16[i] = sum / channels;
-        }
-      } else {
-        out_pcm16.assign(src, src + samples);
-      }
+      const int samples = (int)(length / 2);
+      out_pcm16 = NormalizeToStereo((const short*)dataPtr, samples, channels);
     }
 
-    size_t frame_bytes = 960;  // 480 * 2
-    size_t total_bytes = out_pcm16.size() * sizeof(short);
-    unsigned char* p = (unsigned char*)out_pcm16.data();
-    for (size_t offset = 0; offset + frame_bytes <= total_bytes; offset += frame_bytes) {
+    // 10 ms stereo frames: 480 samples x 2 channels x 2 bytes = 1920 bytes.
+    // PCM carries across callbacks so every captured sample is emitted
+    // exactly once even when the delivery sizes do not align to the grid.
+    const size_t frame_bytes = 1920;
+    auto& carry = state->frame_carry;
+    const uint8_t* pcm_bytes = reinterpret_cast<const uint8_t*>(out_pcm16.data());
+    carry.insert(carry.end(), pcm_bytes,
+                 pcm_bytes + out_pcm16.size() * sizeof(short));
+    size_t consumed = 0;
+    while (carry.size() - consumed >= frame_bytes) {
       if (!state->callback) {
         return;
       }
-      state->callback(p + offset, frame_bytes, "audio");
+      state->callback(carry.data() + consumed, frame_bytes, "audio");
+      consumed += frame_bytes;
     }
+    carry.erase(carry.begin(), carry.begin() + consumed);
   }
 }
 @end
@@ -256,7 +290,10 @@ int SpeakerCapturerMacosx::Start() {
     SCStreamConfiguration* config = [[SCStreamConfiguration alloc] init];
     config.capturesAudio = YES;
     config.sampleRate = 48000;
-    config.channelCount = 1;
+    // Stereo capture: desktop audio is overwhelmingly stereo content, and
+    // the encoder negotiates per-peer mono downmix internally, so one
+    // capture feeds mixed mono/stereo sessions without reconfiguration.
+    config.channelCount = 2;
     SCContentFilter* filter = [[SCContentFilter alloc] initWithDisplay:display
                                                       excludingWindows:@[]];
     impl_->state = std::make_shared<AudioCallbackState>();

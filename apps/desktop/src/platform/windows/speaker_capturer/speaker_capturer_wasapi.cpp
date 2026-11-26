@@ -1,6 +1,7 @@
 #include "speaker_capturer_wasapi.h"
 
 #include <utility>
+#include <vector>
 
 #include "rd_log.h"
 
@@ -16,7 +17,15 @@ class SpeakerCapturerWasapi::Impl {
   ma_device device{};
   bool initialized = false;
   speaker_data_cb callback;
+  // WASAPI period sizes do not align to the encoder's fixed 10 ms stereo
+  // grid (1920 bytes), so callbacks are rechunked through this carry buffer.
+  std::vector<uint8_t> frame_carry;
 };
+
+namespace {
+// 10 ms stereo at 48 kHz s16: 480 samples x 2 channels x 2 bytes.
+constexpr size_t kStereoFrameBytes = 1920;
+}  // namespace
 
 SpeakerCapturerWasapi::SpeakerCapturerWasapi() : impl_(new Impl) {}
 SpeakerCapturerWasapi::~SpeakerCapturerWasapi() {
@@ -31,14 +40,31 @@ int SpeakerCapturerWasapi::Init(speaker_data_cb cb) {
   config.capture.pDeviceID =
       nullptr;  // Resolve the current default each attempt.
   config.capture.format = ma_format_s16;
-  config.capture.channels = 1;
+  // Stereo capture: desktop audio is overwhelmingly stereo content, and the
+  // encoder negotiates per-peer mono downmix internally, so one capture
+  // feeds mixed mono/stereo sessions without reconfiguration.
+  config.capture.channels = 2;
   config.sampleRate = 48000;
   config.pUserData = impl_;
   config.dataCallback = [](ma_device* device, void*, const void* input,
                            ma_uint32 frames) {
     auto* state = static_cast<Impl*>(device->pUserData);
-    if (state && state->callback && input && frames > 0)
-      state->callback((unsigned char*)input, frames * sizeof(int16_t), "audio");
+    if (!state || !state->callback || !input || frames == 0) return;
+    // Rechunk the variable-size WASAPI callback into exact 10 ms stereo
+    // frames. The encoder contract is size-exact, and sessions fan out
+    // unchanged to mono/stereo peers, so the grid must not jitter with the
+    // driver period.
+    const auto* bytes = static_cast<const uint8_t*>(input);
+    const size_t size = frames * 2 * sizeof(int16_t);
+    state->frame_carry.insert(state->frame_carry.end(), bytes, bytes + size);
+    size_t consumed = 0;
+    while (state->frame_carry.size() - consumed >= kStereoFrameBytes) {
+      state->callback(state->frame_carry.data() + consumed,
+                      kStereoFrameBytes, "audio");
+      consumed += kStereoFrameBytes;
+    }
+    state->frame_carry.erase(state->frame_carry.begin(),
+                             state->frame_carry.begin() + consumed);
   };
   ma_backend backends[] = {ma_backend_wasapi};
   const ma_result result =
@@ -84,6 +110,7 @@ int SpeakerCapturerWasapi::Destroy() {
     impl_->initialized = false;
   }
   impl_->callback = nullptr;
+  impl_->frame_carry.clear();
   return 0;
 }
 

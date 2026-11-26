@@ -50,16 +50,22 @@ constexpr uint64_t kCaptureResumeKeyFrameGapMs = 500;
 // backlog exceeds the cap the oldest PCM is dropped in 10 ms frames, so the
 // stream stays glitch-minimal while latency returns to the budget instead of
 // accumulating unboundedly.
+//
+// Decoded Opus arrives as exactly one 10 ms 48 kHz s16 frame per push:
+// 960 bytes mono or 1920 bytes stereo — negotiated per session through
+// a=x-minirtc-audio-stereo, so a peer's channel count never changes
+// mid-session. The playback stream's input format is created to match.
 constexpr int kAudioSampleRate = 48000;
-constexpr int kAudioBytesPerSampleFrame = 2;  // s16 mono
-constexpr int kAudioFrameMs = 10;
-constexpr int kAudioPlaybackQueueCapMs = 150;
-constexpr int kAudioPlaybackQueueCapBytes =
-    kAudioSampleRate * kAudioBytesPerSampleFrame * kAudioPlaybackQueueCapMs /
-    1000;
-constexpr int kAudioFrameBytes =
-    kAudioSampleRate * kAudioBytesPerSampleFrame * kAudioFrameMs / 1000;
+constexpr int kAudioMonoFrameBytes = 960;    // 10 ms s16 mono
+constexpr int kAudioStereoFrameBytes = 1920;  // 10 ms s16 stereo
 constexpr auto kFrameDeadlineTolerance = std::chrono::milliseconds(1);
+
+// Decoded audio frame channel count: exactly one frame is pushed per
+// callback, so 1920 bytes is unambiguously stereo (two batched mono frames
+// never coalesce into one push — the decoder emits one frame per decode).
+inline int AudioFrameChannels(size_t frame_bytes) {
+  return frame_bytes == size_t(kAudioStereoFrameBytes) ? 2 : 1;
+}
 #if defined(_WIN32) || defined(__OHOS__)
 constexpr auto kKeyboardCaptureRetryDelay = std::chrono::seconds(1);
 #endif
@@ -678,7 +684,9 @@ int SessionDeviceManager::InitializeAudioOutput() {
   SDL_AudioSpec desired_out{};
   desired_out.freq = 48000;
   desired_out.format = SDL_AUDIO_S16;
-  desired_out.channels = 1;
+  // Stereo device output: SDL's per-stream conversion upmixes mono peer
+  // audio and passes stereo peer audio through natively.
+  desired_out.channels = 2;
 
   auto open_device = [&]() {
     output_device_ = SDL_OpenAudioDevice(
@@ -747,12 +755,30 @@ void SessionDeviceManager::PushAudio(const std::string& remote_id,
                                      const char *data, size_t size) {
   if (!data || size == 0 || owner_.unattended_host_) return;
   if (InitializeAudioOutput() != 0) return;
+  // Channel count is self-describing in the frame size: exactly one 10 ms
+  // frame per push — 960 bytes mono or 1920 bytes stereo. A peer's
+  // negotiated format never changes mid-session, so the stream input format
+  // created here stays valid for the session's lifetime.
+  const int channels = AudioFrameChannels(size);
   auto found = output_streams_.find(remote_id);
+  if (found != output_streams_.end()) {
+    SDL_AudioSpec src{}, dst{};
+    if (SDL_GetAudioStreamFormat(found->second, &src, &dst) &&
+        src.channels != channels) {
+      // Defensive: a session renegotiating channels must not feed the wrong
+      // format into its stream. Renegotiation does not happen in the current
+      // protocol, so this only guards against memory corruption upstream.
+      LOG_WARN("Audio channel count changed for {}; rebuilding stream",
+               remote_id);
+      ClearAudio(remote_id);
+      found = output_streams_.end();
+    }
+  }
   if (found == output_streams_.end()) {
     SDL_AudioSpec spec{};
     spec.freq = 48000;
     spec.format = SDL_AUDIO_S16;
-    spec.channels = 1;
+    spec.channels = channels;
     auto* stream = SDL_CreateAudioStream(&spec, &spec);
     if (!stream) {
       LOG_ERROR("Failed to create output stream: {}", SDL_GetError());
@@ -774,7 +800,8 @@ void SessionDeviceManager::PushAudio(const std::string& remote_id,
     return;
   }
 
-  TrimAudioStreamToCap(stream, output_stream_dropped_bytes_[remote_id]);
+  TrimAudioStreamToCap(stream, channels,
+                       output_stream_dropped_bytes_[remote_id]);
 }
 
 void SessionDeviceManager::UpdateInteractions() {
