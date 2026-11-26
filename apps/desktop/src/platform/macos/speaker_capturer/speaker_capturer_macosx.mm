@@ -13,12 +13,18 @@
 #include "speaker_capturer_macosx.h"
 
 namespace {
-// A healthy enumeration+start sequence completes in ~140 ms end to end
-// (measured across the round-7/round-8 session logs). A dead request — the
-// same replayd disruption that kills video streams — never completes at all,
-// and at 2 s per operation a dead enumeration plus a dead start can hold the
-// retry loop for over 4 s per attempt. 750 ms is 5x the healthy total.
-constexpr auto kCaptureTimeout = std::chrono::milliseconds(750);
+// Per-operation dead-request bounds, from the round-9 measured distribution
+// of healthy starts in an uncontended system (n=16): enumeration median
+// 160 ms, max 189 ms; startCapture median ~220 ms, max ~495 ms. A dead
+// request — the same replayd disruption that kills video streams — never
+// completes at all, so the timeout is purely a dead-request detector and its
+// cost is retry delay. Enumeration is bounded at 750 ms (4x the worst healthy
+// measurement); startCapture keeps 2 s because healthy completions have been
+// observed within 1.5x of 750 ms, and a false expiry costs a retry attempt —
+// after 3 failed attempts audio is disabled for the session
+// (speaker_capture_controller.cpp max_attempts).
+constexpr auto kEnumerationTimeout = std::chrono::milliseconds(750);
+constexpr auto kCaptureTimeout = std::chrono::milliseconds(2000);
 
 std::string NSErrorToString(NSError* error) {
   if (!error) return "";
@@ -41,9 +47,9 @@ class CaptureReply {
     wake_.notify_one();
     return true;
   }
-  bool Wait(T& value) {
+  bool Wait(T& value, std::chrono::milliseconds timeout = kCaptureTimeout) {
     std::unique_lock<std::mutex> lock(mutex_);
-    if (!wake_.wait_for(lock, kCaptureTimeout, [&] { return ready_; })) {
+    if (!wake_.wait_for(lock, timeout, [&] { return ready_; })) {
       expired_ = true;
       return false;
     }
@@ -213,13 +219,14 @@ int SpeakerCapturerMacosx::Start() {
 
     // A cached SCDisplay becomes invalid after hotplug, sleep or a display
     // reconfiguration. Obtain a fresh snapshot on every start/reconnection.
+    const auto enumeration_started = std::chrono::steady_clock::now();
     auto content_reply = std::make_shared<CaptureReply<ContentReply>>();
     [SCShareableContent
         getShareableContentWithCompletionHandler:^(SCShareableContent* content, NSError* error) {
           content_reply->Complete({content, error});
         }];
     ContentReply content;
-    if (!content_reply->Wait(content)) {
+    if (!content_reply->Wait(content, kEnumerationTimeout)) {
       LOG_ERROR("Timed out refreshing system audio capture displays");
       return -1;
     }
@@ -241,7 +248,10 @@ int SpeakerCapturerMacosx::Start() {
       LOG_ERROR("No display available for system audio capture");
       return -1;
     }
-    LOG_INFO("Starting system audio capture with current display {}", display.displayID);
+    const auto enumeration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - enumeration_started).count();
+    LOG_INFO("Starting system audio capture with current display {} (enumeration took {} ms)",
+             display.displayID, enumeration_ms);
 
     SCStreamConfiguration* config = [[SCStreamConfiguration alloc] init];
     config.capturesAudio = YES;
@@ -284,6 +294,9 @@ int SpeakerCapturerMacosx::Start() {
       Stop();
       return -1;
     }
+    const auto start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - enumeration_started).count();
+    LOG_INFO("System audio stream start completed in {} ms", start_ms);
     return 0;
   }
 }
