@@ -34,6 +34,12 @@ function setup_options_and_dependencies(enable_dependencies)
         set_description("Build CrossDesk as a portable package that stores data beside the executable")
     option_end()
 
+    option("CROSSDESK_ENABLE_UPDATER")
+        set_default(false)
+        set_showmenu(true)
+        set_description("Build the automatic updater; off for this fork. A portable build never ships one regardless")
+    option_end()
+
     -- Keep options discoverable when switching back from a CLI-only build.
     if enable_dependencies == false then
         return

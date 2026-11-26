@@ -858,7 +858,7 @@ function setup_targets()
             end
         end
 
-    if not is_config("CROSSDESK_PORTABLE", true) then
+    if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
         target("crossdesk_updater")
             set_kind("binary")
             add_deps("updater_core", "single_instance")
@@ -922,7 +922,9 @@ function setup_targets()
         add_packages("libyuv", "tinyfiledialogs", "openssl3", "libsdl3", "nlohmann_json", "asio", "websocketpp")
         add_defines("ASIO_STANDALONE")
         add_files("apps/desktop/src/network/lan/*.cpp")
-        if not is_config("CROSSDESK_PORTABLE", true) then
+        -- The updater is a first-class feature switch, independent of the
+        -- portable layout. A portable build never ships one (upstream semantics).
+        if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
             add_defines("CROSSDESK_HAS_UPDATER=1", {public = true})
             add_deps("updater_core", "version_checker")
             add_files("apps/desktop/src/updater/update_controller.cpp")
@@ -1061,7 +1063,7 @@ function setup_targets()
     target("crossdesk")
         set_kind("binary")
         add_deps("rd_log", "desktop_common", "gui", "single_instance")
-        if not is_config("CROSSDESK_PORTABLE", true) then
+        if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
             add_deps("crossdesk_updater", {inherit = false})
         end
         add_files("apps/desktop/src/app/*.cpp")
