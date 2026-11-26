@@ -89,6 +89,15 @@ public:
   int StopKeyboardCapturer();
 
 #ifdef __APPLE__
+  // 0 = shortcuts go to the remote session (the tap swallows them locally),
+  // 1 = local shortcuts preferred (listen-only tap; copies still reach the
+  // peer). Applied at the next hook; when the capturer is already running
+  // natively the mode switches immediately by re-hooking, with a forced
+  // key release first so the peer never sees stuck modifiers. Inert while
+  // the Slint window-event fallback is active.
+  void SetKeyboardShortcutMode(int mode);
+  int GetKeyboardShortcutMode() const { return keyboard_shortcut_mode_; }
+
   // Game mode captures raw mouse deltas behind a hidden, frozen cursor.
   // scale_x/scale_y convert device points into the wire unit (fraction of
   // the controlled display per axis) and can be refreshed while active.
@@ -176,6 +185,7 @@ private:
   std::thread game_mode_sender_thread_;
   std::atomic<bool> game_mode_sender_stop_{false};
   void GameModeSenderMain();
+  int keyboard_shortcut_mode_ = 0;
 #endif
   // Guards display_info_list_ (UI thread writes, transport threads read).
   mutable std::mutex display_info_mutex_;

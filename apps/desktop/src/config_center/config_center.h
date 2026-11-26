@@ -87,6 +87,10 @@ class ConfigCenter {
   int SetSaveRemotePreviews(bool enabled);
   int SetPauseVideoWhenMinimized(bool enabled);
   int SetInputSensitivity(const std::string& device, int mouse_percent, int wheel_percent);
+  // mode: 0 = send shortcuts to the remote session (swallow locally),
+  // 1 = prefer local shortcuts (keys still reach the peer as copies).
+  // Anything outside [0, 1] is rejected; unknown devices default to 0.
+  int SetKeyboardShortcutMode(const std::string& device, int mode);
   int SetStreamWindowSize(const std::string& device, StreamWindowSize size);
   int SetPortableServicePromptSuppressed(bool suppressed);
   int SetLastPresentedRelease(const std::string& version);
@@ -131,6 +135,7 @@ class ConfigCenter {
   bool IsPauseVideoWhenMinimized() const;
   int GetMouseSensitivityPercent() const { return mouse_sensitivity_percent_.load(); }
   int GetWheelSensitivityPercent(const std::string& device) const;
+  int GetKeyboardShortcutMode(const std::string& device) const;
   std::optional<StreamWindowSize> GetStreamWindowSize(const std::string& device) const;
   bool IsPortableServicePromptSuppressed() const;
   std::string GetLastPresentedRelease() const;
@@ -184,6 +189,7 @@ class ConfigCenter {
   std::atomic<int> video_frame_rate_preference_{60};
   int legacy_wheel_sensitivity_percent_ = 100;
   std::map<std::string, int> device_wheel_sensitivity_;
+  std::map<std::string, int> device_keyboard_shortcut_mode_;
   bool portable_service_prompt_suppressed_ = false;
   std::string last_presented_release_;
   std::string file_transfer_save_path_ = "";

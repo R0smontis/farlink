@@ -255,6 +255,17 @@ int ConfigCenter::Load() {
         device_wheel_sensitivity_.emplace(device, value.get<int>());
     }
   }
+  const auto shortcut_modes = nlohmann::json::parse(
+      ini_->GetValue(section_, "device_keyboard_shortcut_mode", "{}"), nullptr, false);
+  device_keyboard_shortcut_mode_.clear();
+  if (shortcut_modes.is_object()) {
+    for (const auto& [device, value] : shortcut_modes.items()) {
+      if (!device.empty() && value.is_number_integer()) {
+        const auto mode = value.get<std::int64_t>();
+        if (mode >= 0 && mode <= 1) device_keyboard_shortcut_mode_.emplace(device, static_cast<int>(mode));
+      }
+    }
+  }
   auto sizes = nlohmann::json::parse(
       ini_->GetValue(section_, "device_stream_window_sizes", "{}"), nullptr, false);
   ini_->stream_window_sizes = sizes.is_object() ? std::move(sizes) : nlohmann::json::object();
@@ -777,6 +788,22 @@ int ConfigCenter::SetInputSensitivity(const std::string& device,
     return -1;
   }
   mouse_sensitivity_percent_.store(mouse_percent);
+  return 0;
+}
+
+int ConfigCenter::GetKeyboardShortcutMode(const std::string& device) const {
+  const auto found = device_keyboard_shortcut_mode_.find(device);
+  return found == device_keyboard_shortcut_mode_.end() ? 0 : found->second;
+}
+
+int ConfigCenter::SetKeyboardShortcutMode(const std::string& device, int mode) {
+  if (device.empty() || mode < 0 || mode > 1) return -1;
+  if (mode == GetKeyboardShortcutMode(device)) return 0;
+  auto devices = device_keyboard_shortcut_mode_;
+  devices[device] = mode;
+  if (StoreValues({{"device_keyboard_shortcut_mode", nlohmann::json(devices).dump()}}) != 0)
+    return -1;
+  device_keyboard_shortcut_mode_ = std::move(devices);
   return 0;
 }
 

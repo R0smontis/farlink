@@ -2420,6 +2420,27 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     }
     if (mouse != old_mouse) ResetPointerMotion();
   });
+#ifdef __APPLE__
+  stream->on_choose_keyboard_shortcut([this, &view](int index) {
+    const auto& device = view.session->device_preference_key_;
+    if (index != 0 && index != 1) return;
+    if (config_center_->SetKeyboardShortcutMode(device, index) != 0) {
+      view.window->set_keyboard_shortcut_index(
+          config_center_->GetKeyboardShortcutMode(device));
+      return;
+    }
+    // Same-device streams share the preference; the capture mode itself
+    // follows the device actually controlled, applied on focus — and here
+    // immediately when the changed stream is the controlled one.
+    for (auto& [_, other] : ui_->streams) {
+      if (other.session->device_preference_key_ == device)
+        other.window->set_keyboard_shortcut_index(index);
+    }
+    if (controlled_remote_id_ == view.session->remote_id_ &&
+        focus_on_stream_window_)
+      devices_.SetKeyboardShortcutMode(index);
+  });
+#endif
   stream->on_dismiss_remote_update([&view] {
     std::lock_guard lock(view.session->remote_version_mutex_);
     view.session->remote_update_dismissed_ = true;
@@ -4021,6 +4042,13 @@ void GuiApplication::SetStreamKeyboardFocus(StreamView& view, bool focused) {
   controlled_remote_id_ = id;
   focus_on_stream_window_ = true;
   start_keyboard_capturer_ = props->control_mouse_;
+#ifdef __APPLE__
+  // The capture shortcut policy is per controlled device: switching control
+  // applies that device's stored preference. Re-hooking inside is a no-op
+  // unless the mode actually changed.
+  devices_.SetKeyboardShortcutMode(
+      config_center_->GetKeyboardShortcutMode(props->device_preference_key_));
+#endif
   {
     std::unique_lock lock(remote_sessions_mutex_);
     for (const auto& [_, session] : remote_sessions_)
@@ -4217,6 +4245,10 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
       status == MiniRtcConnectionStatus::MiniRtcConnectionConnected);
   stream->set_game_mouse_active(game_mode_active_ &&
                                 game_mode_target_ == props->remote_id_);
+  stream->set_keyboard_shortcut_row_visible(
+      status == MiniRtcConnectionStatus::MiniRtcConnectionConnected);
+  stream->set_keyboard_shortcut_index(
+      config_center_->GetKeyboardShortcutMode(props->device_preference_key_));
 #endif
   {
     std::lock_guard lock(props->privacy_status_mutex_);

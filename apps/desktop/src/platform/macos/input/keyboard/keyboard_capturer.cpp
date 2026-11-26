@@ -105,6 +105,17 @@ static int ResolveVkCodeFromMacEvent(CGEventRef event, CGKeyCode key_code,
 CGEventRef eventCallback(CGEventTapProxy proxy, CGEventType type,
                          CGEventRef event, void* userInfo) {
   (void)proxy;
+  PlatformKeyboardCapturer* keyboard_capturer = (PlatformKeyboardCapturer*)userInfo;
+
+  // A tap the system disabled stops observing everything — including the
+  // keys that would re-enable it — so the re-enable must happen here, on
+  // the tap thread, exactly like the mouse capturer's. Returning the event
+  // (not nullptr) because a disabled tap cannot swallow anyway.
+  if (type == kCGEventTapDisabledByTimeout ||
+      type == kCGEventTapDisabledByUserInput) {
+    if (keyboard_capturer) keyboard_capturer->ReenableTap();
+    return event;
+  }
   if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) ==
       kCrossDeskInjectedEvent) {
     return event;
@@ -113,7 +124,6 @@ CGEventRef eventCallback(CGEventTapProxy proxy, CGEventType type,
     return event;
   }
 
-  PlatformKeyboardCapturer* keyboard_capturer = (PlatformKeyboardCapturer*)userInfo;
   if (!keyboard_capturer) {
     LOG_ERROR("keyboard_capturer is nullptr");
     return event;
@@ -124,58 +134,40 @@ CGEventRef eventCallback(CGEventTapProxy proxy, CGEventType type,
     CGKeyCode key_code = static_cast<CGKeyCode>(
         CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
     int vk_code = ResolveVkCodeFromMacEvent(event, key_code, is_key_down);
-    if (vk_code >= 0) {
-      g_on_key_action(vk_code, is_key_down, 0, false, g_user_ptr);
-    }
-  } else if (type == kCGEventFlagsChanged) {
-    CGEventFlags current_flags = CGEventGetFlags(event);
-    CGKeyCode key_code = static_cast<CGKeyCode>(
-        CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
-    auto key_it = CGKeyCodeToVkCode.find(key_code);
-    if (key_it == CGKeyCodeToVkCode.end()) {
+    if (vk_code < 0) {
       return nullptr;
     }
-    const int vk_code = key_it->second;
-
-    // caps lock
-    bool caps_lock_state = (current_flags & kCGEventFlagMaskAlphaShift) != 0;
-    if (caps_lock_state != keyboard_capturer->caps_lock_flag_) {
-      keyboard_capturer->caps_lock_flag_ = caps_lock_state;
-      g_on_key_action(vk_code, keyboard_capturer->caps_lock_flag_, 0, false,
-                      g_user_ptr);
+    if (keyboard_capturer->game_mode_active_.load(std::memory_order_acquire)) {
+      // Swallow-first ordering (see GameModeExitChord): the G key-up that
+      // ends the swallow state is itself swallowed.
+      if (keyboard_capturer->exit_chord_.SwallowsKey(vk_code)) {
+        keyboard_capturer->exit_chord_.Update(vk_code, is_key_down);
+        return nullptr;
+      }
+      if (keyboard_capturer->exit_chord_.Update(vk_code, is_key_down)) {
+        return nullptr;
+      }
     }
-
-    // shift
-    bool shift_state = (current_flags & kCGEventFlagMaskShift) != 0;
-    if (shift_state != keyboard_capturer->shift_flag_) {
-      keyboard_capturer->shift_flag_ = shift_state;
-      g_on_key_action(vk_code, keyboard_capturer->shift_flag_, 0, false,
-                      g_user_ptr);
+    g_on_key_action(vk_code, is_key_down, 0, false, g_user_ptr);
+  } else if (type == kCGEventFlagsChanged) {
+    const CGEventFlags current_flags = CGEventGetFlags(event);
+    CGKeyCode key_code = static_cast<CGKeyCode>(
+        CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
+    MacModifierKeyTracker::Emission emission;
+    if (!keyboard_capturer->modifier_tracker_.Update(
+            static_cast<int>(key_code), static_cast<uint64_t>(current_flags),
+            emission)) {
+      return nullptr;
     }
-
-    // control
-    bool control_state = (current_flags & kCGEventFlagMaskControl) != 0;
-    if (control_state != keyboard_capturer->control_flag_) {
-      keyboard_capturer->control_flag_ = control_state;
-      g_on_key_action(vk_code, keyboard_capturer->control_flag_, 0, false,
-                      g_user_ptr);
+    if (keyboard_capturer->game_mode_active_.load(std::memory_order_acquire) &&
+        (emission.vk == 0xA2 || emission.vk == 0xA3 || emission.vk == 0xA4 ||
+         emission.vk == 0xA5)) {
+      // Ctrl/Alt feed the chord tracker but are never swallowed themselves:
+      // in game mode they are ordinary input the peer expects, and the
+      // chord is defined by G alone.
+      keyboard_capturer->exit_chord_.Update(emission.vk, emission.is_down);
     }
-
-    // option
-    bool option_state = (current_flags & kCGEventFlagMaskAlternate) != 0;
-    if (option_state != keyboard_capturer->option_flag_) {
-      keyboard_capturer->option_flag_ = option_state;
-      g_on_key_action(vk_code, keyboard_capturer->option_flag_, 0, false,
-                      g_user_ptr);
-    }
-
-    // command
-    bool command_state = (current_flags & kCGEventFlagMaskCommand) != 0;
-    if (command_state != keyboard_capturer->command_flag_) {
-      keyboard_capturer->command_flag_ = command_state;
-      g_on_key_action(vk_code, keyboard_capturer->command_flag_, 0, false,
-                      g_user_ptr);
-    }
+    g_on_key_action(emission.vk, emission.is_down, 0, false, g_user_ptr);
   }
 
   return nullptr;
@@ -194,13 +186,20 @@ int PlatformKeyboardCapturer::Hook(OnKeyAction on_key_action, void* user_ptr) {
   g_unmapped_keycode_to_vk.clear();
   g_on_key_action = on_key_action;
   g_user_ptr = user_ptr;
+  modifier_tracker_.Clear();
+  exit_chord_.Reset();
 
   CGEventMask eventMask = (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp) |
                           (1 << kCGEventFlagsChanged);
 
+  // PreferLocal creates a listen-only tap: events are observed and forwarded
+  // to the peer but never consumed, so local shortcuts keep working. The
+  // option is fixed at creation time; switching modes requires re-hooking.
+  const CGEventTapOptions options =
+      shortcut_mode_ == ShortcutMode::kPreferLocal ? kCGEventTapOptionListenOnly
+                                                   : kCGEventTapOptionDefault;
   event_tap_ = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap,
-                                kCGEventTapOptionDefault, eventMask,
-                                eventCallback, this);
+                                options, eventMask, eventCallback, this);
 
   if (!event_tap_) {
     LOG_ERROR("CGEventTapCreate failed");
@@ -219,22 +218,36 @@ int PlatformKeyboardCapturer::Hook(OnKeyAction on_key_action, void* user_ptr) {
   CFRunLoopAddSource(CFRunLoopGetCurrent(), run_loop_source_,
                      kCFRunLoopCommonModes);
 
+  // Only caps lock can be seeded: its bit is a latch that mirrors the
+  // keyboard state exactly. The hold-modifier bits say nothing about which
+  // side is down, and seeding both sides would fabricate presses the peer
+  // never sees releases for; a modifier already held at hook time simply
+  // produces no press edge, and its release is suppressed as a non-edge.
   const CGEventFlags current_flags =
       CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState);
-  caps_lock_flag_ = (current_flags & kCGEventFlagMaskAlphaShift) != 0;
-  shift_flag_ = (current_flags & kCGEventFlagMaskShift) != 0;
-  control_flag_ = (current_flags & kCGEventFlagMaskControl) != 0;
-  option_flag_ = (current_flags & kCGEventFlagMaskAlternate) != 0;
-  command_flag_ = (current_flags & kCGEventFlagMaskCommand) != 0;
+  modifier_tracker_.SeedCapsLock(
+      (current_flags & kCGEventFlagMaskAlphaShift) != 0);
 
   CGEventTapEnable(event_tap_, true);
   return 0;
+}
+
+void PlatformKeyboardCapturer::ReenableTap() {
+  if (event_tap_) CGEventTapEnable(event_tap_, true);
 }
 
 int PlatformKeyboardCapturer::Unhook() {
   g_unmapped_keycode_to_vk.clear();
   g_on_key_action = nullptr;
   g_user_ptr = nullptr;
+  // Drop all captured-side state: a re-hook starts from a clean tracker,
+  // and the controller force-releases whatever the peer still sees held.
+  modifier_tracker_.Clear();
+  exit_chord_.Reset();
+  // The injected-modifier mirror was written in step with injected events;
+  // with capture gone those events no longer arrive, so a stale mirror
+  // would corrupt the flags of everything injected after re-hooking.
+  injected_modifier_state_.Clear();
 
   if (event_tap_) {
     CGEventTapEnable(event_tap_, false);

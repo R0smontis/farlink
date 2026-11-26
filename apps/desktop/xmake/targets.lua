@@ -170,6 +170,15 @@ function setup_targets()
         add_includedirs("apps/desktop/src/platform/macos/input")
         add_files("apps/desktop/tests/macos_keyboard_modifier_state_test.cpp")
 
+    -- Side-aware modifier edge tracking: scripted mac keycode/flags
+    -- sequences covering both-sides overlap, tap-disable resync and caps
+    -- lock latching. Pure logic, no platform dependencies.
+    target("macos_modifier_key_tracker_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src/platform/macos/input")
+        add_files("apps/desktop/tests/macos_modifier_key_tracker_test.cpp")
+
     target("macos_relative_mouse_injection_test")
         set_kind("binary")
         set_default(false)

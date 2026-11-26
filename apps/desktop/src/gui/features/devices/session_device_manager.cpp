@@ -3,6 +3,7 @@
 
 #ifdef __APPLE__
 #include "platform/macos/input/mouse/mouse_capturer.h"
+#include "platform/macos/input/keyboard/keyboard_capturer.h"
 #endif
 
 #include <SDL3/SDL_audio.h>
@@ -642,6 +643,14 @@ int SessionDeviceManager::StartKeyboardCapturer() {
     return 0;
   }
 
+#ifdef __APPLE__
+  if (auto* mac_keyboard = dynamic_cast<PlatformKeyboardCapturer*>(keyboard_capturer_)) {
+    mac_keyboard->SetShortcutMode(keyboard_shortcut_mode_ == 1
+        ? PlatformKeyboardCapturer::ShortcutMode::kPreferLocal
+        : PlatformKeyboardCapturer::ShortcutMode::kSendToRemote);
+  }
+#endif
+
   const int hook_ret = keyboard_capturer_->Hook(
       [](int key_code, bool is_down, uint32_t scan_code, bool extended,
          void *user_ptr) {
@@ -683,6 +692,28 @@ int SessionDeviceManager::StopKeyboardCapturer() {
   }
   return 0;
 }
+
+#ifdef __APPLE__
+void SessionDeviceManager::SetKeyboardShortcutMode(int mode) {
+  if (mode == keyboard_shortcut_mode_) return;
+  keyboard_shortcut_mode_ = mode;
+  // The tap option is fixed at creation time, so a mode change is only
+  // effective through re-hooking. Nothing to do while the capturer is not
+  // running or while the window-event fallback owns input — the mode is
+  // applied the next time StartKeyboardCapturer runs.
+  if (!owner_.keyboard_capturer_is_started_ ||
+      owner_.keyboard_capturer_uses_window_events_ || !keyboard_capturer_)
+    return;
+  // Release everything first: keys pressed under the old mode would
+  // otherwise stay stuck on the peer across the re-hook, because the new
+  // tap starts with a clean modifier tracker.
+  owner_.keyboard_.ForceReleasePressedKeys();
+  StopKeyboardCapturer();
+  if (StartKeyboardCapturer() == 0) {
+    owner_.keyboard_capturer_is_started_ = true;
+  }
+}
+#endif
 
 int SessionDeviceManager::InitializeAudioOutput() {
   if (output_device_) return 0;
@@ -1005,6 +1036,12 @@ int SessionDeviceManager::StartMouseCapturer(double scale_x, double scale_y,
   // which is not latency-critical.
   game_mode_sender_stop_.store(false, std::memory_order_release);
   game_mode_sender_thread_ = std::thread([this] { GameModeSenderMain(); });
+  // The keyboard tap must stop leaking the escape chord now that capture
+  // is live: the G that completes Ctrl+Alt+G, its auto-repeats and its
+  // key-up belong to the local release, never to the peer.
+  if (auto* mac_keyboard = dynamic_cast<PlatformKeyboardCapturer*>(keyboard_capturer_)) {
+    mac_keyboard->SetGameModeActive(true);
+  }
   LOG_INFO("Start mouse capturer (game mode)");
   return 0;
 }
@@ -1049,6 +1086,9 @@ int SessionDeviceManager::StopMouseCapturer() {
     game_mode_sender_thread_.join();
   }
   captured_mouse_inputs_.Clear();
+  if (auto* mac_keyboard = dynamic_cast<PlatformKeyboardCapturer*>(keyboard_capturer_)) {
+    mac_keyboard->SetGameModeActive(false);
+  }
   return ret;
 }
 

@@ -54,5 +54,17 @@ int main() {
                     crossdesk::kMacInjectedModifierCommand);
   ok &= ExpectEqual("left command up clears all", state.Update(0x5B, false), 0);
 
+  // Clear() resets every side at once: state accumulated across both sides
+  // of several modifiers must not survive an unhook, or the first injections
+  // after re-hooking would carry phantom flags.
+  state.Update(0xA0, true);
+  state.Update(0xA3, true);
+  state.Update(0xA5, true);
+  state.Update(0x5C, true);
+  state.Clear();
+  ok &= ExpectEqual("clear drops all modifier flags", state.flags(), 0);
+  ok &= ExpectEqual("state reusable after clear", state.Update(0xA1, true),
+                    crossdesk::kMacInjectedModifierShift);
+
   return ok ? 0 : 1;
 }

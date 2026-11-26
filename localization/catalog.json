@@ -11915,6 +11915,30 @@
       "fr": "Gigue audio",
       "es": "Jitter de audio",
       "pt-BR": "Jitter de áudio"
+    },
+    "键盘快捷键": {
+      "zh-Hans": "键盘快捷键",
+      "en": "Keyboard shortcuts",
+      "ru": "Сочетания клавиш",
+      "zh-Hant": "鍵盤快速鍵",
+      "ja": "キーボードショートカット",
+      "ko": "키보드 단축키",
+      "de": "Tastenkürzel",
+      "fr": "Raccourcis clavier",
+      "es": "Atajos de teclado",
+      "pt-BR": "Atalhos de teclado"
+    },
+    "优先本机": {
+      "zh-Hans": "优先本机",
+      "en": "Prefer local",
+      "ru": "Локальный приоритет",
+      "zh-Hant": "優先本機",
+      "ja": "ローカル優先",
+      "ko": "로컬 우선",
+      "de": "Lokal bevorzugen",
+      "fr": "Local d'abord",
+      "es": "Preferir local",
+      "pt-BR": "Preferir local"
     }
   },
   "desktop": {
@@ -12224,7 +12248,10 @@
     "stats_max_gap": "最大间隔",
     "stats_p95_gap": "p95 间隔",
     "stats_video_jitter": "视频抖动",
-    "stats_audio_jitter": "音频抖动"
+    "stats_audio_jitter": "音频抖动",
+    "keyboard_shortcuts": "键盘快捷键",
+    "shortcut_prefer_local": "优先本机",
+    "shortcut_send_to_remote": "发送到远端"
   },
   "slint": [
     "此端口已被占用，",
@@ -13003,7 +13030,9 @@
       "最大间隔",
       "p95 间隔",
       "视频抖动",
-      "音频抖动"
+      "音频抖动",
+      "键盘快捷键",
+      "优先本机"
     ],
     "android": [
       " · 已完成",
