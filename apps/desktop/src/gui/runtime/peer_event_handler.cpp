@@ -434,6 +434,7 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         // (which does not advertise it) would inherit the previous peer's
         // relative-mouse capability and be offered a mode it cannot serve.
         props->supports_relative_mouse_ = false;
+        props->clipboard_image_supported_ = false;
         props->preview_needs_sync_ = true;
         props->preview_ack_ = 0;
         props->preview_accepted_ = false;
@@ -720,6 +721,10 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
 #ifndef __OHOS__
   action.i.supports_file_clipboard = UserSessionFeaturesAvailable();
   action.i.file_clipboard_version = action.i.supports_file_clipboard ? 2 : 0;
+  // PNG clipboard images are implemented on every desktop platform backend
+  // (macOS pasteboard, Windows CF_DIB/WIC, Linux image/png MIME). Legacy
+  // peers never advertise this bit and never receive image frames.
+  action.i.supports_clipboard_image = UserSessionFeaturesAvailable();
 #endif
   for (std::size_t i = 0; i < action.i.display_num; ++i)
     LOG_INFO("Local display [{}:{}]", i + 1, action.i.display_list[i]);

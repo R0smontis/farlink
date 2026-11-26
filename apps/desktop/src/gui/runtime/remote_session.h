@@ -95,6 +95,9 @@ struct RemoteSession {
   std::atomic<bool> preview_fps15_supported_{false};
   std::atomic<bool> preview_bandwidth_supported_{false};
   std::atomic<bool> high_fps_supported_{false};
+  // Advertised by peers implementing the chunked PNG clipboard protocol.
+  // Image frames must never be sent to a session where this is false.
+  std::atomic<bool> clipboard_image_supported_{false};
   std::atomic<bool> preview_needs_sync_{true};
   std::atomic<uint32_t> preview_ack_{0};
   std::atomic<bool> preview_accepted_{false};

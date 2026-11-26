@@ -105,6 +105,7 @@ void ResetHostInfo(HostInfo& info) {
   info.supports_file_clipboard = false;
   info.file_clipboard_version = 0;
   info.supports_relative_mouse = false;
+  info.supports_clipboard_image = false;
 }
 
 void CopyHostName(HostInfo& info, const std::string& host_name) {
@@ -357,7 +358,8 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"supports_file_browser", action.i.supports_file_browser},
           {"supports_file_clipboard", action.i.supports_file_clipboard},
           {"file_clipboard_version", action.i.file_clipboard_version},
-          {"supports_relative_mouse", action.i.supports_relative_mouse}};
+          {"supports_relative_mouse", action.i.supports_relative_mouse},
+          {"supports_clipboard_image", action.i.supports_clipboard_image}};
       if (!action.display_resolutions.empty())
         object["host_info"]["display_resolutions"] =
             DisplayResolutionsJson(action.display_resolutions);
@@ -629,6 +631,8 @@ bool RemoteAction::FromJson(const std::string& json_string,
         output.i.file_clipboard_version = host_info_object.value("file_clipboard_version", 0);
         output.i.supports_relative_mouse =
             host_info_object.value("supports_relative_mouse", false);
+        output.i.supports_clipboard_image =
+            host_info_object.value("supports_clipboard_image", false);
         const std::string host_name =
             host_info_object.at("host_name").get<std::string>();
         CopyHostName(output.i, host_name);

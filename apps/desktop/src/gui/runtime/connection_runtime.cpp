@@ -248,6 +248,7 @@ void GuiRuntime::HandleServerControllerDisconnected(
     }
   }
   clipboard_.ForgetWeb(remote_id);
+  clipboard_.ForgetImage(remote_id);
   if (has_connected_controller) {
     remote_client_id_ = remaining_controller_id;
     return;

@@ -10,8 +10,10 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <string>
 
+#include "platform/macos/clipboard_image_mac.h"
 #include "platform/clipboard_backend.h"
 #include "rd_log.h"
+
 
 namespace crossdesk {
 
@@ -49,6 +51,36 @@ bool Clipboard::HasText() {
     return [types containsObject:NSPasteboardTypeString];
   }
 }
+
+bool Clipboard::HasImage() {
+  @autoreleasepool {
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    return macos_clipboard::ImageIsPrimaryPayload(pasteboard);
+  }
+}
+
+std::optional<std::string> Clipboard::GetImagePng() {
+  @autoreleasepool {
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    std::string error;
+    auto result = macos_clipboard::ReadImagePng(pasteboard, &error);
+    if (!result && !error.empty())
+      LOG_WARN("Clipboard::GetImagePng: {}", error);
+    return result;
+  }
+}
+
+bool Clipboard::SetImagePng(const std::string& png) {
+  @autoreleasepool {
+    NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+    if (!macos_clipboard::WriteImagePng(pasteboard, png)) {
+      LOG_ERROR("Clipboard::SetImagePng: invalid or rejected PNG payload");
+      return false;
+    }
+    return true;
+  }
+}
+
 
 std::optional<std::vector<std::string>> Clipboard::GetFiles() {
   @autoreleasepool {

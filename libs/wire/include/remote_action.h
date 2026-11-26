@@ -174,6 +174,10 @@ struct HostInfo {
   // Optional capability; absent means the host injects every move as an
   // absolute position and must never receive move_relative input.
   bool supports_relative_mouse;
+  // Optional capability; absent means the peer only understands plain-text
+  // clipboard messages on the clipboard stream. Senders must never deliver
+  // clipboard_image frames to peers that do not advertise it.
+  bool supports_clipboard_image;
 };
 
 struct ServiceStatus {

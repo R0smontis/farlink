@@ -4,6 +4,7 @@
 
 #include <app_version.h>
 #include <remote_action.h>
+#include <clipboard_image_wire.h>
 #include <stream_names.h>
 #include <nlohmann/json.hpp>
 
@@ -175,7 +176,14 @@ void PeerEventHandler::OnReceiveDataBuffer(
       if (viewer && !viewer->clipboard_allowed_.load()) {
         return;
       }
-
+      // Chunked binary image frames are distinguished by their magic prefix,
+      // which cannot begin a valid UTF-8 text paste. Peers advertising
+      // supports_clipboard_image use this path; everything else is text.
+      if (size >= clipboard_image::kHeaderBytes &&
+          clipboard_image::IsImageFrame(std::string_view(data, size))) {
+        runtime->clipboard_.ReceiveImageFrame(data, size, remote_id, handler);
+        return;
+      }
       runtime->clipboard_.QueueRemoteText(
           data, size, viewer ? remote_id : std::string{}, {},
           viewer ? std::function<bool()>{} : [runtime, remote_id] {
@@ -487,6 +495,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
           remote_action.i.supports_file_browser);
       runtime->clipboard_.SetFileSupport(remote_id, handler,
           remote_action.i.supports_file_clipboard && remote_action.i.file_clipboard_version == 2);
+      runtime->clipboard_.SetImageSupport(remote_id, handler,
+          remote_action.i.supports_clipboard_image);
     }
     bool is_client_mode = false;
     std::shared_ptr<GuiRuntime::RemoteSession> props;
@@ -526,6 +536,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->supports_relative_mouse_ =
             remote_action.i.supports_relative_mouse;
         props->high_fps_supported_ = remote_action.i.supports_high_fps;
+        props->clipboard_image_supported_ =
+            remote_action.i.supports_clipboard_image;
         props->video_settings_supported_ =
             remote_action.i.supports_video_settings;
         if (first_advertisement && props->video_settings_supported_) {

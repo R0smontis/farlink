@@ -64,8 +64,13 @@ void ClipboardController::Shutdown() {
     std::lock_guard lock(web_sessions_mutex_);
     web_sessions_.clear();
   }
+  {
+    std::lock_guard lock(image_sessions_mutex_);
+    image_sessions_.clear();
+  }
   std::lock_guard<std::mutex> lock(pending_mutex_);
   pending_remote_text_.reset();
+  pending_remote_image_.reset();
   pending_complete_ = {};
   pending_allowed_ = {};
   pending_reads_.clear();
@@ -251,6 +256,7 @@ void ClipboardController::ApplyPendingRemoteText() {
     return;
   }
   ApplyPendingWrite();
+  ApplyPendingImage();
   ApplyPendingFiles();
   std::deque<std::function<void(std::optional<std::string>)>> reads;
   {
@@ -310,6 +316,8 @@ void ClipboardController::ApplyPendingWrite() {
   // the baseline first so that event cannot echo the text back to the sender.
   last_text_ = std::move(*pending_text);
   ++clipboard_revision_;
+  // Remote text displaces the image baseline exactly like a local text copy.
+  last_image_hash_ = 0;
   last_files_.clear(); local_files_ = false;
   deferred_file_session_.reset();
   SendLocalFiles(true);
@@ -338,11 +346,45 @@ void ClipboardController::HandleLocalUpdate(bool external_event) {
     if (changed) {
       ++clipboard_revision_;
       last_files_ = std::move(files); last_text_.clear(); local_files_ = true;
-      deferred_local_session_.reset(); deferred_file_session_.reset();
+      // A file copy displaces the image baseline exactly like a text copy.
+      last_image_hash_ = 0;
     }
     SendLocalFiles(changed);
     return;
   }
+#endif
+#ifndef __OHOS__
+  // Image precedence: file URLs already returned above. An image is primary
+  // only when the platform backend says so (macOS type ordering; Windows /
+  // Linux require the absence of text). Text falls through below.
+  if (Clipboard::HasImage()) {
+    const auto image = Clipboard::GetImagePng();
+    if (!image) return;
+    const uint64_t hash = clipboard_image::HashPng(*image);
+    const bool changed = hash != last_image_hash_;
+    if (changed && Clipboard::IsEchoOfRemoteImage(hash)) {
+      // The user-facing clipboard content is exactly the image this host most
+      // recently applied from a peer. Sending it back would complete an
+      // A -> B -> A feedback loop; adopt it as the new baseline instead.
+      last_image_hash_ = hash;
+      last_text_.clear();
+      return;
+    }
+    if (!changed) return;
+    last_image_hash_ = hash;
+    ++clipboard_revision_;
+    last_text_.clear();
+    if (!last_files_.empty()) {
+      last_files_.clear(); local_files_ = false; deferred_file_session_.reset();
+      SendLocalFiles(true);
+    }
+    deferred_local_session_.reset();
+    SendImageToPeers(*image);
+    return;
+  }
+  // The clipboard no longer holds an image; reset the dedupe baseline so
+  // copying the same image again later re-sends it.
+  if (last_image_hash_) last_image_hash_ = 0;
 #endif
   if (!last_files_.empty()) {
     ++clipboard_revision_;
@@ -373,6 +415,9 @@ void ClipboardController::HandleLocalUpdate(bool external_event) {
   // remote write of the same value must not create a clipboard feedback loop.
   last_text_ = text;
   ++clipboard_revision_;
+  // A text copy displaces the image baseline: re-copying the same image
+  // afterwards is a fresh user action and must re-send.
+  last_image_hash_ = 0;
   deferred_local_session_.reset();
   if (text.empty()) {
     return;

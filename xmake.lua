@@ -118,6 +118,14 @@ if os.isdir(path.join(wire_dir, "tests")) then
         add_files(path.join(wire_dir,
             "tests/video_frame_rate_wire_test.cpp"))
     target_end()
+
+    target("clipboard_image_wire_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("crossdesk_wire")
+        add_files(path.join(wire_dir,
+            "tests/clipboard_image_wire_test.cpp"))
+    target_end()
 end
 
 if build_desktop then

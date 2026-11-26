@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 
+#include "clipboard_image_wire.h"
 #include "platform/clipboard_backend.h"
 #include "rd_log.h"
 #include "clipboard_file_uri.h"
@@ -149,6 +150,61 @@ bool Clipboard::HasText() {
   if (owner == None) owner = XGetSelectionOwner(display, XA_PRIMARY);
   XCloseDisplay(display);
   return owner != None;
+}
+
+namespace {
+
+// Linux image sync uses the freedesktop standard MIME type image/png, which
+// GTK, Qt and Chrome all export when an image is copied. The type order rule
+// from macOS does not exist in X11/Wayland selections, so the precedence is
+// the same conservative one Windows uses: an image is primary only when no
+// text representation is offered. Compile-checked, untested on macOS.
+constexpr char kImagePngMime[] = "image/png";
+
+bool ClipboardHasImageMime() {
+  return SDL_HasClipboardData(kImagePngMime);
+}
+
+}  // namespace
+
+bool Clipboard::HasImage() {
+  if (!ClipboardHasImageMime()) return false;
+  return !SDL_HasClipboardText();
+}
+
+std::optional<std::string> Clipboard::GetImagePng() {
+  if (!HasImage()) return std::nullopt;
+  size_t size = 0;
+  void* data = SDL_GetClipboardData(kImagePngMime, &size);
+  if (!data) return std::nullopt;
+  std::optional<std::string> result;
+  if (size > 0 && size <= clipboard_image::kMaxImageBytes &&
+      clipboard_image::ValidPngSignature(data, size))
+    result = std::string(static_cast<const char*>(data), size);
+  SDL_free(data);
+  return result;
+}
+
+bool Clipboard::SetImagePng(const std::string& png) {
+  if (!clipboard_image::ValidPngSignature(png.data(), png.size()) ||
+      png.size() > clipboard_image::kMaxImageBytes)
+    return false;
+  // SDL can retain userdata even when its backend reports a failed set. Keep
+  // ownership here and clear SDL's reference before replacing failed offers —
+  // the same contract the file-clipboard payload above relies on. A null
+  // cleanup callback means SDL never frees the buffer itself.
+  static std::unique_ptr<std::string> offered;
+  auto payload = std::make_unique<std::string>(png);
+  const char* types[] = {kImagePngMime};
+  const bool ok = SDL_SetClipboardData(
+      [](void* user, const char*, size_t* size) -> const void* {
+        auto* value = static_cast<std::string*>(user);
+        *size = value->size();
+        return value->data();
+      }, nullptr, payload.get(), types, 1);
+  if (ok) offered = std::move(payload);
+  else SDL_ClearClipboardData();
+  return ok;
 }
 
 std::optional<std::vector<std::string>> Clipboard::GetFiles() {

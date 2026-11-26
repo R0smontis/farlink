@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include "clipboard.h"
 #include "clipboard_file_transfer.h"
+#include "clipboard_image_wire.h"
 
 namespace crossdesk::gui_detail {
 struct RemoteSession;
@@ -54,6 +55,16 @@ public:
   void SetFileSupport(const std::string& remote_id, PeerEventHandler* source, bool supported);
   void ReceiveFiles(const char* data, size_t size, const std::string& remote_id,
                     PeerEventHandler* source);
+  // Image clipboard sync (PNG, chunked binary framing on the clipboard
+  // stream). SetImageSupport mirrors SetFileSupport: it is driven by the
+  // supports_clipboard_image capability in the peer's host information and
+  // gates both directions — legacy peers never receive image frames.
+  void SetImageSupport(const std::string& remote_id, PeerEventHandler* source,
+                       bool supported);
+  void ReceiveImageFrame(const char* data, size_t size,
+                         const std::string& remote_id,
+                         PeerEventHandler* source);
+  void ForgetImage(const std::string& remote_id);
   struct FileReceiveProgress {
     uint64_t id = 0;
     ClipboardFileTransfer::ReceiveProgress transfer;
@@ -67,6 +78,12 @@ public:
 private:
   struct WebSession;
   struct FileSession;
+  struct ImageSession {
+    std::weak_ptr<PeerEventHandler> events;
+    std::weak_ptr<gui_detail::RemoteSession> viewer;
+    bool controlling = false;
+    clipboard_image::Assembler assembler;
+  };
   bool FileSessionActive(const std::string& remote_id, const std::shared_ptr<FileSession>& session);
   void SendLocalFiles(bool changed);
   void ApplyPendingFiles();
@@ -78,6 +95,12 @@ private:
   int SendToController(const std::string& remote_id, const std::string& text);
   int SendToPeers(const std::string &text);
   void SendDeferredLocalText();
+  bool ImageSessionActive(const std::string& remote_id,
+                          const std::shared_ptr<ImageSession>& session);
+  int SendImageToController(const std::string& remote_id,
+                            const std::string& png);
+  int SendImageToPeers(const std::string& png);
+  void ApplyPendingImage();
 
   GuiRuntime &owner_;
   uint32_t event_type_ = 0;
@@ -117,6 +140,17 @@ private:
   uint64_t dismissed_file_progress_id_ = 0;
   std::optional<FileReceiveProgress> file_progress_;
   std::weak_ptr<FileSession> file_progress_session_;
+  std::mutex image_sessions_mutex_;
+  std::unordered_map<std::string, std::shared_ptr<ImageSession>> image_sessions_;
+  // UI thread only: the newest remote image waiting for SDL-thread apply.
+  std::optional<std::string> pending_remote_image_;
+  std::string pending_image_remote_id_;
+  std::weak_ptr<gui_detail::RemoteSession> pending_image_session_;
+  uint32_t next_image_transfer_id_ = 1;
+  // Hash of the local clipboard image most recently sent or suppressed; UI
+  // thread only. Breaks A->B->A loops when both ends copy the same pixels.
+  uint64_t last_image_hash_ = 0;
+
 };
 
 } // namespace crossdesk

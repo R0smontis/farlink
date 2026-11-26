@@ -330,6 +330,13 @@ function setup_targets()
             add_files("apps/desktop/tests/macos_capture_restart_tool.mm",
                 "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
             add_frameworks("ApplicationServices", "CoreGraphics")
+        target("clipboard_image_mac_test")
+            set_kind("binary")
+            set_default(false)
+            add_deps("crossdesk_wire")
+            add_includedirs("apps/desktop/src")
+            add_files("apps/desktop/tests/clipboard_image_mac_test.mm")
+            add_frameworks("AppKit", "Foundation")
     end
 
 
@@ -1047,6 +1054,8 @@ function setup_targets()
             add_files("apps/desktop/src/platform/windows/clipboard.cpp",
                 "apps/desktop/src/platform/windows/clipboard_file_offer.cpp")
             add_syslinks("ole32", "shlwapi", "uuid", {public = true})
+            -- WIC (windowscodecs) converts clipboard PNG <-> CF_DIB payloads.
+            add_syslinks("windowscodecs", {public = true})
         elseif is_os("macosx") then
             add_files("apps/desktop/src/platform/macos/clipboard.mm",
                 "apps/desktop/src/platform/macos/clipboard_file_offer.mm")

@@ -18,7 +18,34 @@ std::mutex g_monitor_mutex;
 std::string g_last_clipboard_text;
 Clipboard::OnClipboardChanged g_on_clipboard_changed;
 
+// Echo suppression state for images applied from a remote peer. The hash is
+// paired with the change count observed right after SetImagePng: any further
+// user copy invalidates the suppression even if content coincides.
+std::mutex g_remote_image_mutex;
+uint64_t g_remote_image_hash = 0;
+uint64_t g_remote_image_change = 0;
+
 }  // namespace
+
+void Clipboard::NoteRemoteImageApplied(uint64_t png_hash) {
+  if (!png_hash) return;
+  std::lock_guard<std::mutex> lock(g_remote_image_mutex);
+  g_remote_image_hash = png_hash;
+  g_remote_image_change = Clipboard::ChangeCount();
+}
+
+bool Clipboard::IsEchoOfRemoteImage(uint64_t png_hash) {
+  if (!png_hash) return false;
+  std::lock_guard<std::mutex> lock(g_remote_image_mutex);
+  if (g_remote_image_hash != png_hash || !g_remote_image_change) return false;
+  // Linux reports a constant zero change count; suppression there still works
+  // because a new user copy replaces the payload, which changes the hash the
+  // monitor compares. Platforms with real counters additionally pin the exact
+  // write so an unrelated copy-then-restore cannot echo.
+  const uint64_t change = Clipboard::ChangeCount();
+  if (change && change != g_remote_image_change) return false;
+  return true;
+}
 
 namespace platform {
 
