@@ -134,17 +134,16 @@ int ConfigCenter::Load() {
     ini_->SetBoolValue(section_, "desktop_realtime_rate_control", desktop_realtime_rate_control_.load());
     persist_config_migration = true;
   }
-  // Apple hosts default to hardware HEVC when the user has never chosen a
-  // codec; the SDP negotiation still falls back to H.264 with peers that do
-  // not offer H.265. Any stored value, including an explicit H.264, wins.
-#if defined(__APPLE__)
-  const long default_codec = static_cast<long>(VIDEO_ENCODE_FORMAT::H265);
-#else
-  const long default_codec = static_cast<long>(VIDEO_ENCODE_FORMAT::H264);
-#endif
-  const long codec = ini_->GetLongValue(section_, "video_encode_format", default_codec);
+  // The default and the invalid-value fallback are the same platform codec
+  // (kDefaultVideoEncodeFormat): a stored value that is present and valid wins,
+  // whether it is an explicit H.264 or H.265; anything else falls back to the
+  // single platform default. The SDP negotiation still falls back to H.264
+  // with peers that do not offer H.265.
+  const long codec = ini_->GetLongValue(
+      section_, "video_encode_format",
+      static_cast<long>(kDefaultVideoEncodeFormat));
   video_encode_format_ = codec >= 0 && codec <= static_cast<long>(VIDEO_ENCODE_FORMAT::H265)
-      ? static_cast<VIDEO_ENCODE_FORMAT>(codec) : VIDEO_ENCODE_FORMAT::H264;
+      ? static_cast<VIDEO_ENCODE_FORMAT>(codec) : kDefaultVideoEncodeFormat;
 
   const char* turn_mode_value = ini_->GetValue(section_, "turn_mode", nullptr);
   if (turn_mode_value != nullptr && strlen(turn_mode_value) > 0) {

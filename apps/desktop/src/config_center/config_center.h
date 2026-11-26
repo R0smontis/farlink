@@ -30,6 +30,17 @@ class ConfigCenter {
   };
   enum class CONNECTION_MODE { DEVICE_ID = 0, DIRECT_IP = 1 };
   using VIDEO_ENCODE_FORMAT = MiniRtcVideoCodec;
+#if defined(__APPLE__)
+  // Single source of truth for the platform's default codec, used by the member
+  // initializer, by Load()'s missing-key fallback, and by its invalid-value
+  // fallback. Apple hosts default to hardware HEVC; the SDP negotiation still
+  // falls back to H.264 with peers that do not offer H.265.
+  static constexpr VIDEO_ENCODE_FORMAT kDefaultVideoEncodeFormat =
+      VIDEO_ENCODE_FORMAT::H265;
+#else
+  static constexpr VIDEO_ENCODE_FORMAT kDefaultVideoEncodeFormat =
+      VIDEO_ENCODE_FORMAT::H264;
+#endif
   enum class TURN_MODE {
     DISABLED = 0,
     AUTO_UDP_TCP = 1,
@@ -137,15 +148,10 @@ class ConfigCenter {
   CONNECTION_MODE connection_mode_ = CONNECTION_MODE::DEVICE_ID;
   bool enable_ip_direct_ = true;
   std::atomic<bool> desktop_realtime_rate_control_{true};
-#if defined(__APPLE__)
-  // Apple hosts default to hardware HEVC when the user has never chosen a
-  // codec. This member initializer is what a fresh profile actually gets:
-  // Load() returns early (before the key is read) when no config file exists
-  // yet, so the in-memory default must already be the platform default.
-  VIDEO_ENCODE_FORMAT video_encode_format_ = VIDEO_ENCODE_FORMAT::H265;
-#else
-  VIDEO_ENCODE_FORMAT video_encode_format_ = VIDEO_ENCODE_FORMAT::H264;
-#endif
+  // This member initializer is what a fresh profile actually gets: Load()
+  // returns early (before the key is read) when no config file exists yet, so
+  // the in-memory default must already be the platform default.
+  VIDEO_ENCODE_FORMAT video_encode_format_ = kDefaultVideoEncodeFormat;
   TURN_MODE turn_mode_ = TURN_MODE::AUTO_UDP_TCP;
   static constexpr int kDefaultDirectStartBitrateBps = 2'500'000;
   static constexpr int kDefaultRelayStartBitrateBps = 1'500'000;
