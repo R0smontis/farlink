@@ -17,13 +17,16 @@ rule("crossdesk.about_resources")
             try {function() result = os.iorunv("git", table.join({"-C", directory}, args)) end}
             return result and result:trim() or ""
         end
+        -- The upstream project this fork is modified from. The fork's own commits do
+        -- not exist in the upstream repository, so the About source link points at the
+        -- upstream project root — the genuine origin of the derived work — rather than
+        -- at a fork revision that would 404 there.
         local repository = "https://github.com/kunkundi/crossdesk"
         local revision = git(root, {"rev-parse", "HEAD"})
-        local source = repository .. (revision ~= "" and "/tree/" .. revision or "")
+        local source = repository
         local mini_root = path.join(root, "deps/submodules/minirtc")
         local mini_revision = git(mini_root, {"rev-parse", "HEAD"})
-        local mini_source = "https://github.com/kunkundi/minirtc" ..
-            (mini_revision ~= "" and "/tree/" .. mini_revision or "")
+        local mini_source = "https://github.com/kunkundi/minirtc"
         local catalog = json.decode(read("apps/ios/CrossDeskMobile/Resources/ThirdPartyLicenses.json"))
         local known = {}
         for _, component in ipairs(catalog.components) do known[component.id] = component end
@@ -39,7 +42,7 @@ rule("crossdesk.about_resources")
             aom = {"libaom", "https://aomedia.googlesource.com/aom/+/v"}
         }
         local components = {{
-            id = "crossdesk", name = "CrossDesk", version = config.get("CROSSDESK_VERSION") or "0.0.0",
+            id = "crossdesk", name = "Farlink", version = config.get("CROSSDESK_VERSION") or "0.0.0",
             license = "GPL-3.0-only", sourceURL = source,
             documents = {{title = "GNU GPL v3", text = read("LICENSE")}}
         }, {
@@ -107,7 +110,7 @@ rule("crossdesk.about_resources")
         local data = json.encode({components = components, revision = revision:sub(1, 12),
             releaseNotes = json.decode(read("apps/desktop/resources/release-notes.json")),
             sourceURL = source,
-            buildURL = repository .. "/blob/" .. (revision ~= "" and revision or "main") .. "/docs/BUILD_EN.md"},
+            buildURL = repository .. "/blob/main/docs/BUILD_EN.md"},
             {pure = true, orderkeys = true})
         -- A byte array avoids MSVC's limit on individual/concatenated string literals.
         local bytes = {}
