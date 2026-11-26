@@ -168,7 +168,11 @@ class ConfigCenter {
   // the in-memory default must already be the platform default.
   VIDEO_ENCODE_FORMAT video_encode_format_ = kDefaultVideoEncodeFormat;
   TURN_MODE turn_mode_ = TURN_MODE::AUTO_UDP_TCP;
-  static constexpr int kDefaultDirectStartBitrateBps = 2'500'000;
+  // 8 Mbps matches the library default since D2 — measured safe on a
+  // constrained 4 Mbps WAN with probing enabled (wan/D2_BITRATE_AB.md) and
+  // strictly better for the opening seconds of fast-LAN sessions. Persisted
+  // user values are never rewritten upward by this change.
+  static constexpr int kDefaultDirectStartBitrateBps = 8'000'000;
   static constexpr int kDefaultRelayStartBitrateBps = 1'500'000;
   int direct_start_bitrate_bps_ = kDefaultDirectStartBitrateBps;
   int relay_start_bitrate_bps_ = kDefaultRelayStartBitrateBps;

@@ -105,10 +105,12 @@ void TestParseBitrateCapEnv() {
 // 3. StartingBitrates validation against the raised ceiling.
 // ---------------------------------------------------------------------------
 void TestStartingBitrates() {
-  // Defaults remain conservative: direct starts at 2.5 Mbps. (The 8 Mbps
-  // variant is benchmarked in the D2 A/B report before any default change.)
+  // Direct starts at 8 Mbps: the D2 A/B (wan/D2_BITRATE_AB.md cell 3)
+  // measured 8M+probe equal-or-smoother than 2.5M+probe on a constrained
+  // 4 Mbps WAN across every aggregate metric, so the default was raised.
+  // The relay start stays at the conservative 1.5 Mbps.
   StartingBitrates rates;
-  ExpectEq(rates.direct_bps, 2'500'000, "direct start default stays 2.5 Mbps");
+  ExpectEq(rates.direct_bps, 8'000'000, "direct start default is 8 Mbps");
   ExpectEq(rates.relay_bps, 1'500'000, "relay start default stays 1.5 Mbps");
 
   // Values that were invalid under the old 20 Mbps ceiling are valid now.
