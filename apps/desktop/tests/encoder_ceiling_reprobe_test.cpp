@@ -266,38 +266,15 @@ struct Simulation {
     int next = NextHigherRung(current_rung);
     if (next < 0) return;
 
-    // The controller's bandwidth-confirmed recovery does not climb the
-    // unmeasured interval one rung at a time, nor probe just under the failed
-    // size. When the desired target sits above the throughput ceiling it probes
-    // the geometric middle of the legal interval [base, ceiling base], so a
-    // success halves the unknown region upward and a failure halves it
-    // downward. Model that here — collect the rungs inside the interval and
-    // pick the middle one.
-    if (ceiling.BaseArea() > 0) {
-      int rungs[64];
-      int count = 0;
-      int step = current_rung;
-      for (int guard = 0; guard < 64; ++guard) {
-        const int up = step + 1;
-        if (up >= kLadderCount) break;
-        if (Area(kLadder[up]) > ceiling.BaseArea()) break;
-        rungs[count++] = up;
-        step = up;
-      }
-      if (count > 0) {
-        // Probe the lowest rung inside the interval. A failed trial costs a
-        // second of degraded frame rate, so the recovery does not gamble on
-        // unsustainable sizes; the smallest forward step almost never fails,
-        // and the fast cadence rather than the jump size makes the climb quick.
-        next = rungs[0];
-      } else {
-        // Even the next rung up already exceeds the ceiling base; nothing
-        // legal to probe inside the interval. Fall through to the re-probe
-        // path below, which governs the backoff for re-testing the failed
-        // size once its deadline expires.
-        next = NextHigherRung(current_rung);
-      }
-    }
+    // The controller's recovery climbs one rung at a time: the probe target is
+    // the next higher ladder rung (already computed above), full stop. The
+    // throughput ceiling below is what keeps the failed size and everything
+    // above it blocked — the target selection itself carries no interval
+    // search. (An earlier revision collected the rungs inside [base, ceiling
+    // base] and probed the lowest; that block was dead code — the lowest rung
+    // inside the interval is the next-higher rung by construction, so it never
+    // changed the target — and was removed. The climb is the one-rung-up
+    // default bounded by the ceiling base, plus the fast cadence.)
 
     const Rung target = kLadder[next];
 
@@ -1018,26 +995,25 @@ void TestMultiRungJumpDoesNotPinSkippedRungs() {
          "the unreachable size stays blocked after the failed jump");
 }
 
-// Scenario 9 — round-10: the bandwidth-confirmed recovery climbs the legal
-// interval [base, ceiling base] one rung at a time at the fast cadence instead
-// of re-probing just under the failed size or gambling on its geometric
-// midpoint. With an encoder
-// that sustains only the middle rungs, a failed jump to native must be
-// followed by a recovery that climbs the legal interval [base, ceiling base]
-// without re-probing the failed size and without gambling on unsustainable
-// sizes — the probe target is the lowest unmeasured rung in the interval, so
-// trials almost never fail, and the fast cadence rather than the jump size is
-// what makes the climb quick.
-void TestIntervalSearchConvergesToSustainableRung() {
-  std::fprintf(stderr, "[test] interval_search_converges_to_sustainable_rung\n");
+// Scenario 9 — round-10/11: after a failed multi-rung jump to native, the
+// recovery climbs one rung at a time — the probe target is always the next
+// higher ladder rung — while the throughput ceiling keeps the failed size and
+// everything above it blocked. With an encoder that sustains only the middle
+// rungs, the recovery must converge to the largest sustainable rung, must not
+// re-probe the failed native size while it is still blocked, and must not
+// gamble on unsustainable sizes: because each step is a single rung, the climb
+// is failure-free until it first tests the ceiling boundary, so the only
+// degraded time is the one trial that discovers that boundary.
+void TestOneRungClimbConvergesToSustainableRung() {
+  std::fprintf(stderr, "[test] one_rung_climb_converges_to_sustainable_rung\n");
 
-  // The probe target inside the interval is its lowest rung, mirroring the
-  // controller's rungs[0] selection over the rungs inside (base, ceiling base].
-  auto interval_probe = [](int base_rung, int ceiling_base_rung) {
-    return base_rung + 1 <= ceiling_base_rung ? base_rung + 1 : -1;
+  // The probe target is the next higher rung, mirroring the controller's
+  // one-rung-up default. There is no interval search in the target selection.
+  auto probe_target = [](int current_rung) {
+    return current_rung + 1 < kLadderCount ? current_rung + 1 : -1;
   };
-  Expect(interval_probe(0, kTopRung - 1) == 1,
-         "the probe target inside the interval is the lowest unmeasured rung");
+  Expect(probe_target(0) == 1,
+         "the probe target is the next higher ladder rung");
 
   // Drive the full simulation with an encoder that sustains rungs 0..2 but
   // collapses above rung 2. Seed a failed jump to native: ceiling base = rung 3
@@ -1061,11 +1037,11 @@ void TestIntervalSearchConvergesToSustainableRung() {
   std::fprintf(stderr, "  probes=%d degraded_ms=%lld final_rung=%d\n",
                sim.probe_launches, static_cast<long long>(sim.degraded_ms),
                sim.current_rung);
-  // Because the probe target is the lowest unmeasured rung, the climb is
-  // failure-free until it first tests the ceiling boundary: the only degraded
-  // time is the single trial that discovers rung 3 is over capacity. It must
-  // never hammer the failed native size — the blocked rungs stay untouched
-  // until the re-probe backoff re-examines them.
+  // Because each probe steps a single rung, the climb is failure-free until it
+  // first tests the ceiling boundary: the only degraded time is the single
+  // trial that discovers rung 3 is over capacity. It must never hammer the
+  // failed native size — the blocked rungs stay untouched until the re-probe
+  // backoff re-examines them.
   Expect(sim.degraded_ms <= 3000,
          "the recovery does not gamble on unsustainable sizes");
   for (size_t i = 0; i + 1 < sim.probe_launch_times.size(); ++i) {
@@ -1089,7 +1065,7 @@ int main() {
   TestRecoveryAfterThrottleLift();
   TestBoundedProbeRateForPermanentEncoder();
   TestMultiRungJumpDoesNotPinSkippedRungs();
-  TestIntervalSearchConvergesToSustainableRung();
+  TestOneRungClimbConvergesToSustainableRung();
   if (g_failures == 0) {
     std::fprintf(stderr, "PASS: all encoder-ceiling reprobe scenarios\n");
     return 0;
