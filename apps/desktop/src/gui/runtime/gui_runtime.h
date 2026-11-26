@@ -68,6 +68,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   void ApplyLanSettings();
   bool LanAvailable() const;
   void TickLan();
+  std::vector<lan::DiscoveredPeer> LanDiscoveredPeers() const;
   void BeginShutdown();
   bool ShutdownDrained();
   void RegisterStreams(MiniRtcPeerPtr* peer, size_t display_count);

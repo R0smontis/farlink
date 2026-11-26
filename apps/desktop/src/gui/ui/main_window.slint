@@ -36,6 +36,12 @@ export struct RecentConnection {
     platform: string,
 }
 
+export struct LanDiscoveredPeer {
+    device-id: string,
+    hostname: string,
+    endpoint: string,
+}
+
 export struct ReleaseNoteBlock {
     content: styled-text,
     section-gap: bool,
@@ -592,6 +598,10 @@ export component MainWindow inherits Window {
     callback lan-cancel-connect;
     callback lan-prepare-connect(string) -> string;
     callback lan-connect(string, string, string, bool);
+    in property <[LanDiscoveredPeer]> lan-discovered-peers;
+    // A discovered peer chip was clicked: the C++ side populates the LAN
+    // endpoint input and forwards into the ordinary connection prompt.
+    callback lan-connect-discovered(string);
     private property <bool> prompt-password-required: root.lan-open || root.connection-password-required;
     private property <bool> prompt-validating: root.lan-open ? root.lan-connecting : root.connection-validating;
     private property <bool> prompt-pending: root.lan-open ? root.lan-connecting : root.connection-pending;
@@ -1711,7 +1721,45 @@ export component MainWindow inherits Window {
                 if !self.preview-hovered { root.recent-tooltip-visible = false; }
             }
 
-            Text { x: 20px; y: 0px; width: recent-group-filter.x - self.x - 12px; height: 32px; text: UiStrings.recent-connections; font-size: 15px; font-weight: 600; color: WorkbenchStyle.text; vertical-alignment: center; }
+            recent-title := Text { x: 20px; y: 0px; width: recent-group-filter.x - self.x - 12px; height: 32px; text: UiStrings.recent-connections; font-size: 15px; font-weight: 600; color: WorkbenchStyle.text; vertical-alignment: center; }
+            // LAN discovery peer chips: presence-only telemetry, no prose.
+            // The row borrows the otherwise-unused header space in LAN mode
+            // (the group filter is hidden there); zero-height when no peer is
+            // known, so an empty discovery table never shifts the layout.
+            if root.lan-mode && root.lan-discovered-peers.length > 0: Rectangle {
+                x: recent-title.x + min(recent-title.preferred-width + 16px, 200px);
+                y: 4px;
+                width: parent.width - self.x - 20px;
+                height: 24px;
+                clip: true;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    for peer in root.lan-discovered-peers: peer-chip := Rectangle {
+                        height: 24px;
+                        width: chip-text.preferred-width + 20px;
+                        border-radius: 12px;
+                        background: chip-touch.has-hover ? #dce8fa : #eef3fb;
+                        chip-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            enabled: !root.connection-pending && !root.lan-connecting && !root.lan-open;
+                            clicked => {
+                                root.lan-connect-discovered(peer.endpoint);
+                            }
+                        }
+                        chip-text := Text {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: (peer.hostname == "" ? peer.endpoint : peer.hostname + " · " + peer.endpoint);
+                            font-size: 11px;
+                            color: WorkbenchStyle.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
             recent-group-filter := GroupFilter {
                 visible: !root.lan-mode;
                 x: parent.width - self.width - 20px; y: 0px;

@@ -98,6 +98,7 @@ private:
   void SyncAudioPlayback();
   void SaveGalleryWindowState();
   void SyncAnnouncements();
+  void SyncLanDiscoveredPeers();
   void SyncConnectionDialog();
   void SyncPlatformDialogs();
   void SyncStreamWindows();

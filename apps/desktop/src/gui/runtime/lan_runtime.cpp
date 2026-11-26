@@ -1,6 +1,7 @@
 #include <display_stream_id.h>
 #include <video_frame_rate.h>
 
+#include "platform.h"
 #include "rd_log.h"
 #include "runtime/gui_runtime.h"
 #if defined(__linux__) && !defined(__OHOS__)
@@ -123,6 +124,7 @@ void GuiRuntime::InitializeLan() {
   try {
     lan_ = std::make_unique<lan::SessionManager>(
         path_manager_->GetConfigPath() / "lan", std::move(hooks));
+    lan_->SetDiscoveryHostname(GetHostName());
   } catch (const std::exception& error) {
     lan_error_ = error.what();
     LOG_ERROR("LAN initialization failed: {}", error.what());
@@ -153,6 +155,11 @@ void GuiRuntime::TickLan() {
     InitializeLan();
   }
 }
+std::vector<lan::DiscoveredPeer> GuiRuntime::LanDiscoveredPeers() const {
+  if (!lan_) return {};
+  return lan_->DiscoveredPeers();
+}
+
 void GuiRuntime::ConnectLan(const std::string& address, unsigned port,
                             std::string password, bool remember_password) {
   if (!LanAvailable() || (lan_connecting_ && !lan_connecting_->closing))

@@ -1197,6 +1197,9 @@ struct GuiApplication::SlintUi {
   bool gallery_previous_mouse_control = false;
   std::shared_ptr<slint::VectorModel<ui::RecentConnection>> recent_model =
       std::make_shared<slint::VectorModel<ui::RecentConnection>>();
+  std::shared_ptr<slint::VectorModel<ui::LanDiscoveredPeer>> lan_peer_model =
+      std::make_shared<slint::VectorModel<ui::LanDiscoveredPeer>>();
+  std::string lan_peer_signature;
   struct TransferNotification {
     std::optional<slint::ComponentHandle<ui::FileTransferNotification>> window;
     RemoteSession::FileTransferInfo info;
@@ -1555,6 +1558,7 @@ void GuiApplication::InitializeUi() {
 #endif
   RegisterFontAwesome(ui_->main->window());
   ui_->main->set_recent_connections(ui_->recent_model);
+  ui_->main->set_lan_discovered_peers(ui_->lan_peer_model);
   ui_->gallery_path = std::filesystem::path(cache_path_) / "deskhub.json";
   if (!ui_->gallery.Load(ui_->gallery_path))
     LOG_WARN("Could not load DeskHub workspace; original file retained");
@@ -2093,6 +2097,13 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
     }
     main->set_lan_connecting(lan_connecting_ != nullptr);
     main->set_lan_message(UiText(lan_error_));
+  });
+  main->on_lan_connect_discovered([this, main](slint::SharedString endpoint) {
+    // Populate the endpoint input exactly as if the user had typed it, then
+    // reuse the ordinary prompt path: validation, remembered-password
+    // prefill, retry-after display and the PAKE password prompt are unchanged.
+    main->set_remote_id_input(endpoint);
+    main->invoke_request_lan_connection(endpoint);
   });
   main->on_connect_requested(
       [this](slint::SharedString id) { ConnectFromUi(std::string(id)); });
@@ -2869,6 +2880,7 @@ void GuiApplication::Tick() {
         ui_->main->set_lan_access_warning(UiText(issue->error));
       }
     }
+    SyncLanDiscoveredPeers();
   }
   const auto lan_message = lan_error_.rfind("ConnectionFailed", 0) == 0
                                ? std::string("ConnectionFailed")
@@ -3830,6 +3842,37 @@ void GuiApplication::SyncMainWindow() {
       model.begin(), model.end(),
       [](const ui::RecentConnection& connection) { return connection.online; });
   ui_->recent_model->set_vector(std::move(model));
+}
+
+void GuiApplication::SyncLanDiscoveredPeers() {
+  const auto peers = LanDiscoveredPeers();
+  // Rebuild the model only when the visible content changes; last_seen ticks
+  // would otherwise rewrite the list every two seconds and restart hover
+  // states. Peer order is stable because Discovery sorts by hostname/id for
+  // equal freshness and the table rarely churns.
+  std::string signature;
+  for (const auto& peer : peers) {
+    signature += peer.device_id;
+    signature += '\0';
+    signature += peer.hostname;
+    signature += '\0';
+    signature += peer.address;
+    signature += '\0';
+    signature += std::to_string(peer.port);
+    signature += '\n';
+  }
+  if (signature == ui_->lan_peer_signature) return;
+  ui_->lan_peer_signature = signature;
+  std::vector<ui::LanDiscoveredPeer> model;
+  model.reserve(peers.size());
+  for (const auto& peer : peers) {
+    ui::LanDiscoveredPeer item{};
+    item.device_id = UiText(peer.device_id);
+    item.hostname = UiText(peer.hostname);
+    item.endpoint = UiText(lan::FormatEndpoint(peer.address, peer.port));
+    model.push_back(std::move(item));
+  }
+  ui_->lan_peer_model->set_vector(std::move(model));
 }
 
 void GuiApplication::SyncConnectionDialog() {

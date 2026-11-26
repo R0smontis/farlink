@@ -18,6 +18,7 @@
 #include <optional>
 
 #include "lan_auth_limiter.h"
+#include "lan_discovery.h"
 #include "lan_transport.h"
 #include "minirtc.h"
 
@@ -107,6 +108,11 @@ class SessionManager {
   void Stop();
   bool Quiescent() const;
   std::string PendingWork() const;
+  // Presence announcement never carries credentials; peers still authenticate
+  // through the unchanged PAKE password exchange after connecting.
+  void SetDiscoveryHostname(const std::string& hostname);
+  std::vector<DiscoveredPeer> DiscoveredPeers() const;
+
 
  private:
   void Prepare(const SessionPtr& session);
@@ -153,6 +159,10 @@ class SessionManager {
   std::chrono::steady_clock::time_point interface_check_{};
   std::future<std::pair<std::string, nlohmann::json>> reset_job_;
   std::string new_password_, access_password_;
+  // Null in controller-only mode: the embedded controller has no listener and
+  // must never announce presence.
+  std::unique_ptr<Discovery> discovery_;
+  std::string discovery_hostname_;
 };
 }  // namespace crossdesk::lan
 

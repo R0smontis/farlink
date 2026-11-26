@@ -109,6 +109,12 @@ SessionManager::SessionManager(std::filesystem::path path, Hooks hooks)
       hooks_.error("LAN password is not ready");
     }
   }
+  Discovery::Config discovery_config;
+  discovery_config.device_id = identity_.id();
+  discovery_config.listen_all = identity_.listen_all();
+  discovery_config.password_set = !access_password_.empty();
+  discovery_ = std::make_unique<Discovery>(std::move(discovery_config));
+  if (!discovery_->Start()) discovery_.reset();
 }
 SessionManager::SessionManager(MiniRtcPeerPtr* controller_peer, Hooks hooks)
     : controller_peer_(controller_peer), identity_(std::filesystem::path{}), hooks_(std::move(hooks)) {
@@ -604,11 +610,21 @@ void SessionManager::Close(const SessionPtr& s, const std::string& error) {
 void SessionManager::Stop() {
   if (stopping_) return;
   stopping_ = true;
+  // Presence stops with the listeners: a device that no longer accepts LAN
+  // connections must not keep advertising itself.
+  if (discovery_) discovery_->Stop();
   for (const auto& [_, listener] : listeners_) transport_.StopAccept(listener.id);
   listeners_.clear();
   listener_errors_.clear();
   listener_warnings_.clear();
   for (auto& [_, s] : sessions_) Close(s);
+}
+void SessionManager::SetDiscoveryHostname(const std::string& hostname) {
+  discovery_hostname_ = hostname;
+}
+std::vector<DiscoveredPeer> SessionManager::DiscoveredPeers() const {
+  if (!discovery_) return {};
+  return discovery_->Peers();
 }
 bool SessionManager::Quiescent() const {
   return (!stopping_ || network_drained_) && sessions_.empty() &&
@@ -838,6 +854,20 @@ void SessionManager::Tick() {
                        }))
         Close(s, "InterfaceRemoved");
   }
+  if (discovery_ && !stopping_) {
+    discovery_->SetPresence(discovery_hostname_, identity_.listen_all(),
+                            !access_password_.empty());
+    unsigned advertised_port = 0;
+    if (const auto wildcard = listeners_.find(kAllInterfaces);
+        wildcard != listeners_.end()) {
+      advertised_port = wildcard->second.port;
+    } else if (!listeners_.empty()) {
+      advertised_port = listeners_.begin()->second.port;
+    }
+    // tcp_port == 0 suppresses broadcasting while no listener is bound.
+    discovery_->Tick(advertised_port);
+  }
+
   for (auto it = cleanup_jobs_.begin(); it != cleanup_jobs_.end();)
     if (Ready(*it)) {
       try {

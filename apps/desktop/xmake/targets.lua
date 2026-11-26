@@ -341,6 +341,19 @@ function setup_targets()
             "apps/desktop/src/gui/runtime")
         add_files("apps/desktop/tests/cursor_position_test.cpp")
 
+    target("lan_discovery_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("rd_log")
+        add_packages("spdlog")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/log",
+            "apps/desktop/src/network/lan")
+        add_files("apps/desktop/tests/lan_discovery_test.cpp",
+            "apps/desktop/src/network/lan/lan_discovery.cpp")
+        if is_os("windows") then
+            add_syslinks("Ws2_32", "Iphlpapi")
+        end
+
     target("single_instance")
         set_kind("object")
         add_deps("path_manager")
