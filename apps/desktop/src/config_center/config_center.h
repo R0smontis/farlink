@@ -66,6 +66,7 @@ class ConfigCenter {
   int SetIpDirectEnabled(bool enabled);
   int SetDesktopRealtimeRateControl(bool enabled);
   int SetVideoEncodeFormat(VIDEO_ENCODE_FORMAT video_encode_format);
+  int SetVideoFrameRatePreference(int frame_rate);
   int SetTurnMode(TURN_MODE turn_mode);
   int SetForceRelay(bool force_relay);
   int SetServerHost(const std::string& signal_server_host);
@@ -104,6 +105,12 @@ class ConfigCenter {
   }
   TURN_MODE GetTurnMode() const;
   int GetDirectStartBitrateBps() const;
+  // The controller-side preferred capture frame-rate tier (30/60/90/120/144),
+  // applied at session start as min(preference, peer capability, display rate).
+  // It is the user's remembered choice, never rewritten by a clamp — only by
+  // the user picking a tier. Default 60. Distinct from the legacy per-connection
+  // video_frame_rate key the migration deletes.
+  int GetVideoFrameRatePreference() const { return video_frame_rate_preference_.load(); }
   int GetRelayStartBitrateBps() const;
   bool IsReceiverPaddingProbingDisabled() const;
   bool IsForceRelay() const;
@@ -174,6 +181,7 @@ class ConfigCenter {
   std::atomic<bool> save_remote_previews_{true};
   std::atomic<bool> pause_video_when_minimized_{true};
   std::atomic<int> mouse_sensitivity_percent_{100};
+  std::atomic<int> video_frame_rate_preference_{60};
   int legacy_wheel_sensitivity_percent_ = 100;
   std::map<std::string, int> device_wheel_sensitivity_;
   bool portable_service_prompt_suppressed_ = false;

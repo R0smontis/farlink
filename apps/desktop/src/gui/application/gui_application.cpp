@@ -2574,35 +2574,22 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     }
   });
 #endif
-  stream->on_change_video_settings([&view](int quality, int frame_rate_index,
+  stream->on_change_video_settings([this, &view](int quality, int frame_rate_index,
                                           int preference) {
     const auto& props = view.session;
-    if (!props->peer_ ||
-        props->connection_status_.load() != MiniRtcConnectionStatus::MiniRtcConnectionConnected)
-      return;
-    RemoteAction action{};
-    action.type = ControlType::video_settings;
-    // Tiers above 60 reach the wire only when the host advertised high-frame-
-    // rate support; otherwise the request clamps to the legacy 30/60 format.
-    action.vs = {quality,
-                 NegotiatedVideoFrameRate(VideoFrameRateForIndex(frame_rate_index),
-                                          props->high_fps_supported_.load()),
-                 preference};
-    if (!ValidVideoSettings(action.vs))
-      return;
-    {
-      std::lock_guard lock(props->video_settings_mutex_);
-      if (!props->video_settings_supported_) return;
-      action.vs.request_id = props->video_settings_.request_id + 1;
-      const auto message = action.to_json();
-      if (MiniRtcSendReliableDataFrame(props->peer_, message.data(), message.size(),
-                                props->control_data_label_.c_str()) != 0)
-        return;
-      props->video_settings_ = action.vs;
-      props->video_settings_pending_ = true;
-      props->video_settings_failed_ = false;
-      props->video_settings_request_tick_ = SDL_GetTicks();
-    }
+    const int requested = VideoFrameRateForIndex(frame_rate_index);
+    // Remember the tier the user actually asked for — not the clamped value —
+    // so the preference survives a temporary capability/display limitation and
+    // is applied at the next session start. A failed write does not block the
+    // in-session change.
+    if (IsValidVideoFrameRate(requested))
+      config_center_->SetVideoFrameRatePreference(requested);
+    // The requested tier is clamped by both the peer capability and the display
+    // this window is on: a tier above either cannot be presented, so the wire
+    // request drops to the highest tier that is actually available.
+    const int frame_rate = EffectiveVideoFrameRate(
+        requested, props->high_fps_supported_.load(), view.stream_refresh_hz);
+    SendVideoSettingsRequest(*props, quality, frame_rate, preference);
   });
   stream->on_change_remote_resolution([this, &view](int index) {
     const auto& props = view.session;

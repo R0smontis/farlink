@@ -796,7 +796,7 @@ function setup_targets()
         end
         add_files("apps/desktop/src/config_center/*.cpp")
         add_includedirs("apps/desktop/src", "apps/desktop/src/config_center",
-            "deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/api", "libs/wire/include",
             {public = true})
 
     if is_os("linux") then

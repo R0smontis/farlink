@@ -169,6 +169,15 @@ void GuiRuntime::ConnectLan(const std::string& address, unsigned port,
     props->connection_status_ = MiniRtcConnectionStatus::MiniRtcConnectionConnecting;
     props->connection_auth_.Complete();
     {
+      // Seed the requested capture tier from the controller-side preference;
+      // capability and display clamps are applied downstream, so the effective
+      // starting rate is min(preference, capability, display).
+      std::lock_guard settings_lock(props->video_settings_mutex_);
+      const int preferred = config_center_->GetVideoFrameRatePreference();
+      props->video_settings_.frame_rate = preferred;
+      props->applied_video_settings_.frame_rate = preferred;
+    }
+    {
       std::unique_lock lock(remote_sessions_mutex_);
       remote_sessions_[session->key] = props;
     }

@@ -19,6 +19,8 @@
 
 #include "config_center.h"
 
+#include <video_frame_rate.h>
+
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -83,28 +85,79 @@ int main() {
            "written H264 must be restored after reload");
   }
 
-  // 2. An invalid stored value sanitizes to the safe H.264 default. The codec
-  //    is validated on load as 0 <= codec <= H265, so an out-of-range value
-  //    must not survive.
+  // 2. An invalid stored value sanitizes to the SAME platform default a
+  //    missing key uses — never a hard-coded H.264. On Apple that is HEVC,
+  //    elsewhere H.264. One platform default, one behaviour for both cases.
+#if defined(__APPLE__)
+  const MiniRtcVideoCodec kPlatformDefault = MiniRtcVideoCodec::H265;
+#else
+  const MiniRtcVideoCodec kPlatformDefault = MiniRtcVideoCodec::H264;
+#endif
   SeedIni(config, "[Settings]\nvideo_encode_format = 99\n");
   {
     ConfigCenter reader(config);
-    Expect(reader.GetVideoEncodeFormat() == MiniRtcVideoCodec::H264,
-           "out-of-range stored codec must fall back to H264");
+    Expect(reader.GetVideoEncodeFormat() == kPlatformDefault,
+           "out-of-range stored codec must fall back to the platform default");
   }
 
-  // 3. A fresh profile (key absent) uses the platform default: HEVC on Apple,
-  //    H.264 elsewhere. Either way it must be a valid, decodable codec.
+  // 3. A fresh profile (key absent) uses the same platform default.
   fs::remove(config);
   {
     ConfigCenter fresh(config);
-#if defined(__APPLE__)
-    Expect(fresh.GetVideoEncodeFormat() == MiniRtcVideoCodec::H265,
-           "Apple fresh profile must default to HEVC");
-#else
-    Expect(fresh.GetVideoEncodeFormat() == MiniRtcVideoCodec::H264,
-           "non-Apple fresh profile must default to H264");
-#endif
+    Expect(fresh.GetVideoEncodeFormat() == kPlatformDefault,
+           "fresh profile must use the platform default");
+  }
+
+  // 4. Frame-rate preference round-trip. The stored preference is the user's
+  //    remembered choice and is NEVER rewritten by a capability/display clamp:
+  //    it round-trips verbatim, while the session-start rate is derived from it
+  //    through EffectiveVideoFrameRate(preference, capability, display).
+  fs::remove(config);
+  {
+    ConfigCenter writer(config);
+    if (writer.SetVideoFrameRatePreference(144) != 0) {
+      std::cerr << "FAIL: SetVideoFrameRatePreference(144) must succeed\n";
+      ++failures;
+    }
+  }
+  {
+    ConfigCenter reader(config);
+    // Stock peer (no high-fps) + the persisted 144 preference: the session
+    // opens at 60 (the highest tier a stock peer offers), but the preference
+    // itself stays 144 so a later capable peer/display can use it.
+    Expect(reader.GetVideoFrameRatePreference() == 144,
+           "stored 144 preference must round-trip unclamped");
+    Expect(crossdesk::EffectiveVideoFrameRate(reader.GetVideoFrameRatePreference(),
+                                              /*peer_high_fps=*/false, 60.0) == 60,
+           "stock peer must clamp the session to 60 even with a 144 preference");
+    // Capable peer + 120 Hz panel: session opens at 120.
+    Expect(crossdesk::EffectiveVideoFrameRate(reader.GetVideoFrameRatePreference(),
+                                              /*peer_high_fps=*/true, 120.0) == 120,
+           "capable peer + 120 Hz panel must yield a 120 session");
+  }
+
+  // 5. Invalid / missing frame-rate preference falls back to the 60 default.
+  SeedIni(config, "[Settings]\nvideo_frame_rate_preference = 999\n");
+  {
+    ConfigCenter reader(config);
+    Expect(reader.GetVideoFrameRatePreference() == 60,
+           "invalid frame-rate preference must fall back to 60");
+  }
+  fs::remove(config);
+  {
+    ConfigCenter fresh(config);
+    Expect(fresh.GetVideoFrameRatePreference() == 60,
+           "fresh profile frame-rate preference must default to 60");
+  }
+
+  // 6. A non-tier value the setter rejects must not be written.
+  fs::remove(config);
+  {
+    ConfigCenter writer(config);
+    Expect(writer.SetVideoFrameRatePreference(75) != 0,
+           "SetVideoFrameRatePreference must reject a non-tier value");
+    Expect(writer.GetVideoFrameRatePreference() == 60,
+           "rejected frame-rate preference must leave the default in place");
   }
 
   fs::remove_all(dir);

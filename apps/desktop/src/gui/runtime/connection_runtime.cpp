@@ -710,6 +710,17 @@ int GuiRuntime::ConnectTo(const std::string& remote_id, const char* password,
         props->control_mouse_ = !background;
         props->enable_mouse_control_ = !background;
         props->audio_capture_button_pressed_ = !background;
+        {
+          // Seed the requested capture tier from the controller-side preference
+          // instead of the hardcoded 60. Capability and display clamps are
+          // applied downstream (demand negotiation and the display re-evaluation)
+          // once they become known, so the effective starting rate is
+          // min(preference, capability, display) as required.
+          std::lock_guard settings_lock(props->video_settings_mutex_);
+          const int preferred = config_center_->GetVideoFrameRatePreference();
+          props->video_settings_.frame_rate = preferred;
+          props->applied_video_settings_.frame_rate = preferred;
+        }
         memcpy(&props->params_, &params_, sizeof(MiniRtcParams));
         props->params_.user_id = props->local_id_.c_str();
         props->peer_events_ = std::make_shared<PeerEventHandler>(*this);

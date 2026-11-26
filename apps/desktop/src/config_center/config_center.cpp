@@ -1,5 +1,6 @@
 #include "config_center.h"
 
+#include <video_frame_rate.h>
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -234,6 +235,14 @@ int ConfigCenter::Load() {
     return IsValidInputSensitivity(percent) ? static_cast<int>(percent) : 100;
   };
   mouse_sensitivity_percent_ = read_sensitivity("mouse_sensitivity_percent");
+  {
+    // The controller-side preferred capture tier. Anything that is not a valid
+    // tier (30/60/90/120/144) — a corrupt value, or one written by an older or
+    // newer build — falls back to the 60 fps default rather than surviving.
+    const long preferred = ini_->GetLongValue(section_, "video_frame_rate_preference", 60);
+    video_frame_rate_preference_ =
+        IsValidVideoFrameRate(static_cast<int>(preferred)) ? static_cast<int>(preferred) : 60;
+  }
   legacy_wheel_sensitivity_percent_ = read_sensitivity("wheel_sensitivity_percent");
   const auto devices = nlohmann::json::parse(
       ini_->GetValue(section_, "device_wheel_sensitivity", "{}"), nullptr, false);
@@ -328,6 +337,8 @@ int ConfigCenter::Save() {
   ini_->SetBoolValue(section_, "desktop_realtime_rate_control", desktop_realtime_rate_control_.load());
   ini_->SetLongValue(section_, "video_encode_format",
                     static_cast<long>(video_encode_format_));
+  ini_->SetLongValue(section_, "video_frame_rate_preference",
+                    static_cast<long>(video_frame_rate_preference_.load()));
   ini_->SetLongValue(section_, "turn_mode", static_cast<long>(turn_mode_));
   ini_->SetLongValue(section_, "direct_start_bitrate_bps", direct_start_bitrate_bps_);
   ini_->SetLongValue(section_, "relay_start_bitrate_bps", relay_start_bitrate_bps_);
@@ -499,6 +510,13 @@ int ConfigCenter::SetVideoEncodeFormat(VIDEO_ENCODE_FORMAT format) {
   if (format > VIDEO_ENCODE_FORMAT::H265) return -1;
   if (StoreValues({{"video_encode_format", std::to_string(static_cast<int>(format))}}) != 0) return -1;
   video_encode_format_ = format;
+  return 0;
+}
+
+int ConfigCenter::SetVideoFrameRatePreference(int frame_rate) {
+  if (!IsValidVideoFrameRate(frame_rate)) return -1;
+  if (StoreValues({{"video_frame_rate_preference", std::to_string(frame_rate)}}) != 0) return -1;
+  video_frame_rate_preference_ = frame_rate;
   return 0;
 }
 
