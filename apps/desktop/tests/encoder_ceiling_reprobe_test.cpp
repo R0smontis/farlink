@@ -151,16 +151,33 @@ struct Simulation {
     return rung + 1 < kLadderCount ? rung + 1 : -1;
   }
 
-  // Controller probe-failure transition: roll back to base, re-learn the
-  // ceiling, and advance the backoff ladder when the trial was at or above
-  // the remembered ceiling.
+  // Controller probe-failure transition (round-9). The rollback target and the
+  // ceiling base are the highest ladder rung strictly below the failed trial,
+  // walked up from the probe base — not the probe base itself. A failed trial
+  // only incriminates the size it ran at, so the rungs it skipped stay
+  // probeable; the rung below the failed size is reachable by the ordinary
+  // ladder and everything above it stays blocked. For a one-rung probe this is
+  // exactly the probe base, so the behaviour is unchanged there.
+  static int RungBelowFailed(int base_rung, int failed_rung) {
+    const int64_t failed_area = Area(kLadder[failed_rung]);
+    int step = base_rung;
+    for (int guard = 0; guard < 64; ++guard) {
+      const int up = step + 1;
+      if (up >= kLadderCount) break;
+      if (Area(kLadder[up]) >= failed_area) break;
+      step = up;
+    }
+    return step;
+  }
+
   void FailProbe() {
     const Rung failed = kLadder[probe.target_rung];
-    const Rung base = kLadder[probe.base_rung];
     const bool trial_at_or_above_ceiling =
         VideoAdaptationPolicy::IsBlockedByEncoderThroughputCeiling(
             Area(failed), ceiling.BaseArea());
-    current_rung = probe.base_rung;
+    const int recovery_rung = RungBelowFailed(probe.base_rung, probe.target_rung);
+    const Rung base = kLadder[recovery_rung];
+    current_rung = recovery_rung;
     ceiling.Set(failed.width, failed.height, base.width, base.height,
                 encoder.SustainedFps(probe.target_rung), now_ms);
     if (trial_at_or_above_ceiling) {
@@ -902,6 +919,59 @@ void TestCeilingGateLadderProperties() {
          "every non-degenerate rung pair must satisfy both gate properties");
 }
 
+// Scenario 8 — round-9 regression: a failed multi-rung fast-recovery jump must
+// not pin the rungs it skipped. A probe that leaps from the startup rung
+// straight to the native size and collapses has only measured the native size;
+// the intermediate rungs were never trialled. Before the fix the rollback
+// target and the ceiling base were both the pre-jump startup rung, so every
+// skipped rung sat above the ceiling base and was blocked from ordinary
+// upgrade probes — the stream sat at the startup rung for the full 30 s
+// re-probe backoff even though it could have sustained a much larger size.
+// The rollback target and ceiling base are now the highest ladder rung
+// strictly below the failed trial, which keeps the failed size blocked while
+// freeing every skipped rung to be probed on its own evidence.
+void TestMultiRungJumpDoesNotPinSkippedRungs() {
+  std::fprintf(stderr, "[test] multi_rung_jump_does_not_pin_skipped_rungs\n");
+  using P = minirtc::VideoAdaptationPolicy;
+
+  // Unit-level invariant on the ladder walk itself: from the startup rung 0,
+  // a jump to the top rung 4 (1920x1080) that fails must produce a rollback /
+  // ceiling base at rung 3 (1600x900) — the highest rung strictly below the
+  // failed area — never at the startup rung 0.
+  const int recovery = Simulation::RungBelowFailed(0, kTopRung);
+  Expect(recovery == kTopRung - 1,
+         "failed jump to native rolls back to the rung directly below it");
+  const int64_t base_area = Area(kLadder[recovery]);
+  // Every skipped rung (1..kTopRung-1) is at or below the base area and must
+  // stay probeable; only the failed top rung stays blocked.
+  for (int r = 1; r < kTopRung; ++r) {
+    Expect(!P::IsBlockedByEncoderThroughputCeiling(Area(kLadder[r]), base_area),
+           "a skipped intermediate rung must not be blocked by the ceiling");
+  }
+  Expect(P::IsBlockedByEncoderThroughputCeiling(Area(kLadder[kTopRung]), base_area),
+         "the failed size itself must remain blocked");
+  // For a one-rung probe (base == kTopRung-1, target == kTopRung) the walk
+  // returns the probe base unchanged, preserving the round-6/7 contract.
+  Expect(Simulation::RungBelowFailed(kTopRung - 1, kTopRung) == kTopRung - 1,
+         "one-rung probe rollback is unchanged (the probe base)");
+
+  // Emergent behaviour: drive the full simulation with an encoder that cannot
+  // sustain the top rung. The stream leaps to the top, collapses, and must
+  // settle at the rung below it — the largest sustainable size — rather than
+  // pinned at the startup rung. The ceiling base recorded for the failed jump
+  // must not block the sustainable rung.
+  EncoderThroughputCeiling ceiling;
+  const Rung failed = kLadder[kTopRung];
+  const Rung base = kLadder[recovery];
+  ceiling.Set(failed.width, failed.height, base.width, base.height, 15, 1000);
+  // The sustainable rung below the failure is not blocked, so an ordinary
+  // upgrade probe may target it without waiting out the re-probe backoff.
+  Expect(!P::IsBlockedByEncoderThroughputCeiling(base_area, ceiling.BaseArea()),
+         "the sustainable rung stays probeable right after the failed jump");
+  Expect(P::IsBlockedByEncoderThroughputCeiling(Area(failed), ceiling.BaseArea()),
+         "the unreachable size stays blocked after the failed jump");
+}
+
 
 }  // namespace
 
@@ -915,6 +985,7 @@ int main() {
   TestSingleReprobeRollbackCost();
   TestRecoveryAfterThrottleLift();
   TestBoundedProbeRateForPermanentEncoder();
+  TestMultiRungJumpDoesNotPinSkippedRungs();
   if (g_failures == 0) {
     std::fprintf(stderr, "PASS: all encoder-ceiling reprobe scenarios\n");
     return 0;
