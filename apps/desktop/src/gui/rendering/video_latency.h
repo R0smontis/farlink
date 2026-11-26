@@ -91,14 +91,33 @@ class VideoLatencyStats
     std::atomic<int> frame_height{0};
 
     // Mirrored from the transport report when it arrives; empty means the
-    // negotiated codec was not yet reported.
+    // codec was not yet reported. The report names the codec implementation
+    // (e.g. "VideoToolbox (H.265)"); the observability lines want the wire
+    // codec family, so it is normalized here to the H265/H264 spelling the
+    // transport summary uses.
     void StoreCodec(const std::string& codec) {
       std::lock_guard lock(codec_mutex_);
-      codec_ = codec;
+      codec_ = NormalizeCodecName(codec);
     }
     std::string LoadCodec() const {
       std::lock_guard lock(codec_mutex_);
       return codec_;
+    }
+
+    static std::string NormalizeCodecName(const std::string& name) {
+      if (name.find("H.265") != std::string::npos ||
+          name.find("H265") != std::string::npos ||
+          name.find("HEVC") != std::string::npos ||
+          name.find("hevc") != std::string::npos)
+        return "H265";
+      if (name.find("H.264") != std::string::npos ||
+          name.find("H264") != std::string::npos ||
+          name.find("h264") != std::string::npos)
+        return "H264";
+      if (name.find("AV1") != std::string::npos) return "AV1";
+      if (name.find("VP9") != std::string::npos) return "VP9";
+      if (name.find("VP8") != std::string::npos) return "VP8";
+      return name;
     }
 
    private:
