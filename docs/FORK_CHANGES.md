@@ -52,6 +52,24 @@ The fork extends upstream CrossDesk across these independent areas:
   inter-presentation gap), a non-interactive `--lan-connect` direct-connect entry that keeps
   the password out of the command line, and hardware encoder priming in the bundled minirtc
   (see its own `docs/FORK_CHANGES.md`).
+- **Zero-config LAN auto-discovery (D7b)** — the host and controller discover each other
+  on the local network without manual address entry, using a cross-platform UDP broadcast
+  / multicast beacon-and-listen exchange (`network/lan/lan_discovery`). Discovered peers
+  surface in the main window for one-click connect. Implemented in the portable LAN layer
+  with Windows (`Ws2_32`/`Iphlpapi`) and POSIX backends.
+- **4 MiB UDP socket buffers (D7a)** — the bundled minirtc's libnice is patched to request
+  4 MiB UDP send/receive buffers (best-effort, clamped by the OS ceiling), reducing
+  kernel-level packet drops on high-bitrate high-frame-rate sessions.
+- **Dynamic high-FPS degradation ladder (D6a)** — when bandwidth or encoder pressure
+  forces degradation, the bundled minirtc now steps the per-stream frame-rate cap down
+  (toward 96/60/48) *before* lowering spatial resolution, preserving razor-sharp native
+  pixels on high-FPS screen content; see `deps/submodules/minirtc/docs/FORK_CHANGES.md`.
+- **macOS hardware HEVC 4:4:4 10-bit true color (D10)** — end-to-end 4:4:4 10-bit HEVC on
+  Apple Silicon: ScreenCaptureKit captures `xf44`, a Metal RG16 full-range shader renders
+  it without a CPU NV12 fallback, and a `Color 4:2:0 / 4:4:4` toggle in the stream window
+  persists the host preference. Chroma is negotiated at connection time
+  (`a=x-minirtc-video-444:1`); peers that do not advertise it fall back to 4:2:0. Default
+  remains 4:2:0.
 
 ## Modified upstream files
 
