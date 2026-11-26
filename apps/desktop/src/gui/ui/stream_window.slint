@@ -423,6 +423,36 @@ export component StreamWindow inherits Window {
     in property <bool> game-mouse-available: false;
     in property <bool> game-mouse-active: false;
     callback toggle-game-mouse;
+    // Entry notice for game-mode capture: while captured the hardware cursor
+    // is frozen, so the control bar and its tooltips are unreachable. The
+    // escape chord is therefore shown once, as a transient surface, at the
+    // moment capture begins. It expires on its own and disappears
+    // immediately when capture ends.
+    private property <bool> game-mouse-notice-expired: false;
+    changed game-mouse-active => {
+        if root.game-mouse-active {
+            root.game-mouse-notice-expired = false;
+            // Same one-shot idiom as resolution-confirmation-timer: the
+            // running binding is what update_timers follows, restart resets
+            // the deadline when re-entering before expiry.
+            game-mouse-notice-timer.running = true;
+            game-mouse-notice-timer.restart();
+        } else {
+            game-mouse-notice-timer.running = false;
+        }
+    }
+    game-mouse-notice-timer := Timer {
+        interval: 4s;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.game-mouse-notice-expired = true;
+        }
+    }
+    // Exported for binding-level tests: the surface visibility the runtime
+    // and the renderer both follow.
+    out property <bool> game-mouse-notice-visible:
+        root.game-mouse-active && !root.game-mouse-notice-expired;
     in property <bool> privacy-visible: true;
     in property <bool> privacy-can-toggle: false;
     in property <bool> privacy-active: false;
@@ -1374,7 +1404,9 @@ export component StreamWindow inherits Window {
                     x: mouse-button.x + root.control-button-step;
                     y: (parent.height - self.height) / 2;
                     icon: FontAwesomeIcons.gamepad; selected: root.game-mouse-active;
-                    tooltip: root.game-mouse-active ? StreamStrings.release-game-mouse : StreamStrings.game-mouse;
+                    // Static tooltip: while captured the pointer is frozen, so the
+                    // button is unreachable; the entry notice carries the escape chord.
+                    tooltip: StreamStrings.game-mouse;
                     clicked => { root.close-control-menus(); root.toggle-game-mouse(); }
                 }
                 audio-button := ControlBarButton {
@@ -2052,6 +2084,30 @@ export component StreamWindow inherits Window {
                 service-warning-text := Text {
                     x: 12px; y: 10px; width: parent.width - 24px;
                     text: root.service-warning; color: #805b12;
+                    font-size: 12px; wrap: word-wrap;
+                }
+            }
+            // Transient entry notice for game-mode capture. It carries no
+            // input items, so the frozen-but-captured pointer keeps flowing
+            // to the peer underneath it; is-local-control-area already
+            // excludes it.
+            if root.game-mouse-notice-visible: FlatSurface {
+                x: (parent.width - self.width) / 2;
+                y: 12px;
+                width: min(game-mouse-notice-measure.preferred-width + 24px, parent.width - 32px);
+                height: game-mouse-notice-text.preferred-height + 20px;
+                background: #fff4d6;
+                outline-color: #e8c56a;
+                border-radius: UiRadius.surface;
+                z: 12;
+                game-mouse-notice-measure := Text {
+                    visible: false;
+                    text: StreamStrings.release-game-mouse;
+                    font-size: 12px;
+                }
+                game-mouse-notice-text := Text {
+                    x: 12px; y: 10px; width: parent.width - 24px;
+                    text: StreamStrings.release-game-mouse; color: #805b12;
                     font-size: 12px; wrap: word-wrap;
                 }
             }

@@ -132,7 +132,7 @@ int main() {
   //   * state: game_mouse_active is what the runtime sets while captured;
   //   * the toggle callback fires so the runtime can enter/exit the mode;
   //   * the localized state string (release_game_mouse) is bound so the
-  //     button tooltip can convey the active state + escape action.
+  //     transient entry notice can convey the escape action.
   stream->set_game_mouse_available(false);
   stream->set_game_mouse_active(false);
   settle();
@@ -140,12 +140,20 @@ int main() {
     std::cerr << "Game-mouse properties must round-trip to false\n";
     return 1;
   }
-  // Capability present -> the control becomes available; state -> active.
+  // Capability present -> the control becomes available.
   stream->set_game_mouse_available(true);
-  stream->set_game_mouse_active(true);
   settle();
-  if (!stream->get_game_mouse_available() || !stream->get_game_mouse_active()) {
-    std::cerr << "Game-mouse properties must round-trip to true\n";
+  if (!stream->get_game_mouse_available()) {
+    std::cerr << "game_mouse_available must round-trip to true\n";
+    return 1;
+  }
+  // The escape/state string must round-trip so the notice can show it. The
+  // localized strings live on the StreamStrings global, exactly where
+  // ui_localization writes them.
+  auto &stream_strings = stream->global<crossdesk::ui::StreamStrings>();
+  stream_strings.set_release_game_mouse(slint::SharedString("Release Game Mouse (Ctrl+Alt+G)"));
+  if (std::string(stream_strings.get_release_game_mouse()) != "Release Game Mouse (Ctrl+Alt+G)") {
+    std::cerr << "release-game-mouse string must round-trip\n";
     return 1;
   }
   // The toggle callback is how the runtime enters/exits the mode.
@@ -156,15 +164,54 @@ int main() {
     std::cerr << "toggle-game-mouse callback must fire\n";
     return 1;
   }
-  // The escape/state string must round-trip so the tooltip can show it. The
-  // localized strings live on the StreamStrings global, exactly where
-  // ui_localization writes them.
-  auto &stream_strings = stream->global<crossdesk::ui::StreamStrings>();
-  stream_strings.set_release_game_mouse(slint::SharedString("Release Game Mouse (Ctrl+Alt+G)"));
-  if (std::string(stream_strings.get_release_game_mouse()) != "Release Game Mouse (Ctrl+Alt+G)") {
-    std::cerr << "release-game-mouse string must round-trip\n";
+  // --- Transient entry notice ---
+  // While captured the hardware cursor is frozen, so neither the toolbar
+  // button nor its tooltip is reachable. The escape chord is instead shown
+  // once as a transient surface when capture begins. It must:
+  //   * be hidden before entry;
+  if (stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must be hidden before capture\n";
     return 1;
   }
+  //   * appear the moment capture is entered;
+  stream->set_game_mouse_active(true);
+  settle();
+  if (!stream->get_game_mouse_active() || !stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must appear on capture entry\n";
+    return 1;
+  }
+  //   * stay up through a short capture (the notice must not vanish
+  //     instantly);
+  settle(10);  // ~160ms into the 4s window
+  if (!stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must not expire before the timeout\n";
+    return 1;
+  }
+  //   * expire on its own after the 4s timeout. Timers follow wall time;
+  //     keep pumping until the deadline passes, exactly as the event loop
+  //     would during a live capture.
+  settle(280);  // entry + ~4.8s total
+  if (stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must expire after the timeout\n";
+    return 1;
+  }
+  //   * reappear on a later entry and clear immediately on exit.
+  stream->set_game_mouse_active(false);
+  settle();
+  stream->set_game_mouse_active(true);
+  settle();
+  if (!stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must reappear on re-entry\n";
+    return 1;
+  }
+  stream->set_game_mouse_active(false);
+  settle();
+  if (stream->get_game_mouse_notice_visible()) {
+    std::cerr << "Game-mouse notice must clear the moment capture ends\n";
+    return 1;
+  }
+  std::cout << "Game-mouse notice binding passed.\n";
   std::cout << "Game-mouse control binding passed.\n";
   std::cout << "Stream stats retained-buffer rendering passed.\n";
+  return 0;
 }
