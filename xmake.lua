@@ -2,6 +2,14 @@ set_project("crossdesk")
 set_xmakever("3.1.1")
 set_license("GPL-3.0-only")
 
+-- Minimum macOS deployment target. Upstream passes --target_minver=14.0 only in
+-- CI (.github/workflows/build.yml), so a plain local `xmake f` otherwise defaults
+-- to the host SDK version (e.g. macos27.2) and compiles out every availability
+-- guard below it — the binary would misbehave on older Macs while LaunchServices
+-- still allows it. Pin the default here; the CLI flag still wins when passed.
+-- Unconditional: the macosx platform config is ignored on other platforms.
+set_config("target_minver", "14.0")
+
 local source_dir = os.getenv("CROSSDESK_SOURCE_DIR") or os.scriptdir()
 local desktop_platform = is_plat("windows", "macosx", "linux") or
     (not is_plat("iphoneos", "android", "harmony") and is_host("windows", "macosx", "linux"))
