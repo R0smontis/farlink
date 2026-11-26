@@ -219,6 +219,30 @@ function setup_targets()
         set_default(false)
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/game_mode_scale_test.cpp")
+
+    -- Deterministic unit test for the session-cumulative inter-presentation
+    -- gap metric (D8). Header-only accumulator driven by supplied fake
+    -- monotonic timestamps; no clock, GPU or network. Not part of the default
+    -- build, like the other narrow tests.
+    target("inter_present_gap_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/inter_present_gap_test.cpp")
+
+    -- End-to-end emission test: drives the real Record() path with fake
+    -- monotonic timestamps and the real LogVideoSessionSummary() teardown,
+    -- then reads back the actual log file to verify the inter_present line.
+    -- Links the production serializer translation unit and rd_log, so the
+    -- exact emitted format is exercised rather than a copy.
+    target("inter_present_emission_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("rd_log")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui",
+            "apps/desktop/src/log")
+        add_files("apps/desktop/tests/inter_present_emission_test.cpp",
+            "apps/desktop/src/gui/rendering/video_latency.cpp")
     target("captured_mouse_queue_tsan_stress")
         set_kind("binary")
         set_default(false)

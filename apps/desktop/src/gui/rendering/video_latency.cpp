@@ -6,6 +6,8 @@
 
 #include "rendering/video_latency.h"
 
+#include <cstdio>
+
 #include "rd_log.h"
 
 namespace crossdesk {
@@ -55,6 +57,64 @@ std::string SerializeResolutionSeries(
     out += std::to_string(events[i].sec) + ":" + std::to_string(events[i].width) +
            "x" + std::to_string(events[i].height);
   }
+  return out;
+}
+
+// Serialize the session-cumulative inter-presentation gap metric (D8) as a
+// single compact key=value block for the machine-readable teardown line. All
+// values are facts about the local monotonic endpoint clock of this process:
+//   intervals        count of distinct successive-presentation intervals;
+//                    zero when fewer than two frames were ever presented, in
+//                    which case every rate/mean below is meaningless and the
+//                    reader must treat the metric as absent rather than zero.
+//   mean_ms          mean interval across all intervals.
+//   max_ms           largest single interval (exact).
+//   p95_max_ms       upper bound on the 95th-percentile interval, derived
+//                    from a fixed bucket histogram; it is a bucket upper edge,
+//                    so it never under-estimates the true p95 but may sit one
+//                    bucket-width above it.
+//   freeze_count     intervals strictly greater than threshold_ms. An interval
+//                    of exactly threshold_ms is not a freeze.
+//   freeze_mean_ms   mean duration of freeze intervals only.
+//   freeze_max_ms    largest freeze interval.
+//   freezes_per_min  freeze_count normalised to the measured presentation
+//                    window: the exact monotonic span from the first to the
+//                    last counted presentation. This is the only defensible
+//                    denominator — intervals can only exist between two
+//                    presentations, so neither the wall-clock session length
+//                    (which includes connect/negotiation before the first
+//                    frame) nor any trailing silence after the last frame
+//                    (which the metric cannot observe) belongs in it.
+//   window_ms        that first-to-last-presentation span, reported so the
+//                    reader can re-normalise or sanity-check the rate.
+// Returns an empty string when there are no intervals, so the caller emits an
+// explicit "none" marker instead of a misleading all-zero block.
+std::string SerializeInterPresentGap(
+    const VideoLatencyStats::InterPresentGapStats& gap,
+    const VideoLatencyStats::InterPresentWindow& window) {
+  if (gap.intervals == 0) return {};
+  double window_ms = 0;
+  if (window.first && window.last && *window.last > *window.first) {
+    window_ms = std::chrono::duration<double, std::milli>(*window.last -
+                                                          *window.first)
+                    .count();
+  }
+  // freezes/minute over the measured window; zero window (a single instant)
+  // cannot support a rate, so report 0 rather than divide by zero.
+  const double freezes_per_min =
+      window_ms > 0 ? gap.gap_count * 60000.0 / window_ms : 0;
+  std::string out = "inter_present intervals=" + std::to_string(gap.intervals);
+  char buf[256];
+  std::snprintf(buf, sizeof(buf),
+                " mean_ms=%.2f max_ms=%.2f p95_max_ms=%.2f"
+                " freeze_count=%llu freeze_mean_ms=%.2f freeze_max_ms=%.2f"
+                " freezes_per_min=%.3f window_ms=%.0f threshold_ms=%.0f",
+                gap.MeanIntervalMs(), gap.interval_max_ms,
+                gap.ApproxP95IntervalMs(),
+                static_cast<unsigned long long>(gap.gap_count),
+                gap.MeanFreezeMs(), gap.gap_max_ms, freezes_per_min, window_ms,
+                VideoLatencyStats::kFrameGapThresholdMs);
+  out += buf;
   return out;
 }
 
@@ -130,11 +190,22 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
   const std::string fps_series = SerializePerSecond(snap);
   const std::string resolutions = SerializeResolutionSeries(
       stats.ResolutionSeries());
+  // Session-cumulative inter-presentation gap metric, on the same line so a
+  // reader parsing one teardown record sees every per-session series together.
+  // Unlike the coarse fps_seconds histogram — which buckets a whole wall-clock
+  // second and can only flag a zero-presentation second as a freeze — this is
+  // the actual elapsed monotonic time between successive presentations, so it
+  // resolves sub-second freezes and measures real freeze durations. It covers
+  // only intervals between two presentations: silence after the final frame is
+  // outside its window and stays unmeasured, exactly like the histogram.
+  const std::string inter_present = SerializeInterPresentGap(
+      stats.TakeInterPresentGapStats(), stats.TakeInterPresentWindow());
   LOG_INFO(
-      "Session metrics (controller): remote={} {} resolutions={}",
+      "Session metrics (controller): remote={} {} resolutions={} {}",
       context->remote_id,
       fps_series.empty() ? "fps_seconds=none" : "fps_seconds " + fps_series,
-      resolutions.empty() ? "none" : resolutions);
+      resolutions.empty() ? "none" : resolutions,
+      inter_present.empty() ? "inter_present=none" : inter_present);
 }
 
 }  // namespace crossdesk

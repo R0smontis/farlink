@@ -146,6 +146,87 @@ class VideoLatencyStats
     double ongoing_gap_ms = 0;
   };
 
+  // Session-cumulative inter-presentation gap measurement (D8). Unlike the
+  // windowed FrameGapSnapshot above — which is reset on every diagnostics read
+  // and only active while gap tracking is explicitly enabled — this accumulator
+  // runs for the whole session alongside the always-on presented counter, so a
+  // teardown summary can report the actual elapsed monotonic time between
+  // successive presentations of the same stream. It measures only the local
+  // endpoint clock of this process: it is NOT a capture-to-photon latency, it
+  // does not decompose into pipeline stages, and it does not use any remote
+  // clock. A gap over the freeze threshold means two presentations were far
+  // apart in time, not that the user saw jank — static or source-idle content
+  // legitimately presents rarely, so long gaps are expected there and are not
+  // a defect signal on their own. All memory is fixed-size; nothing is
+  // allocated or logged per frame.
+  struct InterPresentGapStats {
+    // Distinct inter-presentation intervals observed. A session that presented
+    // fewer than two frames has zero intervals and is reported distinctly
+    // (never averaged as if it had a cadence).
+    uint64_t intervals = 0;
+    double interval_total_ms = 0;
+    double interval_max_ms = 0;
+    // Freeze events: intervals strictly greater than the threshold. Exactly
+    // 200 ms is not a freeze. gap_total_ms/gap_max_ms cover freeze intervals
+    // only, so mean freeze duration is gap_total_ms / gap_count.
+    uint64_t gap_count = 0;
+    double gap_total_ms = 0;
+    double gap_max_ms = 0;
+    // Bounded histogram over interval duration for an approximate p95 without
+    // storing per-frame values. Bucket edges in ms, exponential so both the
+    // normal sub-frame cadence and multi-second freezes resolve with a few
+    // percent of width per bucket near the median. counts[k] holds intervals
+    // in (edges[k-1], edges[k]]; the last bucket is the overflow above the top
+    // edge. Fixed size, O(1) per frame.
+    static constexpr std::array<double, 12> kBucketEdgesMs{
+        4, 8, 12, 17, 25, 34, 50, 100, 200, 400, 1000, 2000};
+    std::array<uint64_t, kBucketEdgesMs.size() + 1> buckets{};
+
+    void Add(double interval_ms) {
+      if (!std::isfinite(interval_ms) || interval_ms < 0) return;
+      ++intervals;
+      interval_total_ms += interval_ms;
+      interval_max_ms = std::max(interval_max_ms, interval_ms);
+      if (interval_ms > kFrameGapThresholdMs) {
+        // Strictly greater-than: an interval of exactly the threshold is not
+        // a freeze.
+        ++gap_count;
+        gap_total_ms += interval_ms;
+        gap_max_ms = std::max(gap_max_ms, interval_ms);
+      }
+      size_t bucket = 0;
+      while (bucket < kBucketEdgesMs.size() && interval_ms > kBucketEdgesMs[bucket])
+        ++bucket;
+      ++buckets[bucket];
+    }
+
+    double MeanIntervalMs() const {
+      return intervals ? interval_total_ms / intervals : 0;
+    }
+    double MeanFreezeMs() const {
+      return gap_count ? gap_total_ms / gap_count : 0;
+    }
+
+    // Approximate p95 interval derived from the bucket histogram: the upper
+    // edge of the first bucket whose cumulative count reaches the 95th
+    // percentile. Because it is a bucket upper edge it is an upper bound on
+    // the true p95, never an under-estimate; the width of the containing
+    // bucket is its resolution. Returns 0 when there are no intervals.
+    double ApproxP95IntervalMs() const {
+      if (intervals == 0) return 0;
+      const double rank = 0.95 * intervals;
+      uint64_t cumulative = 0;
+      for (size_t i = 0; i < buckets.size(); ++i) {
+        cumulative += buckets[i];
+        if (cumulative >= rank) {
+          return i < kBucketEdgesMs.size() ? kBucketEdgesMs[i]
+                                           : interval_max_ms;
+        }
+      }
+      return interval_max_ms;
+    }
+  };
+
   // Non-cumulative buckets: <=2, (2,8], (8,16], (16,33], >33 ms.
   // Keep distributions bounded; a mean alone conceals paired arrivals.
   struct CadenceTiming {
@@ -406,6 +487,33 @@ class VideoLatencyStats
     result.counts = persecond_counts_;
     return result;
   }
+  // Session-cumulative inter-presentation gap statistics, copied out under
+  // mutex_. Read once at teardown; a copy is returned because the struct is
+  // small and fixed-size. The first/last presentation timestamps that define
+  // the freezes-per-minute denominator are reported separately via
+  // InterPresentWindow.
+  InterPresentGapStats TakeInterPresentGapStats() const {
+    std::lock_guard lock(mutex_);
+    return inter_present_;
+  }
+
+  // The monotonic endpoints bounding the measured intervals: the time of the
+  // first and last counted presentation. The span between them is the exact
+  // window the inter-presentation intervals cover — the correct denominator
+  // for a freezes-per-minute rate — because intervals can only exist between
+  // two presentations. Both empty when nothing was ever presented. Silence
+  // after the last presentation is outside this window and unmeasured.
+  struct InterPresentWindow {
+    std::optional<Clock::time_point> first;
+    std::optional<Clock::time_point> last;
+  };
+  InterPresentWindow TakeInterPresentWindow() const {
+    std::lock_guard lock(mutex_);
+    InterPresentWindow window;
+    window.first = first_present_time_;
+    window.last = last_present_time_;
+    return window;
+  }
 
   void Record(const VideoLatencyFrame& frame, Clock::time_point now,
               bool estimated = false) {
@@ -418,6 +526,21 @@ class VideoLatencyStats
       // redraws and out-of-order delivery must not count twice.
       if (frame.id > last_presented_id_) {
         last_presented_id_ = frame.id;
+        // Inter-presentation gap: the actual elapsed monotonic time since the
+        // previous counted fresh presentation of this stream. Out-of-order
+        // callback delivery can move `now` backwards across frames; like the
+        // windowed gap tracker, such a delivery is not a real (negative)
+        // interval, so the endpoint only advances forward and the spurious
+        // interval is skipped. Sub-millisecond intervals are recorded as-is.
+        if (last_present_time_ && now > *last_present_time_) {
+          inter_present_.Add(std::chrono::duration<double, std::milli>(
+                                 now - *last_present_time_)
+                                 .count());
+        }
+        if (!first_present_time_) first_present_time_ = now;
+        if (!last_present_time_ || now > *last_present_time_) {
+          last_present_time_ = now;
+        }
         if (frames_presented_total_.fetch_add(1, std::memory_order_relaxed) == 0)
           first_presented_time_ns_.store(
               std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -497,6 +620,12 @@ class VideoLatencyStats
     auto tail = TakeDiagnosticsLocked(now, true);
     samples_.clear();
     last_id_ = issued_id_;  // Invalidate frames still held by a renderer.
+    // A reset restarts the inter-presentation measurement too: carrying the
+    // pre-reset endpoint across the boundary would fabricate a gap spanning the
+    // reset that no real pair of presentations produced.
+    inter_present_ = {};
+    first_present_time_.reset();
+    last_present_time_.reset();
     gap_min_frame_id_ = issued_id_;
     gap_tracking_enabled_ = false;
     gap_states_ = {};
@@ -614,11 +743,26 @@ class VideoLatencyStats
     Clock::time_point last_time{};
     FrameGapSnapshot interval;
   };
-  std::mutex mutex_;
+  // Mutable so const snapshot accessors (TakeInterPresentGapStats and friends)
+  // can lock it; locking never changes observable state. Same idiom as
+  // persecond_mutex_ and codec_mutex_ below.
+  mutable std::mutex mutex_;
   uint64_t issued_id_ = 0;
   uint64_t last_id_ = 0;
   // Guards the cumulative presented counter against redraw/delivery duplicates.
   uint64_t last_presented_id_ = 0;
+  // Session-cumulative inter-presentation gap state, guarded by mutex_ like the
+  // presented counter it extends. last_present_time_ is the monotonic endpoint
+  // of the most recently counted fresh presentation; unset until the first one,
+  // so a session needs two presentations before any interval exists.
+  // first_present_time_ is the endpoint of the very first counted presentation
+  // and never moves; the span first->last is the exact window the measured
+  // intervals cover, which is the denominator of the freezes-per-minute rate.
+  // Reset() clears all three so a reset session restarts the measurement
+  // rather than carrying a stale endpoint across the boundary.
+  InterPresentGapStats inter_present_;
+  std::optional<Clock::time_point> first_present_time_;
+  std::optional<Clock::time_point> last_present_time_;
   std::deque<Sample> samples_;
   bool gap_tracking_enabled_ = false;
   int gap_stream_index_ = 0;
