@@ -510,9 +510,72 @@ void TestBackoffLadderSchedule() {
          "cap constant matches the 120 s ladder top");
 }
 
+// Item-1 unit tests for the pure probe-verdict policy in
+// minirtc::VideoAdaptationPolicy. These pin the round-7 root-cause fix: the
+// probe measurement must recognise the size the target actually reaches after
+// the transport's even-rounding fit (not the raw ladder rung), and a
+// conclusive frame-rate shortfall must fail early while a marginal probe runs
+// its full window.
+void TestProbeVerdictPolicy() {
+  std::fprintf(stderr, "[test] probe_verdict_policy\n");
+  using P = minirtc::VideoAdaptationPolicy;
+
+  // Root-cause fixture: a 3024x1964 source probing the ladder rung 2242x1456
+  // actually encodes at 2240x1456 after FitVideoResolution re-rounds. The
+  // measurement must match the fitted size, not the rung.
+  const auto fitted = P::ProbeEncodedSize(3024, 1964, 2242, 1456);
+  Expect(fitted.first == 2240 && fitted.second == 1456,
+         "ProbeEncodedSize returns the even-fit size, not the raw rung");
+  Expect(P::IsProbeEncodedFrame(3024, 1964, 2242, 1456, 2240, 1456),
+         "encoded frame at the fitted size must be recognised as the probe");
+  Expect(!P::IsProbeEncodedFrame(3024, 1964, 2242, 1456, 2242, 1456),
+         "the raw rung size never appears on the wire, so it must not match");
+  // A frame at the base (pre-upgrade) size is not probe evidence either.
+  Expect(!P::IsProbeEncodedFrame(3024, 1964, 2242, 1456, 1972, 1282),
+         "frames at the base resolution must not count as probe measurement");
+  // Native probe: fitting the source size is the identity, so native matches.
+  Expect(P::IsProbeEncodedFrame(3024, 1964, 3024, 1964, 3024, 1964),
+         "a native probe target matches the native encoded size");
+
+  // Frame-rate arithmetic rounds half up and is zero before measurement.
+  Expect(P::ProbeMeasuredFrameRate(0, 0) == 0, "no measurement yet");
+  Expect(P::ProbeMeasuredFrameRate(77, 1000) == 77, "sustained 77 fps");
+  Expect(P::ProbeMeasuredFrameRate(38, 500) == 76, "38 frames in 500 ms ~ 76 fps");
+
+  // Conclusive shortfall -> early fail. The configured rate is 120 fps so the
+  // upgrade bar is 110 fps (120*11/12); a sustained 76 fps is far below.
+  const int bar = P::UpgradeFrameRate(120, false);
+  Expect(bar == 110, "120 fps upgrade bar is 110");
+  Expect(P::IsProbeFrameRateConclusivelyLow(500, false, 76, bar),
+         "76 fps sustained across the 500 ms failure window is conclusive");
+  Expect(P::IsProbeFrameRateConclusivelyLow(1000, false, 76, bar),
+         "still conclusive beyond the window");
+
+  // Reconfigure/keyframe blip -> no fail. The measurement clock only starts
+  // after the first key frame, so before the failure window elapses there is
+  // no conclusive evidence even if the rate currently reads low.
+  Expect(!P::IsProbeFrameRateConclusivelyLow(499, false, 76, bar),
+         "before the failure window a low reading is not yet conclusive");
+  Expect(!P::IsProbeFrameRateConclusivelyLow(100, false, 30, bar),
+         "an early post-keyframe dip must not be declared a failure");
+
+  // Marginal probe -> full window. A rate at or above the bar never fails, so
+  // the probe runs its full measurement before acceptance.
+  Expect(!P::IsProbeFrameRateConclusivelyLow(500, false, 110, bar),
+         "at the bar is not a failure");
+  Expect(!P::IsProbeFrameRateConclusivelyLow(500, false, 120, bar),
+         "sustained full rate is not a failure");
+
+  // Sparse capture (balanced mode) must not be attributed to the encoder.
+  Expect(!P::IsProbeFrameRateConclusivelyLow(500, true, 76, bar),
+         "insufficient capture input is not encoder evidence");
+}
+
+
 }  // namespace
 
 int main() {
+  TestProbeVerdictPolicy();
   TestBackoffLadderSchedule();
   TestResetOnReconfiguration();
   TestSaturationDeferral();
