@@ -7,6 +7,7 @@
 
 #include "launch_options.h"
 
+#include <cstdlib>
 #include <cstring>
 
 namespace crossdesk {
@@ -33,6 +34,7 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
       g_launch_options.view_only = true;
     }
   }
+  g_launch_options.no_local_capture = std::getenv("FARLINK_NO_LOCAL_CAPTURE") != nullptr;
   return valid;
 }
 

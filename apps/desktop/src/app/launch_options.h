@@ -28,6 +28,13 @@ struct LaunchOptions {
   // and keyboard control disabled, as if the user had toggled control off in
   // the stream toolbar before any input was captured.
   bool view_only = false;
+  // FARLINK_NO_LOCAL_CAPTURE environment variable: the instance never
+  // initializes local screen/audio capture. Controller-only deployments use
+  // this to avoid touching ScreenCaptureKit at all — on macOS a second
+  // same-machine instance's SCShareableContent enumeration disrupts a
+  // capturing instance's stream startup through replayd, so two instances on
+  // one machine must not both initialize capture. Read once at startup.
+  bool no_local_capture = false;
 };
 
 // Storage backing the process-wide launch options. main() must call
