@@ -7,6 +7,8 @@
 #ifndef _VIDEO_FRAME_RATE_H_
 #define _VIDEO_FRAME_RATE_H_
 
+#include <optional>
+
 namespace crossdesk {
 
 // Capture/encode frame-rate tiers understood by the wire protocol, in
@@ -105,6 +107,50 @@ inline int EffectiveVideoFrameRate(int requested, bool peer_supports_high_fps,
       return tier;
   }
   return 60;
+}
+
+// Decide whether the connection should re-request its capture tier, and to
+// what, when a constraint it depends on (display refresh or peer capability)
+// has changed. This is the pure decision the stream sync loop drives; it is
+// extracted here so the convergence behaviour is testable without the loop.
+//
+//   requested — the per-session tier the user asked for (seeded from the
+//       stored preference at session start, replaced only by a chip choice in
+//       that session). Never clamped; the source of intent.
+//   active — the tier currently requested on the wire (video_settings).
+//   pending / supported — whether a settings request is already in flight /
+//       whether the peer accepts video-settings requests at all.
+//   peer_supports_high_fps, display_refresh_hz — the constraints.
+//
+// Returns the tier to request, or nullopt when nothing should be sent.
+//
+// Convergence / no-loop / no-fight argument, in terms of state:
+//   * The target is EffectiveVideoFrameRate(requested, …) — a pure function of
+//     intent and constraint, independent of active. Because requested is never
+//     rewritten by this decision, the target does not move as a consequence of
+//     a re-request, so the sequence converges instead of oscillating.
+//   * A re-request is emitted only when effective != active. The send updates
+//     the active tier toward effective, so the next evaluation sees
+//     effective == active and returns nullopt: at most one re-request per
+//     state, never a loop.
+//   * While a request is in flight (pending) or the peer cannot accept one,
+//     nullopt is returned and the caller leaves the constraint marked changed,
+//     so the evaluation re-fires when the reply arrives rather than being
+//     dropped — the in-flight deferral.
+//   * It never fights the user because the user is the only writer of
+//     requested: a chip choice sets requested to exactly what the user picked,
+//     so effective already reflects the user's intent and the loop has nothing
+//     to correct. A low explicit choice (e.g. 30) is always offered, so
+//     effective == active and the loop stays out of the way across later
+//     display or capability changes.
+inline std::optional<int> VideoFrameRateRerequestDecision(
+    int requested, int active, bool pending, bool supported,
+    bool peer_supports_high_fps, double display_refresh_hz) {
+  if (pending || !supported) return std::nullopt;
+  const int effective =
+      EffectiveVideoFrameRate(requested, peer_supports_high_fps, display_refresh_hz);
+  if (effective == active) return std::nullopt;
+  return effective;
 }
 
 // Single decision point for how a stream degrades under load, derived purely

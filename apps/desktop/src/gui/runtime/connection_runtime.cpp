@@ -720,6 +720,7 @@ int GuiRuntime::ConnectTo(const std::string& remote_id, const char* password,
           const int preferred = config_center_->GetVideoFrameRatePreference();
           props->video_settings_.frame_rate = preferred;
           props->applied_video_settings_.frame_rate = preferred;
+          props->requested_video_frame_rate_ = preferred;
         }
         memcpy(&props->params_, &params_, sizeof(MiniRtcParams));
         props->params_.user_id = props->local_id_.c_str();

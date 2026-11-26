@@ -176,6 +176,7 @@ void GuiRuntime::ConnectLan(const std::string& address, unsigned port,
       const int preferred = config_center_->GetVideoFrameRatePreference();
       props->video_settings_.frame_rate = preferred;
       props->applied_video_settings_.frame_rate = preferred;
+      props->requested_video_frame_rate_ = preferred;
     }
     {
       std::unique_lock lock(remote_sessions_mutex_);

@@ -244,5 +244,47 @@ int main() {
                "invalid request must fall back to 60");
   ok &= Expect(crossdesk::EffectiveVideoFrameRate(144, true, 0.0) == 144,
                "unknown refresh must honour a capable request");
+
+  // --- Re-request decision: convergence in both directions, no loop, no fight ---
+  // The decision is driven by the per-session REQUESTED tier (user intent),
+  // never the clamped active tier, so the wire rate converges toward intent as
+  // constraints change in both directions. Trace the spec sequence with the
+  // requested tier seeded from a 144 preference and a capable peer.
+  const auto Decide = crossdesk::VideoFrameRateRerequestDecision;
+  // 60 Hz panel: 144 intent clamps down to 60 — a re-request to 60 is due.
+  ok &= Expect(Decide(144, 144, false, true, true, 60.0) == std::optional<int>(60),
+               "144 intent on a 60 Hz panel must re-request down to 60");
+  // Once active is 60 the decision is quiescent — no further request, no loop.
+  ok &= Expect(!Decide(144, 60, false, true, true, 60.0).has_value(),
+               "active already at the 60 Hz effective tier must not re-request");
+  // Drag to a 120 Hz panel: intent is still 144, so the rate rises toward it.
+  ok &= Expect(Decide(144, 60, false, true, true, 120.0) == std::optional<int>(120),
+               "moving to a 120 Hz panel must re-request up to 120");
+  ok &= Expect(!Decide(144, 120, false, true, true, 120.0).has_value(),
+               "active already at the 120 Hz effective tier must not re-request");
+  // Back to 60 Hz: drops again.
+  ok &= Expect(Decide(144, 120, false, true, true, 60.0) == std::optional<int>(60),
+               "returning to a 60 Hz panel must re-request back down to 60");
+  // The user then picks 30 on the 120 Hz panel: requested becomes 30, the wire
+  // already runs 30, and 30 is always offered so the loop stays out of the way
+  // across later display changes — it never overrides the user's choice.
+  ok &= Expect(!Decide(30, 30, false, true, true, 120.0).has_value(),
+               "an explicit 30 on a 120 Hz panel must not be re-tiered");
+  ok &= Expect(!Decide(30, 30, false, true, true, 60.0).has_value(),
+               "an explicit 30 must stay 30 across display changes");
+  ok &= Expect(!Decide(30, 30, false, true, true, 144.0).has_value(),
+               "an explicit 30 must not rise even on a faster panel");
+  // Capability arriving late: requested 144 on a 120 Hz panel with a stock peer
+  // runs at 60; when the peer's high-frame-rate capability arrives the rate
+  // rises toward the intent.
+  ok &= Expect(Decide(144, 144, false, true, false, 120.0) == std::optional<int>(60),
+               "144 intent without peer capability must clamp to 60");
+  ok &= Expect(Decide(144, 60, false, true, true, 120.0) == std::optional<int>(120),
+               "capability arriving late must raise 60 toward the 120 the panel allows");
+  // In-flight deferral and unsupported peers produce no request at all.
+  ok &= Expect(!Decide(144, 60, true, true, true, 120.0).has_value(),
+               "a request already in flight must defer the decision");
+  ok &= Expect(!Decide(144, 60, false, false, true, 120.0).has_value(),
+               "a peer that cannot accept settings must not be re-requested");
   return ok ? 0 : 1;
 }

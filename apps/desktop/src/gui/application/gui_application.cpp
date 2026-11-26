@@ -2584,6 +2584,14 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     // in-session change.
     if (IsValidVideoFrameRate(requested))
       config_center_->SetVideoFrameRatePreference(requested);
+    // Record the per-session intent too: this is the tier the display and
+    // capability re-evaluation converges toward, so a later improvement (a
+    // faster panel, a capable peer arriving) can raise the wire tier back
+    // toward what the user actually wants. Only a chip choice rewrites it.
+    if (IsValidVideoFrameRate(requested)) {
+      std::lock_guard settings_lock(props->video_settings_mutex_);
+      props->requested_video_frame_rate_ = requested;
+    }
     // The requested tier is clamped by both the peer capability and the display
     // this window is on: a tier above either cannot be presented, so the wire
     // request drops to the highest tier that is actually available.
@@ -4214,11 +4222,12 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   stream->set_remote_cursor_active(remote_cursor_active);
   stream->set_remote_cursor_shape(remote_cursor_shape);
   stream->set_audio_enabled(props->audio_capture_button_pressed_);
-  // Decision to drop an unpresentable active tier, computed under the lock but
+  // Decision to re-request the capture tier (in either direction — a drop when
+  // a constraint tightens, a rise when it relaxes), computed under the lock but
   // acted on after it is released (the send re-acquires the same mutex).
-  int downgrade_frame_rate = 0;
-  int downgrade_quality = 0;
-  int downgrade_preference = 0;
+  int retier_frame_rate = 0;
+  int retier_quality = 0;
+  int retier_preference = 0;
   {
     std::lock_guard lock(props->video_settings_mutex_);
     if (props->video_settings_pending_ &&
@@ -4246,36 +4255,37 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
             MaxVideoFrameRateForRefresh(view.stream_refresh_hz);
       }
       stream->set_display_max_frame_rate(view.stream_display_max_frame_rate);
-      // Re-evaluate the active tier whenever a constraint it depends on
+      // Re-evaluate the capture tier whenever a constraint it depends on
       // changes: the display-derived max tier OR the peer capability. Either
       // can become available at a different moment (the display is detectable
       // on the first tick, capability only after negotiation), so keying only
-      // on the display transition would miss the session-start clamp. If the
-      // active tier is unpresentable under the current constraint, drop to the
-      // highest tier the peer and this panel both support, through the same
-      // request path the settings UI uses. Never fires while a change is in
-      // flight, so it cannot fight the user or loop; the persisted preference
-      // is untouched by the clamp.
-      const int capability = props->high_fps_supported_.load() ? 1 : 0;
-      const bool constraint_changed =
-          capability != view.stream_constraint_capability ||
-          view.stream_display_max_frame_rate != view.stream_constraint_max_frame_rate;
+      // on the display transition would miss the session-start clamp. The
+      // decision itself is the pure VideoFrameRateRerequestDecision, driven by
+      // the per-session requested tier — never the clamped active tier — so the
+      // wire rate converges toward the user's intent in BOTH directions: it
+      // drops when a constraint tightens and rises again when it relaxes.
+      //
       // Consume the constraint change only when it can actually be evaluated.
       // If a settings request is still in flight (as the initial session-start
       // request is right after capability negotiation) the evaluation defers —
       // leaving the constraint marked changed so it re-fires once the reply
-      // arrives — rather than dropping the session-start clamp on the floor.
+      // arrives — rather than dropping the clamp on the floor.
+      const int capability = props->high_fps_supported_.load() ? 1 : 0;
+      const bool constraint_changed =
+          capability != view.stream_constraint_capability ||
+          view.stream_display_max_frame_rate != view.stream_constraint_max_frame_rate;
       if (constraint_changed && !props->video_settings_pending_ &&
           props->video_settings_supported_) {
         view.stream_constraint_capability = capability;
         view.stream_constraint_max_frame_rate = view.stream_display_max_frame_rate;
-        const int active = props->video_settings_.frame_rate;
-        const int effective = EffectiveVideoFrameRate(
-            active, props->high_fps_supported_.load(), view.stream_refresh_hz);
-        if (effective != active) {
-          downgrade_frame_rate = effective;
-          downgrade_quality = props->video_settings_.quality;
-          downgrade_preference = props->video_settings_.preference;
+        const auto tier = VideoFrameRateRerequestDecision(
+            props->requested_video_frame_rate_, props->video_settings_.frame_rate,
+            props->video_settings_pending_, props->video_settings_supported_,
+            props->high_fps_supported_.load(), view.stream_refresh_hz);
+        if (tier.has_value()) {
+          retier_frame_rate = *tier;
+          retier_quality = props->video_settings_.quality;
+          retier_preference = props->video_settings_.preference;
         }
       }
     }
@@ -4286,11 +4296,11 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     stream->set_frame_rate_index(VideoFrameRateIndex(props->video_settings_.frame_rate));
     stream->set_adaptation_policy_index(props->video_settings_.preference);
   }
-  // Act on the downgrade decision now that video_settings_mutex_ is released —
+  // Act on the re-tier decision now that video_settings_mutex_ is released —
   // SendVideoSettingsRequest re-acquires it, so it must not run under the lock.
-  if (downgrade_frame_rate != 0) {
-    SendVideoSettingsRequest(*props, downgrade_quality, downgrade_frame_rate,
-                             downgrade_preference);
+  if (retier_frame_rate != 0) {
+    SendVideoSettingsRequest(*props, retier_quality, retier_frame_rate,
+                             retier_preference);
   }
   view.ObserveWindowState();
   stream->set_stats_visible(props->net_traffic_stats_button_pressed_);

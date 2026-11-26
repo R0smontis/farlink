@@ -197,6 +197,13 @@ struct RemoteSession {
   std::mutex video_settings_mutex_;
   // Requested and confirmed settings for this remote session only.
   VideoSettings video_settings_{2, 60, 1};
+  // The capture tier the user asked for in this session, seeded from the
+  // stored preference at session start and replaced only by a chip choice in
+  // this session. Never clamped: it is the intent the display/capability
+  // re-evaluation converges the wire (active) tier toward, in both directions.
+  // Being per-session, a fresh session re-seeds it from the preference rather
+  // than inheriting whatever tier a prior session happened to end on.
+  int requested_video_frame_rate_ = 60;
   bool video_settings_supported_ = false;
   VideoSettings applied_video_settings_{2, 60, 1, 0, false};
   bool video_settings_pending_ = false;
