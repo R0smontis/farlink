@@ -6,6 +6,9 @@
 #include <array>
 #include <cmath>
 
+#include "privacy_cover_style.h"
+#include "privacy_wallpaper_mac.h"
+
 namespace {
 NSImage* LoadPrivacyLogo() {
   // The macOS installer currently packages the icon as "crossedesk.icns".
@@ -110,16 +113,31 @@ void DrawUnlockInstructions(NSString* value, NSSize size, CGFloat scale,
 @property(nonatomic, copy) NSString* unlockHint;
 @property(nonatomic) BOOL allowLocalUnlock;
 @property(nonatomic) BOOL blackScreen;
+@property(nonatomic) int coverStyle;
+@property(nonatomic, strong) NSScreen* screen;
 @end
 
 @implementation CrossDeskPrivacyCoverView
 - (BOOL)isOpaque { return YES; }
 - (BOOL)isFlipped { return YES; }
 - (void)drawRect:(NSRect)dirtyRect {
+  using crossdesk::PrivacyCoverStyle;
+  const auto style = crossdesk::ResolvePrivacyCoverStyle(self.coverStyle,
+                                                         self.blackScreen);
+  const CGFloat width = NSWidth(self.bounds), height = NSHeight(self.bounds);
+  if (style == PrivacyCoverStyle::kWallpaper) {
+    // The discreet cover: nothing but the desktop picture itself. No logo,
+    // no hint text; local recovery stays on the undocumented chord alone.
+    NSScreen* screen = self.screen ?: self.window.screen ?: NSScreen.mainScreen;
+    NSImage* wallpaper = crossdesk::MacPrivacyWallpaperImage(screen);
+    const bool painted = wallpaper &&
+        crossdesk::DrawMacPrivacyAspectFillImage(wallpaper, self.bounds);
+    if (!painted) crossdesk::DrawMacPrivacyFallbackWallpaper(self.bounds);
+    return;
+  }
   [NSColor.blackColor setFill];
   NSRectFill(self.bounds);
-  if (self.blackScreen) return;
-  const CGFloat width = NSWidth(self.bounds), height = NSHeight(self.bounds);
+  if (style == PrivacyCoverStyle::kBlack) return;
   if (width <= 0 || height <= 0) return;
   // Match the Windows cover's sizes, colors and bottom-left alignment.
   // AppKit coordinates are points; Retina backing scale is applied by AppKit.
@@ -148,9 +166,12 @@ void DrawUnlockInstructions(NSString* value, NSSize size, CGFloat scale,
 
 namespace crossdesk {
 bool UpdateMacPrivacyCoverView(NSView* view, NSString* hint, bool allow_local_unlock,
-                               bool black_screen) {
+                               bool black_screen, int cover_style) {
   auto* cover = static_cast<CrossDeskPrivacyCoverView*>(view);
-  if (!black_screen && !cover.logo) {
+  cover.coverStyle = cover_style;
+  const bool branded = ResolvePrivacyCoverStyle(cover_style, black_screen) ==
+      PrivacyCoverStyle::kBranded;
+  if (branded && !cover.logo) {
     cover.logo = LoadPrivacyLogo();
     if (!cover.logo) return false;
   }
@@ -161,9 +182,12 @@ bool UpdateMacPrivacyCoverView(NSView* view, NSString* hint, bool allow_local_un
   return true;
 }
 NSView* CreateMacPrivacyCoverView(NSRect frame, NSString* unlock_hint, bool allow_local_unlock,
-                                  bool black_screen) {
+                                  bool black_screen, int cover_style, NSScreen* screen) {
   auto* view = [[CrossDeskPrivacyCoverView alloc] initWithFrame:frame];
-  if (!UpdateMacPrivacyCoverView(view, unlock_hint, allow_local_unlock, black_screen)) return nil;
+  view.screen = screen;
+  if (!UpdateMacPrivacyCoverView(view, unlock_hint, allow_local_unlock, black_screen,
+                                 cover_style))
+    return nil;
   view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   return view;
 }

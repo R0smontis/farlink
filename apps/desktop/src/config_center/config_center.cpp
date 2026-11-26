@@ -13,6 +13,7 @@
 
 #include "SimpleIni.h"
 #include "autostart.h"
+#include "privacy/privacy_cover_style.h"
 #include "platform/autostart_backend.h"
 #include "platform/machine_identity.h"
 #include "rd_log.h"
@@ -225,6 +226,22 @@ int ConfigCenter::Load() {
   privacy_local_unlock_allowed_.store(
       ini_->GetBoolValue(section_, "privacy_local_unlock_allowed", true));
   privacy_black_screen_.store(ini_->GetBoolValue(section_, "privacy_black_screen", false));
+  {
+    // The style key is authoritative once recognized. Profiles written before
+    // the style existed only carry privacy_black_screen, which migrates to
+    // the black cover; everything else keeps the historical branded cover.
+    const char* style_value = ini_->GetValue(section_, "privacy_cover_style", nullptr);
+    if (style_value && style_value[0] &&
+        PrivacyCoverStyleFromString(style_value) == PrivacyCoverStyle::kBranded &&
+        std::string(style_value) != "branded") {
+      LOG_WARN("Unknown privacy_cover_style '{}', keeping migrated default",
+               style_value);
+    }
+    const PrivacyCoverStyle loaded =
+        MigratePrivacyCoverStyle(style_value, privacy_black_screen_.load());
+    privacy_cover_style_.store(static_cast<int>(loaded));
+    privacy_black_screen_.store(loaded == PrivacyCoverStyle::kBlack);
+  }
   lock_on_disconnect_.store(
       ini_->GetBoolValue(section_, "lock_on_disconnect", true));
   trusted_devices_only_.store(
@@ -381,6 +398,9 @@ int ConfigCenter::Save() {
   ini_->SetBoolValue(section_, "privacy_local_unlock_allowed",
                     privacy_local_unlock_allowed_.load());
   ini_->SetBoolValue(section_, "privacy_black_screen", privacy_black_screen_.load());
+  ini_->SetValue(section_, "privacy_cover_style",
+                PrivacyCoverStyleToString(
+                    static_cast<PrivacyCoverStyle>(privacy_cover_style_.load())));
   ini_->SetBoolValue(section_, "lock_on_disconnect", lock_on_disconnect_.load());
   ini_->SetBoolValue(section_, "trusted_devices_only", trusted_devices_only_.load());
   ini_->SetBoolValue(section_, "save_remote_previews",
@@ -733,8 +753,29 @@ bool ConfigCenter::IsPrivacyLocalUnlockAllowed() const {
 
 int ConfigCenter::SetPrivacyBlackScreen(bool enabled) {
   if (privacy_black_screen_.load() == enabled) return 0;
-  if (StoreValues({{"privacy_black_screen", enabled ? "true" : "false"}}) != 0) return -1;
+  const PrivacyCoverStyle style = enabled ? PrivacyCoverStyle::kBlack
+                                          : PrivacyCoverStyle::kBranded;
+  if (StoreValues({{"privacy_black_screen", enabled ? "true" : "false"},
+                   {"privacy_cover_style", PrivacyCoverStyleToString(style)}}) != 0)
+    return -1;
   privacy_black_screen_.store(enabled);
+  // The legacy toggle only ever moves between branded and black; a wallpaper
+  // pick is exclusively owned by SetPrivacyCoverStyle.
+  privacy_cover_style_.store(static_cast<int>(style));
+  return 0;
+}
+
+int ConfigCenter::SetPrivacyCoverStyle(int style) {
+  if (!PrivacyCoverStyleValid(style)) return -1;
+  if (privacy_cover_style_.load() == style) return 0;
+  const auto value = static_cast<PrivacyCoverStyle>(style);
+  const bool black = value == PrivacyCoverStyle::kBlack;
+  if (StoreValues({{"privacy_cover_style", PrivacyCoverStyleToString(value)},
+                   {"privacy_black_screen", black ? "true" : "false"}}) != 0)
+    return -1;
+  privacy_cover_style_.store(style);
+  privacy_black_screen_.store(black);
+  LOG_INFO("Privacy cover style: {}", PrivacyCoverStyleToString(value));
   return 0;
 }
 

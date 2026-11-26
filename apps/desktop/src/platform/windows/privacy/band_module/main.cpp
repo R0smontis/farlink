@@ -205,9 +205,9 @@ class Windows {
       RECT rect{};
       GetClientRect(hwnd, &rect);
       if (self) {
-        const auto style = static_cast<PrivacyCoverStyle>(
+        const auto style = static_cast<PrivacyBandCoverStyle>(
             InterlockedCompareExchange(&self->shared_->cover_style, 0, 0));
-        const wchar_t* hint = style == PrivacyCoverStyle::unlock_hint
+        const wchar_t* hint = style == PrivacyBandCoverStyle::unlock_hint
             ? self->shared_->unlock_hint : self->shared_->locked_hint;
         if (!DrawPrivacyCover(dc, rect, PrivacyWindowDpi(hwnd), module, hint, style)) {
           self->paint_failed_ = true;

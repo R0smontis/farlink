@@ -79,7 +79,8 @@ void GuiRuntime::SyncPrivacyScreenSettings() {
   privacy_.SetText({localization::privacy_screen_unlock_hint[language],
                     localization::privacy_screen_locked_hint[language],
                     config_center_->IsPrivacyLocalUnlockAllowed(),
-                    config_center_->IsPrivacyBlackScreen()});
+                    config_center_->IsPrivacyBlackScreen(),
+                    config_center_->GetPrivacyCoverStyle()});
 }
 
 void GuiRuntime::HandlePrivacy() {

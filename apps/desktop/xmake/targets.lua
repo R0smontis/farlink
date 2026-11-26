@@ -422,6 +422,17 @@ function setup_targets()
         add_deps("config_center")
         add_files("apps/desktop/tests/config_video_codec_roundtrip_test.cpp")
 
+    -- Pure style-helper checks always compile; the ConfigCenter INI
+    -- round-trip section is enabled here through the define and stays
+    -- compiled out of quick standalone clang++ verification builds.
+    target("privacy_cover_style_test")
+        set_kind("binary")
+        set_default(false)
+        add_packages("nlohmann_json")
+        add_deps("config_center")
+        add_defines("CROSSDESK_TEST_CONFIG_CENTER")
+        add_files("apps/desktop/tests/privacy_cover_style_test.cpp")
+
     target("video_callback_lifetime_test")
         set_kind("binary")
         set_default(false)

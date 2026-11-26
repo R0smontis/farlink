@@ -70,12 +70,25 @@ The fork extends upstream CrossDesk across these independent areas:
   persists the host preference. Chroma is negotiated at connection time
   (`a=x-minirtc-video-444:1`); peers that do not advertise it fall back to 4:2:0. Default
   remains 4:2:0.
+- **Discreet wallpaper privacy cover (W3D)** — the privacy screen can now imitate the
+  host's own desktop picture instead of an obvious branded/black cover, so bystanders
+  see nothing unusual while ScreenCaptureKit keeps capturing the real desktop for the
+  remote controller (the cover windows stay excluded exactly as before). A new
+  cross-platform `PrivacyCoverStyle` (`branded` / `black` / `wallpaper`) persists in
+  `config.ini` as `privacy_cover_style`; pre-style profiles carrying only
+  `privacy_black_screen` migrate exactly, and the legacy boolean stays in sync for
+  downgraded builds. On macOS the per-screen wallpaper loads through the public
+  `NSWorkspace` API with aspect-fill center-crop scaling matching the macOS desktop and
+  a calm dark-slate gradient fallback; the instant local `Control+Option+Shift+Esc`
+  recovery chord is untouched and works identically in every style. Windows keeps its
+  high-band cover and maps the wallpaper choice to the branded fallback; Linux is
+  gamma-black only, as before. The default remains the branded cover.
 
 ## Modified upstream files
 
 | File | Nature of change |
 |------|------------------|
-| `apps/desktop/src/config_center/config_center.cpp` | Defaults for high frame-rate and HEVC codec on macOS. |
+| `apps/desktop/src/config_center/config_center.cpp` | Defaults for high frame-rate and HEVC codec on macOS; `privacy_cover_style` persistence with legacy `privacy_black_screen` migration. |
 | `apps/desktop/src/gui/application/application_state.h` | State for capability flags and game mode. |
 | `apps/desktop/src/gui/application/gui_application.cpp` | Capability gating, game-mode and high-fps wiring. |
 | `apps/desktop/src/gui/application/gui_application.h` | Declarations for the above. |
@@ -100,6 +113,13 @@ The fork extends upstream CrossDesk across these independent areas:
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp` | Relative-mouse control integration. |
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.h` | Declarations for the above. |
 | `apps/desktop/src/platform/macos/screen_capturer/screen_capturer_sck_impl.mm` | Zero-copy capture path for high frame-rate. |
+| `apps/desktop/src/privacy/privacy_backend.h` | `PrivacyCoverStyle` plumbing in `PrivacyScreenText`. |
+| `apps/desktop/src/privacy/privacy_controller.cpp` | Cover-style change detection in `SetText`. |
+| `apps/desktop/src/platform/macos/privacy/privacy_backend_mac.mm` | Per-screen cover style wiring. |
+| `apps/desktop/src/platform/macos/privacy/privacy_cover_view.mm` | Wallpaper cover rendering with aspect-fill crop and gradient fallback. |
+| `apps/desktop/src/platform/windows/privacy/privacy_band_guard.cpp` | Cross-platform cover-style mapping; wallpaper falls back to the branded cover. |
+| `apps/desktop/src/platform/windows/privacy/privacy_band_ipc.h` | Band IPC enum renamed `PrivacyBandCoverStyle` for the cross-platform style type. |
+| `apps/desktop/src/gui/runtime/privacy_runtime.cpp` | Cover-style sync into the privacy controller. |
 | `apps/desktop/src/platform/window_drag.h` | Window-drag interface change. |
 | `apps/desktop/src/platform/windows/input/mouse/mouse_controller.cpp` | Windows relative-mouse injection. |
 | `apps/desktop/src/platform/windows/input/mouse/mouse_controller.h` | Declarations for the above. |

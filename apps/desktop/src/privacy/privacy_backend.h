@@ -10,6 +10,8 @@
 #include <memory>
 #include <string>
 
+#include "privacy_cover_style.h"
+
 namespace crossdesk {
 
 struct PrivacyScreenText {
@@ -17,6 +19,10 @@ struct PrivacyScreenText {
   std::string locked_hint = "Privacy screen is on. Local unlocking is disabled.";
   bool allow_local_unlock = true;
   bool black_screen = false;
+  // PrivacyCoverStyle as int so wire-adjacent structs stay plain. Zero keeps
+  // the historical branded cover; ResolvePrivacyCoverStyle() merges this
+  // with the legacy black_screen flag for pre-style callers and profiles.
+  int cover_style = static_cast<int>(PrivacyCoverStyle::kBranded);
 };
 
 struct PrivacyCapabilities {

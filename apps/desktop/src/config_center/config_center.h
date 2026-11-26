@@ -83,6 +83,9 @@ class ConfigCenter {
   int SetPrivacyScreen(bool enable_privacy_screen);
   int SetPrivacyLocalUnlock(bool allowed);
   int SetPrivacyBlackScreen(bool enabled);
+  // style is a PrivacyCoverStyle value passed as int. Unknown values are
+  // rejected; kBlack keeps the legacy privacy_black_screen key in sync.
+  int SetPrivacyCoverStyle(int style);
   int SetLockOnDisconnect(bool enabled);
   int SetTrustedDevicesOnly(bool enabled);
   int SetSaveRemotePreviews(bool enabled);
@@ -132,6 +135,7 @@ class ConfigCenter {
   bool IsEnablePrivacyScreen() const;
   bool IsPrivacyLocalUnlockAllowed() const;
   bool IsPrivacyBlackScreen() const { return privacy_black_screen_.load(); }
+  int GetPrivacyCoverStyle() const { return privacy_cover_style_.load(); }
   bool IsLockOnDisconnect() const;
   bool IsTrustedDevicesOnly() const;
   bool IsSaveRemotePreviews() const;
@@ -188,6 +192,7 @@ class ConfigCenter {
   std::atomic<bool> enable_privacy_screen_{true};
   std::atomic<bool> privacy_local_unlock_allowed_{true};
   std::atomic<bool> privacy_black_screen_{false};
+  std::atomic<int> privacy_cover_style_{0};  // PrivacyCoverStyle::kBranded
   std::atomic<bool> lock_on_disconnect_{true};
   std::atomic<bool> trusted_devices_only_{false};
   std::atomic<bool> save_remote_previews_{true};

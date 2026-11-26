@@ -26,7 +26,7 @@ struct PrivacyBandWindow {
   RECT rect{};
 };
 
-enum class PrivacyCoverStyle : LONG { branded, unlock_hint, black };
+enum class PrivacyBandCoverStyle : LONG { branded, unlock_hint, black };
 
 // Unnamed mapping and synchronization/process handles are inherited only by
 // the newly created broker. No global window-name/PID discovery or named IPC.
@@ -44,7 +44,7 @@ struct PrivacyBandShared {
   wchar_t operation[128]{};
   wchar_t unlock_hint[128]{};
   wchar_t locked_hint[128]{};
-  volatile LONG cover_style = static_cast<LONG>(PrivacyCoverStyle::unlock_hint);
+  volatile LONG cover_style = static_cast<LONG>(PrivacyBandCoverStyle::unlock_hint);
   uint32_t count = 0;
   PrivacyBandWindow windows[kPrivacyMaxMonitors]{};
 };

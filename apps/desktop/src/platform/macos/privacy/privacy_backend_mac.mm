@@ -241,7 +241,7 @@ class MacPrivacyBackend final : public PrivacyBackend {
           NSView* content = CreateMacPrivacyCoverView(
               NSMakeRect(0, 0, m.frame.size.width, m.frame.size.height),
               [NSString stringWithUTF8String:(text.allow_local_unlock ? text.unlock_hint : text.locked_hint).c_str()],
-              text.allow_local_unlock, text.black_screen);
+              text.allow_local_unlock, text.black_screen, text.cover_style, screen);
           if (!content) {
             state->failure = "Could not load the Farlink privacy screen logo";
             break;
@@ -270,7 +270,7 @@ class MacPrivacyBackend final : public PrivacyBackend {
       for (const auto& monitor : state->monitors) {
         if (!UpdateMacPrivacyCoverView(monitor.cover.contentView,
             [NSString stringWithUTF8String:(text.allow_local_unlock ? text.unlock_hint : text.locked_hint).c_str()],
-            text.allow_local_unlock, text.black_screen)) {
+            text.allow_local_unlock, text.black_screen, text.cover_style)) {
           state->failure = "Could not load the Farlink privacy screen logo";
           break;
         }

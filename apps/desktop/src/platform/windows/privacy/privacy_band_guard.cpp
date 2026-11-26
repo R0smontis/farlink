@@ -17,9 +17,13 @@
 
 namespace crossdesk {
 namespace {
-PrivacyCoverStyle CoverStyle(const PrivacyScreenText& text) {
-  if (text.black_screen) return PrivacyCoverStyle::black;
-  return text.allow_local_unlock ? PrivacyCoverStyle::unlock_hint : PrivacyCoverStyle::branded;
+PrivacyBandCoverStyle CoverStyle(const PrivacyScreenText& text) {
+  // The Windows band cover has no wallpaper imitation of its own; the
+  // discreet style falls back to the branded cover here while the black
+  // style maps cleanly through.
+  const auto style = ResolvePrivacyCoverStyle(text.cover_style, text.black_screen);
+  if (style == PrivacyCoverStyle::kBlack) return PrivacyBandCoverStyle::black;
+  return text.allow_local_unlock ? PrivacyBandCoverStyle::unlock_hint : PrivacyBandCoverStyle::branded;
 }
 
 struct ScopedHandle {
