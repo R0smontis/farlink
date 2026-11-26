@@ -263,28 +263,13 @@ int main(int argc, char** argv) {
   answerer.pump_thread = std::thread(PumpLoop, &answerer);
 
   const int64_t t_offer_start = NowUs();
-  if (MiniRtcStartDirectSession(offerer.peer, true) != 0 ||
-      MiniRtcStartDirectSession(answerer.peer, false) != 0) {
-    std::fprintf(stderr, "start direct failed\n");
-    return 1;
-  }
 
-  // Wait for connection establishment.
-  const int64_t deadline = NowUs() + 15'000'000;
-  while ((!offerer.connected.load() || !answerer.connected.load()) &&
-         NowUs() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  if (!offerer.connected.load() || !answerer.connected.load()) {
-    std::fprintf(stderr, "connection timeout\n");
-    return 1;
-  }
-  const int64_t connected_us = offerer.connected_at_us.load() - t_offer_start;
-
-  // Push frames continuously, starting before the peer is fully connected:
-  // this is what a real host does (capture runs independently of the join),
-  // and it is required to measure the honest first-frame latency rather than
-  // an artifact of when the test happened to start sending.
+  // Push frames continuously, starting BEFORE the session connect: this is
+  // what a real host does (capture runs independently of the join — the screen
+  // is always being grabbed), and it is required to measure the honest
+  // first-frame latency rather than an artifact of when the test happened to
+  // start sending. Frames that arrive before the media transport is ready are
+  // dropped inside the library exactly as production drops them.
   const int width = 320, height = 180;
   std::vector<uint8_t> nv12(size_t(width) * height * 3 / 2, 16);
   std::atomic<bool> stop_sending{false};
@@ -307,6 +292,24 @@ int main(int argc, char** argv) {
     }
   });
   sender.detach();
+
+  if (MiniRtcStartDirectSession(offerer.peer, true) != 0 ||
+      MiniRtcStartDirectSession(answerer.peer, false) != 0) {
+    std::fprintf(stderr, "start direct failed\n");
+    return 1;
+  }
+
+  // Wait for connection establishment.
+  const int64_t deadline = NowUs() + 15'000'000;
+  while ((!offerer.connected.load() || !answerer.connected.load()) &&
+         NowUs() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!offerer.connected.load() || !answerer.connected.load()) {
+    std::fprintf(stderr, "connection timeout\n");
+    return 1;
+  }
+  const int64_t connected_us = offerer.connected_at_us.load() - t_offer_start;
   (void)frame_count;
 
   const int64_t frame_deadline = NowUs() + 5'000'000;
