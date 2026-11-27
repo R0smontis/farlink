@@ -208,9 +208,16 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
   const double avg_presented_fps =
       fps_window_s > 0 ? presented / fps_window_s : 0;
   // The transport report is authoritative; fall back to the mirrored copy for
-  // sessions where the report never landed before teardown.
+  // sessions where the report never landed before teardown. Normalize the
+  // implementation spelling ("VideoToolbox (H.265)") to the codec family the
+  // first-frame line reports so both lines carry the same token.
   std::string resolved = codec;
   if (resolved.empty()) resolved = context->LoadCodec();
+  if (!resolved.empty()) {
+    const std::string normalized =
+        VideoLatencyStats::SessionObservability::NormalizeCodecName(resolved);
+    if (!normalized.empty()) resolved = normalized;
+  }
   LOG_INFO(
       "Session summary (controller): remote={} duration_s={:.1f} "
       "frames_decoded={} frames_presented={} avg_presented_fps={:.1f} "

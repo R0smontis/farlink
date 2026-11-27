@@ -405,6 +405,22 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
       case MiniRtcConnectionStatus::MiniRtcConnectionDisconnected:
       case MiniRtcConnectionStatus::MiniRtcConnectionFailed:
       case MiniRtcConnectionStatus::MiniRtcConnectionClosed: {
+        // The disconnect path clears every per-session accumulator below,
+        // including the transport codec report the session summary reads.
+        // Capture both before any reset runs: the summary emitted at the
+        // video reset must describe the session that just ended, and
+        // ResetRemoteSessionResources may run too late (after this handler)
+        // to ever see live values. Consume-once semantics in
+        // LogVideoSessionSummary keep the later emission a no-op.
+        std::string session_codec;
+        int session_fps_tier = 0;
+        {
+          const auto codecs = props->net_traffic_stats_.LoadVideoCodecs();
+          session_codec = !codecs.local_decoder.empty() ? codecs.local_decoder
+                                                        : codecs.remote_encoder;
+          std::lock_guard lock(props->video_settings_mutex_);
+          session_fps_tier = props->video_settings_.frame_rate;
+        }
         runtime->keyboard_.ReleaseRemotePressedKeys(remote_id,
                                                     "connection_closed");
         props->connection_established_ = false;
@@ -487,6 +503,17 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         }
         {
           std::lock_guard<std::mutex> lock(props->video_frame_mutex_);
+          // The media session ends here. Emit the once-per-session summary
+          // BEFORE Reset() clears the rolling decode/render windows and the
+          // inter-present measurement: quit-path teardown closes the
+          // connection first, so without this emission the summary in
+          // ResetRemoteSessionResources would always read wiped windows
+          // (wave-6 loopback smoke: decode_samples=0, render_samples=0 and
+          // inter_present=none in every session despite a healthy frame
+          // path, because this handler's reset ran first).
+          LogVideoSessionSummary(*props->video_latency_,
+                                 VideoLatencyFrame::Clock::now(),
+                                 session_codec, session_fps_tier);
           LogVideoFrameDiagnostics(props->remote_id_, props->video_latency_->Reset());
           props->video_frame_timing_ = {};
           props->front_frame_.reset();

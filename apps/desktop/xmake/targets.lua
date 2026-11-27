@@ -347,6 +347,14 @@ function setup_targets()
             "apps/desktop/src/log")
         add_files("apps/desktop/tests/inter_present_emission_test.cpp",
             "apps/desktop/src/gui/rendering/video_latency.cpp")
+    target("session_teardown_ordering_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("rd_log")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui",
+            "apps/desktop/src/log")
+        add_files("apps/desktop/tests/session_teardown_ordering_test.cpp",
+            "apps/desktop/src/gui/rendering/video_latency.cpp")
     target("captured_mouse_queue_tsan_stress")
         set_kind("binary")
         set_default(false)
