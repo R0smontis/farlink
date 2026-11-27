@@ -1680,12 +1680,21 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
     fresh_state->frames = impl_->frames;
     fresh_state->native_surface_needs_redraw = impl_->native_surface_needs_redraw;
     fresh_state->metal_layer = impl_->metal_layer;
-    // Phase-locked presentation driver for this attachment. Created before
-    // the state is published so the first decode-thread submission already
-    // sees it; nil in immediate/sync mode, leaving the Wave-5C render-queue
-    // path as both the fallback and the A/B comparison arm. The renderTick
-    // block captures the state weakly — the state strongly retains the
-    // driver, and a strong capture here would cycle.
+    // Phase-locked presentation driver for this attachment. Creation is
+    // deferred until the video view sits inside the window hierarchy with
+    // layout and geometry applied: a CAMetalDisplayLink created on a layer
+    // WindowServer has not composited yet can permanently attach to no
+    // display at all. The object stays valid in that state, accepts
+    // paused=NO, and never fires a single callback for the rest of the
+    // session — recreation on the same layer does not recover it either
+    // (wave-6 loopback smoke: ticks=0 across thousands of unpauses with a
+    // healthy layer tree in a visible window, in roughly half of the runs;
+    // zero latch-ups after this reorder). Nil in immediate/sync mode,
+    // leaving the Wave-5C render-queue path as both the fallback and the
+    // A/B comparison arm. The renderTick block captures the state weakly —
+    // the state strongly retains the driver, and a strong capture here
+    // would cycle.
+    auto start_display_link_driver = [&]() {
     if (ResolveMetalPacing() == MetalPacing::displaylink &&
         !EnvSyncPresentEnabled()) {
       CrossDeskMetalDisplayLinkDriver* driver =
@@ -1737,10 +1746,7 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
         });
       }
     }
-    {
-      std::lock_guard lock(impl_->async_state_mutex);
-      impl_->async_state = fresh_state;
-    }
+    };
     impl_->harvested_outcome_count = 0;
     fresh_state->render_queued.store(false, std::memory_order_release);
 
@@ -1802,6 +1808,15 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
       return restored && window.titleVisibility == NSWindowTitleHidden;
     };
     impl_->UpdateVideoGeometry(0.0);
+    // The surface now sits inside the window hierarchy with real geometry;
+    // creating the display link earlier than this races WindowServer's
+    // first compositing pass for the layer and can latch the link onto no
+    // display for the rest of the session.
+    start_display_link_driver();
+    {
+      std::lock_guard lock(impl_->async_state_mutex);
+      impl_->async_state = fresh_state;
+    }
     impl_->native_surface_needs_redraw->store(true,
                                               std::memory_order_release);
     const bool attached = impl_->video_view.superview != nil;
@@ -2166,9 +2181,27 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::Impl::RenderFrameCor
       if (visible_at_submit && presented_at) {
         timing.MarkPresented(*presented_at);
         // TRUE presentation is the drawable presented handler. Exactly once
-        // per session, report ms since connect request/Ice ready.
-        if (timing.stats && timing.stats->ConsumeFirstPresented()) {
-          LogVideoFirstFramePresented(*timing.stats, *presented_at);
+        // per session, report ms since connect request/Ice ready. The codec
+        // mirror races this line: the first transport stats sample carrying
+        // the decoder name typically lands a few tens of milliseconds after
+        // the first presentation, so an immediate emission prints
+        // codec=unknown in about half of all sessions. Defer emission while
+        // the codec is still unknown, up to a 1500 ms grace measured from
+        // the first presentation; past the grace emit with whatever is
+        // known so the line is never lost.
+        if (timing.stats && !timing.stats->FirstPresentedConsumed()) {
+          const auto observability = timing.stats->GetSessionObservability();
+          const bool codec_known =
+              observability && !observability->LoadCodec().empty();
+          const auto first_ns = timing.stats->FirstPresentedTimeNs();
+          const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+              presented_at->time_since_epoch()).count();
+          const bool grace_expired = first_ns > 0 &&
+              now_ns - first_ns > 1500LL * 1000 * 1000;
+          if ((codec_known || grace_expired) &&
+              timing.stats->ConsumeFirstPresented()) {
+            LogVideoFirstFramePresented(*timing.stats, *presented_at);
+          }
         }
       }
     }];

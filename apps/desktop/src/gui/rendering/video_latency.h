@@ -666,6 +666,9 @@ class VideoLatencyStats
   bool ConsumeFirstPresented() {
     return !first_presented_consumed_.exchange(true, std::memory_order_acq_rel);
   }
+  bool FirstPresentedConsumed() const {
+    return first_presented_consumed_.load(std::memory_order_acquire);
+  }
 
   // Per-second wall-clock histogram of true presentations, for machine-
   // readable session measurement (fps per second, freezes). True
