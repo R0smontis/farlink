@@ -80,6 +80,38 @@ static NSInteger ResolveSckQueueDepth() {
   return static_cast<NSInteger>(parsed);
 }
 
+// Capture-side colorimetry opt-out. The default stream configuration tags
+// the desktop as full-range BT.709 (420f/xf44 + ITU_R_709_2), matching both
+// what macOS actually renders and what VideoToolbox/Metal already consume
+// losslessly; 420f preserves all 256 luma codes instead of crushing them
+// into the 220-code 16..235 studio swing, and BT.709 is the exact matrix the
+// sRGB desktop was rasterized in. FARLINK_MAC_CAPTURE_LIMITED_601=1 restores
+// the legacy limited-range BT.601 (420v + ITU_R_601_4) stream for A/B
+// comparison or a consumer that cannot read the tagged attachments.
+static bool MacCaptureLimited601Enabled() {
+  static const bool enabled = [] {
+    const char* env = std::getenv("FARLINK_MAC_CAPTURE_LIMITED_601");
+    return env && env[0] == '1';
+  }();
+  return enabled;
+}
+
+// The 4:2:0 stream pixel format. Full-range 420f keeps the sRGB desktop's
+// 256 luma codes intact through capture; VideoToolbox accepts it natively
+// and writes video_full_range_flag=1 plus the BT.709 VUI into the bitstream
+// straight from the buffer attachments.
+static OSType ResolveSck420PixelFormat() {
+  return MacCaptureLimited601Enabled()
+             ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+             : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+}
+
+static CFStringRef ResolveSckColorMatrix() {
+  return MacCaptureLimited601Enabled()
+             ? kCGDisplayStreamYCbCrMatrix_ITU_R_601_4
+             : kCGDisplayStreamYCbCrMatrix_ITU_R_709_2;
+}
+
 static std::string NSErrorToString(NSError *error) {
   if (!error) {
     return "";
@@ -829,7 +861,10 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
     return;
   }
 
-  config.colorMatrix = kCGDisplayStreamYCbCrMatrix_ITU_R_601_4;
+  // BT.709 is the exact matrix the sRGB desktop is rasterized in; tagging the
+  // capture stream with ITU_R_601_4 forced ScreenCaptureKit to convert reds/
+  // greens through a legacy SDTV matrix before encode, a visible color shift.
+  config.colorMatrix = ResolveSckColorMatrix();
   config.colorSpaceName = kCGColorSpaceSRGB;
   config.showsCursor = show_cursor;
   config.width = filter.contentRect.size.width * filter.pointPixelScale;
@@ -847,8 +882,15 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
   if (!capture_requested_ || generation != configuration_generation_) return;
   if (configuration_in_flight_) { reconfigure_pending_ = true; return; }
   // A pixel-format change takes the updateConfiguration branch on a live stream.
+  // 420f (full-range) carries all 256 luma codes through capture; the legacy
+  // 420v video-range choice crushed 0..255 into the 16..235 studio swing
+  // (220 distinct levels) before the frame ever reached the encoder, which
+  // quantizes dark-mode UI gradients into visible banding. VideoToolbox
+  // accepts 420f natively and emits self-describing VUI (full_range=1,
+  // BT.709) straight from the pixel buffer attachments; CopyCapturedPixel-
+  // BufferToNv12 and the Metal renderer both read those same attachments.
   config.pixelFormat = true_color_enabled_ ? kCVPixelFormatType_444YpCbCr10BiPlanarFullRange
-                                           : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+                                           : ResolveSck420PixelFormat();
   if (GetMacPrivacyCaptureState().revision != revision) {
     lock.unlock();
     RetryPrivacyFilter();
