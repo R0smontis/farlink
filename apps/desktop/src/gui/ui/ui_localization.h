@@ -346,6 +346,8 @@ inline int ApplyStreamWindowStrings(
   strings.set_stats_p95_gap(Text(localization::stats_p95_gap[language]));
   strings.set_stats_video_jitter(Text(localization::stats_video_jitter[language]));
   strings.set_stats_audio_jitter(Text(localization::stats_audio_jitter[language]));
+  strings.set_stats_decode(Text(localization::stats_decode[language]));
+  strings.set_stats_render(Text(localization::stats_render[language]));
   strings.set_keyboard_shortcuts(Text(localization::keyboard_shortcuts[language]));
   strings.set_shortcut_prefer_local(Text(localization::shortcut_prefer_local[language]));
   strings.set_shortcut_send_to_remote(Text(localization::shortcut_send_to_remote[language]));

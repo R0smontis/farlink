@@ -11976,6 +11976,30 @@
       "es": "Jitter de audio",
       "pt-BR": "Jitter de áudio"
     },
+    "解码": {
+      "zh-Hans": "解码",
+      "en": "Decode",
+      "ru": "Декодирование",
+      "zh-Hant": "解碼",
+      "ja": "デコード",
+      "ko": "디코딩",
+      "de": "Dekodierung",
+      "fr": "Décodage",
+      "es": "Decodificación",
+      "pt-BR": "Decodificação"
+    },
+    "渲染": {
+      "zh-Hans": "渲染",
+      "en": "Render",
+      "ru": "Рендеринг",
+      "zh-Hant": "渲染",
+      "ja": "レンダリング",
+      "ko": "렌더링",
+      "de": "Rendering",
+      "fr": "Rendu",
+      "es": "Renderizado",
+      "pt-BR": "Renderização"
+    },
     "键盘快捷键": {
       "zh-Hans": "键盘快捷键",
       "en": "Keyboard shortcuts",
@@ -12412,6 +12436,8 @@
     "stats_p95_gap": "p95 间隔",
     "stats_video_jitter": "视频抖动",
     "stats_audio_jitter": "音频抖动",
+    "stats_decode": "解码",
+    "stats_render": "渲染",
     "keyboard_shortcuts": "键盘快捷键",
     "shortcut_prefer_local": "优先本机",
     "shortcut_send_to_remote": "发送到远端",
@@ -13213,6 +13239,8 @@
       "p95 间隔",
       "视频抖动",
       "音频抖动",
+      "解码",
+      "渲染",
       "键盘快捷键",
       "优先本机",
       "远程唤醒",

@@ -297,6 +297,19 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/inter_present_gap_test.cpp")
 
+    -- Wave 6D: per-stage latency attribution. Deterministic rolling-window
+    -- decode/render statistics, the five-regime bottleneck classifier, and
+    -- the 10k-event dispatcher FIFO + queue-latency microbenchmark for the
+    -- wake-outside-lock fast lane. No GPU, network or codec.
+    target("stage_latency_attribution_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("crossdesk_wire")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui",
+            "apps/desktop/src/common")
+        add_files("apps/desktop/tests/stage_latency_attribution_test.cpp",
+            "apps/desktop/src/gui/features/input/remote_input_dispatcher.cpp")
+
     -- Edge-detection poller around QueryScreenLock: scripted fake query and
     -- injected clock, fully deterministic, no platform dependencies (the
     -- test carries its own stub for the platform symbols).

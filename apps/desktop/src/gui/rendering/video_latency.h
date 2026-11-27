@@ -21,6 +21,72 @@
 #include <vector>
 
 namespace crossdesk {
+// Dominant latency contributor for the per-stage breakdown. Ordered by the
+// pipeline direction so a reader can scan left-to-right; the enum value is
+// serialized into machine-readable teardown/diagnostic output, so existing
+// members must never be renumbered.
+enum class LatencyBottleneck : uint8_t {
+  none = 0,
+  network = 1,
+  jitter = 2,
+  decode = 3,
+  render = 4,
+};
+
+// Classify the dominant per-stage contributor of a degraded stream. `rtt_ms`
+// is the smoothed transport round-trip, `jitter_target_ms` the live jitter
+// buffer target delay, `decode_ms` the decoder completion minus reassembly
+// time, `render_ms` the decode-callback to presentation time. Every input is
+// a rolling mean in milliseconds; negative inputs are treated as unavailable
+// and never dominate.
+//
+// Returns LatencyBottleneck::none when the pipeline is healthy across every
+// measured stage — the exact thresholds mirror the reference-grade interactive
+// budget: sub-25 ms RTT, sub-8 ms jitter target, sub-6 ms decode and sub-10 ms
+// render leave no single stage worth flagging. Otherwise the stage with the
+// largest absolute contribution over its own healthy budget wins, so a 40 ms
+// RTT does not mask a 30 ms decode stall on the same stream.
+inline LatencyBottleneck ClassifyLatencyBottleneck(double rtt_ms,
+                                                   double jitter_target_ms,
+                                                   double decode_ms,
+                                                   double render_ms) {
+  constexpr double kHealthyRttMs = 25;
+  constexpr double kHealthyJitterMs = 8;
+  constexpr double kHealthyDecodeMs = 6;
+  constexpr double kHealthyRenderMs = 10;
+  const double rtt_excess = rtt_ms >= 0 ? rtt_ms - kHealthyRttMs : -1;
+  const double jitter_excess =
+      jitter_target_ms >= 0 ? jitter_target_ms - kHealthyJitterMs : -1;
+  const double decode_excess =
+      decode_ms >= 0 ? decode_ms - kHealthyDecodeMs : -1;
+  const double render_excess =
+      render_ms >= 0 ? render_ms - kHealthyRenderMs : -1;
+  double worst = 0;
+  LatencyBottleneck result = LatencyBottleneck::none;
+  const auto consider = [&](double excess, LatencyBottleneck kind) {
+    if (excess > worst) {
+      worst = excess;
+      result = kind;
+    }
+  };
+  consider(rtt_excess, LatencyBottleneck::network);
+  consider(jitter_excess, LatencyBottleneck::jitter);
+  consider(decode_excess, LatencyBottleneck::decode);
+  consider(render_excess, LatencyBottleneck::render);
+  return result;
+}
+
+inline const char* LatencyBottleneckName(LatencyBottleneck kind) {
+  switch (kind) {
+    case LatencyBottleneck::network: return "network";
+    case LatencyBottleneck::jitter: return "jitter";
+    case LatencyBottleneck::decode: return "decode";
+    case LatencyBottleneck::render: return "render";
+    case LatencyBottleneck::none: break;
+  }
+  return "none";
+}
+
 
 class VideoLatencyStats;
 
@@ -55,6 +121,14 @@ struct VideoLatencyFrame {
   Clock::time_point capture_time{};
   bool capture_valid = true;
   Clock::time_point received_time{};
+  // Decode stage duration in milliseconds, measured inside minirtc as
+  // (decoded_timestamp - received_timestamp) of the arriving frame: the
+  // exact span from completed RTP reassembly to completed hardware/software
+  // decode, including any decoder queue wait. Negative when the transport
+  // did not supply both timestamps for this frame (pre-calibration frames,
+  // or a backend that never reports them); such frames simply never feed
+  // the decode rolling window. Immutable once the frame is constructed.
+  double decode_ms = -1;
   void MarkPresented(Clock::time_point now = Clock::now()) const;
   // GPU completion/submission are estimates: neither confirms screen display.
   void MarkEstimated(Clock::time_point now = Clock::now()) const;
@@ -248,6 +322,131 @@ class VideoLatencyStats
     double Average() const { return samples ? total_ms / samples : 0; }
   };
 
+  // Rolling per-stage window shared by the decode and render measurements.
+  // Fixed 60-sample ring (roughly one second at 60 fps, two at 30) holding
+  // exact values, so the mean is exact within the window and the p95 is the
+  // exact order statistic of the window — not a bucket upper bound. Thread
+  // safety: one writer thread per instance (decode callback for decode,
+  // render/present callbacks for render) and any number of readers, all
+  // serialized through a tiny internal mutex. Critical sections are a handful
+  // of stores/copies of a 480-byte array; they never allocate, never log and
+  // never block on IO, so even a contended reader costs nanoseconds, not a
+  // frame.
+  class StageWindow {
+   public:
+    static constexpr size_t kCapacity = 60;
+
+    // Decode-stage recording: samples are independent per frame, so a plain
+    // append is correct.
+    void Add(double ms) {
+      if (!std::isfinite(ms) || ms < 0) return;
+      std::lock_guard lock(mutex_);
+      AppendLocked(ms);
+    }
+
+    // Render-stage recording keyed by frame identity: an estimate upgrade or
+    // a true presentation arriving after a GPU-completion estimate replaces
+    // the earlier sample for the same frame instead of double-counting it.
+    // A true presentation always wins over an estimate; a later estimate
+    // never overwrites the truer presented value.
+    void Add(uint64_t frame_id, double ms, bool estimated) {
+      if (!std::isfinite(ms) || ms < 0 || frame_id == 0) return;
+      std::lock_guard lock(mutex_);
+      // The ring is tiny; a linear scan for the same frame id is faster than
+      // any index structure and bounded by 60 iterations worst-case.
+      for (size_t i = 0; i < size_; ++i) {
+        auto& slot = ring_[(head_ + i) % kCapacity];
+        if (slot.frame_id != frame_id) continue;
+        if (!estimated || slot.estimated) {
+          // Upgrade in place: prefer the true endpoint, keep the first value
+          // when the new sample is not strictly better information.
+          if (!slot.estimated && estimated) return;
+          slot.ms = ms;
+          slot.estimated = estimated;
+        }
+        return;
+      }
+      AppendLocked(ms, frame_id, estimated);
+    }
+
+    struct Snapshot {
+      size_t samples = 0;
+      double mean_ms = -1;  // -1 when no sample was ever recorded
+      double p95_ms = -1;
+      double max_ms = -1;
+    };
+
+    Snapshot Get() const {
+      std::lock_guard lock(mutex_);
+      Snapshot result;
+      if (size_ == 0) return result;
+      std::array<double, kCapacity> values;
+      double total = 0;
+      double max_value = 0;
+      for (size_t i = 0; i < size_; ++i) {
+        const double ms = ring_[(head_ + i) % kCapacity].ms;
+        values[i] = ms;
+        total += ms;
+        max_value = std::max(max_value, ms);
+      }
+      result.samples = size_;
+      result.mean_ms = total / size_;
+      result.max_ms = max_value;
+      // Exact p95 of the window: the ceil(0.95 * n)-th smallest sample. With
+      // n <= 60 the selection cost is trivial and bounded; using nearest-rank
+      // keeps the statistic honest instead of interpolating a distribution
+      // this small.
+      std::sort(values.begin(), values.begin() + size_);
+      const size_t rank =
+          std::min(size_ - 1, static_cast<size_t>(
+                                  std::ceil(0.95 * size_)) -
+                                  1);
+      result.p95_ms = values[rank];
+      return result;
+    }
+
+    void Reset() {
+      std::lock_guard lock(mutex_);
+      head_ = 0;
+      size_ = 0;
+    }
+
+   private:
+    void AppendLocked(double ms, uint64_t frame_id = 0, bool estimated = false) {
+      if (size_ < kCapacity) {
+        ring_[(head_ + size_) % kCapacity] = {frame_id, ms, estimated};
+        ++size_;
+      } else {
+        ring_[head_] = {frame_id, ms, estimated};
+        head_ = (head_ + 1) % kCapacity;
+      }
+    }
+
+    struct Slot {
+      uint64_t frame_id = 0;
+      double ms = 0;
+      bool estimated = false;
+    };
+    mutable std::mutex mutex_;
+    std::array<Slot, kCapacity> ring_{};
+    size_t head_ = 0;
+    size_t size_ = 0;
+  };
+
+  // Copy-out snapshot of both per-stage rolling windows. Read by the HUD once
+  // per second and once at teardown; never allocated per frame.
+  struct StageSnapshot {
+    StageWindow::Snapshot decode;
+    StageWindow::Snapshot render;
+  };
+
+  StageSnapshot TakeStageSnapshot() const {
+    StageSnapshot result;
+    result.decode = decode_window_.Get();
+    result.render = render_window_.Get();
+    return result;
+  }
+
   struct PipelineSnapshot {
     std::array<uint64_t, static_cast<size_t>(VideoFrameStage::count)> frames{};
     uint64_t render_ticks = 0;
@@ -366,9 +565,29 @@ class VideoLatencyStats
 
   VideoLatencyFrame Frame(uint64_t captured_us, int64_t local_now_us,
                           Clock::time_point now = Clock::now()) {
+    return FrameWithDecode(captured_us, local_now_us, -1, now);
+  }
+
+  // Same as Frame() but additionally carries the transport-measured decode
+  // stage duration in milliseconds (decoded_timestamp - received_timestamp
+  // of the arriving MiniRtc frame). Pass a negative value when either
+  // timestamp was unavailable — the frame then simply never enters the
+  // decode rolling window. The decode sample is recorded here, once, at
+  // frame creation: it is a property of the transport pipeline that has
+  // already completed by the time this callback runs, so it does not depend
+  // on any later render endpoint.
+  VideoLatencyFrame FrameWithDecode(uint64_t captured_us,
+                                    int64_t local_now_us,
+                                    double decode_ms,
+                                    Clock::time_point now = Clock::now()) {
     const bool valid_capture = captured_us != 0 && local_now_us > 0 &&
         captured_us <= uint64_t(local_now_us) &&
         uint64_t(local_now_us) - captured_us <= 5'000'000;
+    if (decode_ms >= 0 && std::isfinite(decode_ms)) {
+      // Atomic rolling accumulator: the decode callback thread is the only
+      // writer, HUD and teardown readers never block the frame path.
+      decode_window_.Add(decode_ms);
+    }
     std::lock_guard lock(mutex_);
     // Presentation cadence needs only the local endpoint clock. Keep issuing
     // frame identities when cross-machine capture-time mapping is unavailable.
@@ -376,7 +595,7 @@ class VideoLatencyStats
             valid_capture
                 ? now - std::chrono::microseconds(local_now_us - captured_us)
                 : now,
-            valid_capture, now};
+            valid_capture, now, decode_ms};
     RecordStageLocked(frame, VideoFrameStage::received, now, 0);
     return frame;
   }
@@ -520,6 +739,21 @@ class VideoLatencyStats
     const double ms =
         std::chrono::duration<double, std::milli>(now - frame.capture_time)
             .count();
+    // Render stage: receive-callback entry to this render endpoint. Recorded
+    // for every endpoint kind — true presentation, GPU-completion estimate
+    // and bare submission — because the HUD answers "where does the time go
+    // NOW"; restricting to true presentations would leave the metric empty
+    // on renderers that expose only submission. Deduped by frame identity so
+    // a redraw or an estimate upgrade cannot double-count the same frame,
+    // matching the presented-counter contract. Out-of-order callbacks with a
+    // negative span are clamped to zero rather than dropped: the frame did
+    // traverse the render path, only its endpoint clock arrived early.
+    if (frame.received_time != Clock::time_point{} && frame.id != 0) {
+      const double render_ms = std::max(
+          0.0, std::chrono::duration<double, std::milli>(
+                   now - frame.received_time).count());
+      render_window_.Add(frame.id, render_ms, estimated);
+    }
     std::lock_guard lock(mutex_);
     if (!estimated) {
       // Cumulative per-session presentations, deduped like the gap tracker:
@@ -616,6 +850,8 @@ class VideoLatencyStats
   }
 
   std::optional<DiagnosticsSnapshot> Reset(Clock::time_point now = Clock::now()) {
+    decode_window_.Reset();
+    render_window_.Reset();
     std::lock_guard lock(mutex_);
     auto tail = TakeDiagnosticsLocked(now, true);
     samples_.clear();
@@ -799,6 +1035,16 @@ class VideoLatencyStats
   // Decoded-resolution change series, same steady-clock-second epoch as the
   // fps histogram; guarded by persecond_mutex_ as documented above.
   std::vector<ResolutionEvent> resolution_series_;
+  // Per-stage rolling windows. Deliberately OUTSIDE mutex_: the decode
+  // callback thread writes decode_window_ once per frame before touching
+  // mutex_ at all, and the render/present callback writes render_window_
+  // before acquiring mutex_ in Record(). Each window carries its own tiny
+  // internal mutex, so the hot frame path never serializes the decode and
+  // render stages against each other or behind the much larger pipeline
+  // state lock. Reset() clears both so a fresh session never reads a stage
+  // sample produced before the reset boundary.
+  StageWindow decode_window_;
+  StageWindow render_window_;
 };
 
 inline void VideoLatencyFrame::MarkSubmitted(Clock::time_point now) const {
