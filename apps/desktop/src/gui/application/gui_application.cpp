@@ -3,10 +3,12 @@
 #include <SDL3/SDL.h>
 #include <openssl/rand.h>
 #include <remote_action.h>
+#include <input_wire.h>
 #include <slint.h>
 #include <tinyfiledialogs.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <chrono>
@@ -3221,6 +3223,12 @@ void GuiApplication::ShareLocalCursorState() {
   struct CursorRecipient {
     std::string remote_id;
     bool include_position = true;
+    // Shape/visibility/render-mode changes, first contact and heartbeats are
+    // authoritative state and must ride the reliable stream. Pure position
+    // updates supersede each other, so they use the unreliable stream with
+    // sequence gating instead — a dropped or reordered position is replaced
+    // by the very next one and never stalls behind reliable retransmits.
+    bool reliable = true;
   };
   std::vector<CursorRecipient> recipients;
   for (const auto& remote_id : connected_controllers) {
@@ -3263,7 +3271,8 @@ void GuiApplication::ShareLocalCursorState() {
     const bool include_position = sample_ok && !suppress_position;
     if (shape_changed || heartbeat_due ||
         (include_position && (delivery.feedback_pending || position_update_due))) {
-      recipients.push_back({remote_id, include_position});
+      recipients.push_back(
+          {remote_id, include_position, shape_changed || heartbeat_due});
     }
   }
   if (recipients.empty()) return;
@@ -3302,8 +3311,22 @@ void GuiApplication::ShareLocalCursorState() {
     action.type = ControlType::cursor_state;
     action.cs = outgoing;
     const std::string message = action.to_json();
-    const int result = SendControllerData(recipient.remote_id, message.c_str(),
-                                          message.size(), mouse_label_.c_str());
+    int result = 0;
+    if (recipient.reliable) {
+      result = SendControllerData(recipient.remote_id, message.c_str(),
+                                  message.size(), mouse_label_.c_str());
+    } else {
+      result = SendControllerDataUnreliable(
+          recipient.remote_id, message.c_str(), message.size(),
+          data_label_.c_str());
+      if (result != 0) {
+        // The unreliable stream is not established yet (early negotiation or
+        // a peer without the data channel): degrade to the reliable stream
+        // rather than dropping cursor feedback entirely.
+        result = SendControllerData(recipient.remote_id, message.c_str(),
+                                    message.size(), mouse_label_.c_str());
+      }
+    }
     if (result != 0) {
       LOG_WARN("Send cursor state failed, ret={}", result);
       continue;
@@ -6432,26 +6455,6 @@ void GuiApplication::SendGameModeActionDirect(const std::string& target,
   const bool move = action.m.flag == MouseFlag::move_relative;
   const bool wheel = action.m.flag == MouseFlag::wheel_vertical ||
                      action.m.flag == MouseFlag::wheel_horizontal;
-  std::string message;
-  if (wheel) {
-    // Consume before touching the session map: game_mode_mutex_ never
-    // nests inside remote_sessions_mutex_, and the accumulator here is
-    // dedicated to game mode — the Slint scroll path cannot fire while the
-    // cursor is frozen, so the UI accumulator in props->scroll_ is never
-    // involved.
-    int steps = 0;
-    {
-      std::lock_guard game_lock(game_mode_mutex_);
-      steps = game_mode_scroll_.Consume(
-          action.m.flag == MouseFlag::wheel_vertical, wheel_delta,
-          game_mode_wheel_percent_);
-    }
-    if (steps == 0) return;
-    action.m.s = steps;
-    message = action.to_json();
-  } else {
-    message = action.to_json();
-  }
   std::shared_lock lock(remote_sessions_mutex_);
   const auto it = remote_sessions_.find(target);
   if (it == remote_sessions_.end()) return;
@@ -6460,6 +6463,79 @@ void GuiApplication::SendGameModeActionDirect(const std::string& target,
       props->connection_status_.load() != MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
     return;
   }
+  const bool binary =
+      props->supports_binary_input_.load(std::memory_order_acquire);
+
+  std::string message;
+  if (!binary) {
+    if (wheel) {
+      // Consume before encoding: game_mode_mutex_ never nests inside
+      // remote_sessions_mutex_, and the accumulator here is dedicated to
+      // game mode — the Slint scroll path cannot fire while the cursor is
+      // frozen, so the UI accumulator in props->scroll_ is never involved.
+      // Binary-capable peers skip this entirely: their continuous pixel
+      // stream never quantizes to notches.
+      int steps = 0;
+      {
+        std::lock_guard game_lock(game_mode_mutex_);
+        steps = game_mode_scroll_.Consume(
+            action.m.flag == MouseFlag::wheel_vertical, wheel_delta,
+            game_mode_wheel_percent_);
+      }
+      if (steps == 0) return;
+      action.m.s = steps;
+    }
+    message = action.to_json();
+  }
+
+  if (binary) {
+    // Binary game-mode path. Relative motion accumulates into the session
+    // encoder's loss-immune cumulative counters; clicks embed those same
+    // counters, so the receiver's batch boundary flush guarantees a click
+    // never lands before the flick that preceded it — even when the
+    // unreliable motion packet just before the click was dropped.
+    std::array<char, input_wire::kMaxPacketBytes> frame{};
+    std::size_t frame_size = 0;
+    const uint64_t now_us = input_wire::Encoder::NowMicroseconds();
+    {
+      std::lock_guard enc_lock(props->input_encoder_mutex_);
+      auto& encoder = props->input_encoder_;
+      if (move) {
+        encoder.AddRelative(action.m.dx, action.m.dy);
+        frame_size = encoder.EncodeRelative(frame.data(), now_us);
+      } else if (wheel) {
+        // Same continuous-pixel conversion as the Slint scroll path: game
+        // mode never quantizes to notches on a binary-capable peer.
+        const double scaled = static_cast<double>(wheel_delta) *
+                              game_mode_wheel_percent_ / 100.0;
+        if (scaled == 0) return;
+        const bool vertical = action.m.flag == MouseFlag::wheel_vertical;
+        const int legacy_steps = std::max(-32767, std::min(32767,
+            static_cast<int>(scaled / ScrollAccumulator::kPixelsPerNotch)));
+        frame_size = encoder.EncodeScrollPixel(
+            frame.data(), vertical ? 0.0f : static_cast<float>(scaled),
+            vertical ? static_cast<float>(scaled) : 0.0f,
+            static_cast<int16_t>(vertical ? 0 : legacy_steps),
+            static_cast<int16_t>(vertical ? legacy_steps : 0), now_us);
+      } else {
+        // Click batch boundary: the reliable button frame carries the
+        // cumulative counters at click time, making it self-synchronizing
+        // against any lost unreliable motion.
+        frame_size = encoder.EncodeMouseButtonCumulative(
+            frame.data(), action.m.flag, 0, now_us);
+      }
+    }
+    if (frame_size == 0) return;
+    const int result =
+        move ? MiniRtcSendDataFrame(props->peer_, frame.data(), frame_size,
+                                    props->data_label_.c_str())
+             : MiniRtcSendReliableDataFrame(props->peer_, frame.data(),
+                                            frame_size,
+                                            props->mouse_label_.c_str());
+    if (result != 0) LOG_WARN("Game mode input send failed, ret={}", result);
+    return;
+  }
+
   const int result =
       move ? MiniRtcSendDataFrame(props->peer_, message.data(), message.size(),
                                   props->data_label_.c_str())

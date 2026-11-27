@@ -195,6 +195,11 @@ struct HostInfo {
   // Optional capability; absent means the peer neither exposes host-side
   // loopback port forwarding nor understands controller-side forwarding rules.
   bool supports_port_forward;
+  // Optional capability; absent means the peer only understands the JSON
+  // RemoteAction input encoding. Binary-capable peers accept the compact
+  // input_wire format (input_wire.h) on the same streams; senders must keep
+  // emitting exact JSON for peers that do not advertise this.
+  bool supports_binary_input;
 };
 
 struct ServiceStatus {

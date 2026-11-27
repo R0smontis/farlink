@@ -245,6 +245,14 @@ int GuiRuntime::SendControllerData(const std::string& id, const char* data,
                                        wire.size());
   });
 }
+int GuiRuntime::SendControllerDataUnreliable(const std::string& id,
+                                             const char* data, size_t size,
+                                             const char* label) {
+  return WithController(id, [&](MiniRtcPeerPtr* peer, const std::string& wire) {
+    return MiniRtcSendDataFrameToPeer(peer, data, size, label, wire.data(),
+                                      wire.size());
+  });
+}
 std::vector<std::string> GuiRuntime::ConnectedControllers() {
   std::vector<std::string> ids;
   std::shared_lock lock(connection_status_mutex_);

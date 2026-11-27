@@ -44,11 +44,12 @@ RemoteInputDispatcher::Result RemoteInputDispatcher::Push(
   if (!Accepts(action)) return Result::rejected;
   std::lock_guard lock(mutex_);
   if (stopping_ || !connected_.count(id)) return Result::rejected;
-  if (!completion && IsMove(action) && !pending_.empty()) {
+  if (!completion && (IsMove(action) || IsPixelScroll(action)) &&
+      !pending_.empty()) {
     auto& last = pending_.back();
     if (!last.completion && last.id == id && last.IsInput() &&
         last.action->m.flag == action.m.flag) {
-      if (IsMove(*last.action)) {
+      if (IsMove(action) && IsMove(*last.action)) {
         if (action.m.flag == MouseFlag::move_relative) {
           // Relative motion has no latest-wins position to keep: every delta
           // matters, so coalescing sums losslessly in the wire's own units.
@@ -57,6 +58,17 @@ RemoteInputDispatcher::Result RemoteInputDispatcher::Push(
         } else {
           last.action = action;
         }
+        last.queued_at = Clock::now();
+        return Result::coalesced;
+      }
+      if (IsPixelScroll(action) && IsPixelScroll(*last.action)) {
+        // Pixel scroll deltas accumulate exactly like relative motion: a
+        // 120Hz trackpad gesture must never overflow the queue, and summing
+        // is lossless because the host injects continuous pixels. The legacy
+        // step fallback sums too so notch-based hosts lose nothing.
+        last.action->m.dx += action.m.dx;
+        last.action->m.dy += action.m.dy;
+        last.action->m.s += action.m.s;
         last.queued_at = Clock::now();
         return Result::coalesced;
       }
@@ -121,6 +133,16 @@ bool RemoteInputDispatcher::IsMove(const RemoteAction& action) {
   return action.type == ControlType::mouse &&
          (action.m.flag == MouseFlag::move ||
           action.m.flag == MouseFlag::move_relative);
+}
+
+bool RemoteInputDispatcher::IsPixelScroll(const RemoteAction& action) {
+  // Binary ScrollPixel frames decode into wheel actions whose dx/dy carry
+  // continuous pixel deltas. Legacy JSON wheel input never sets those
+  // fields, so this test cannot misfire on the legacy path.
+  return action.type == ControlType::mouse &&
+         (action.m.flag == MouseFlag::wheel_vertical ||
+          action.m.flag == MouseFlag::wheel_horizontal) &&
+         (action.m.dx != 0 || action.m.dy != 0);
 }
 
 unsigned RemoteInputDispatcher::MouseUpMask(const RemoteAction& action) {

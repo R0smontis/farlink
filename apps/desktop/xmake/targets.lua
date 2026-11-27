@@ -259,6 +259,21 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/stream_control_ergonomics_test.cpp")
 
+    -- Wave 5D: pixel-precise scroll dispatcher coalescing, sub-notch
+    -- accumulation math, and the macOS continuous scroll event field
+    -- contract (CGEventCreateScrollWheelEvent2 continuous/fixed-point).
+    target("pixel_scroll_and_dispatcher_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("crossdesk_wire")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui",
+            "apps/desktop/src/common")
+        add_files("apps/desktop/tests/pixel_scroll_and_dispatcher_test.cpp",
+            "apps/desktop/src/gui/features/input/remote_input_dispatcher.cpp")
+        if is_os("macosx") then
+            add_frameworks("ApplicationServices")
+        end
+
     target("instance_scope_test")
         set_kind("binary")
         set_default(false)

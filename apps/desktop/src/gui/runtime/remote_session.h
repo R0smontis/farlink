@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <remote_action.h>
+#include <input_wire.h>
 #include <preview_subscription.h>
 #include <stream_names.h>
 #include "display_info.h"
@@ -91,6 +92,11 @@ struct RemoteSession {
   // Advertised by peers that inject move_relative correctly; stock hosts
   // never see relative input because the controller gates game mode on this.
   std::atomic<bool> supports_relative_mouse_{false};
+  // Advertised by peers implementing the zero-allocation binary input wire
+  // (libs/wire/include/input_wire.h). Controllers must keep emitting exact
+  // JSON RemoteAction frames while this is false; the wire format is
+  // negotiated per connection exactly like supports_relative_mouse_.
+  std::atomic<bool> supports_binary_input_{false};
   std::atomic<bool> preview_resolution_supported_{false};
   std::atomic<bool> preview_fps15_supported_{false};
   std::atomic<bool> preview_bandwidth_supported_{false};
@@ -152,6 +158,13 @@ struct RemoteSession {
   // Stable device/server identity; LAN's remote_id_ is a temporary session key.
   std::string device_preference_key_;
   ScrollAccumulator scroll_;  // UI thread, one fractional remainder per axis and session.
+  // Binary input wire encoder state for this session: owns the per-session
+  // sequence counter and the cumulative relative-motion counters. UI thread
+  // for the Slint input path; the game-mode sender thread uses the same
+  // object through the runtime's encoding entry points, so all access is
+  // serialized by input_encoder_mutex_.
+  std::mutex input_encoder_mutex_;
+  input_wire::Encoder input_encoder_;
   bool exit_ = false;
   bool signal_connected_ = false;
   MiniRtcSignalStatus signal_status_ = MiniRtcSignalStatus::MiniRtcSignalClosed;
@@ -265,6 +278,14 @@ struct RemoteSession {
   std::mutex remote_cursor_state_mutex_;
   CursorState remote_cursor_state_{};
   bool remote_cursor_state_received_ = false;
+  // Split sequence tracking for the unreliable cursor position stream.
+  // Shape-authoritative updates ride the ordered reliable stream, so they
+  // gate on cursor_shape_seq_; position fields gate independently on
+  // cursor_position_seq_ so a delayed reliable shape change never loses to
+  // a newer unreliable position, and its stale position payload is never
+  // applied over a newer one.
+  uint32_t cursor_shape_seq_ = 0;
+  uint32_t cursor_position_seq_ = 0;
   CursorPresentation cursor_presentation_;
   // Shared by minirtc callbacks, Slint rendering and SDL audio callbacks.
   std::atomic<MiniRtcConnectionStatus> connection_status_ = MiniRtcConnectionStatus::MiniRtcConnectionClosed;

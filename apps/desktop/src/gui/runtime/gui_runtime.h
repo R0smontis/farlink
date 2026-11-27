@@ -17,7 +17,10 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
+
+#include <input_wire.h>
 
 #include "desktop_automation.h"
 #include "host_audio_mute.h"
@@ -86,6 +89,11 @@ class GuiRuntime : protected gui_detail::GuiState {
       bool require_trusted = true);
   int SendControllerData(const std::string& id, const char* data, size_t size,
                          const char* label);
+  // Unreliable/unordered variant for supersedeable traffic (cursor position
+  // updates). Uses the same per-controller routing but the lossy data
+  // stream, so a dropped frame never stalls behind retransmission.
+  int SendControllerDataUnreliable(const std::string& id, const char* data,
+                                   size_t size, const char* label);
   std::shared_ptr<PeerEventHandler> ControllerEvents(const std::string& id);
   std::vector<std::string> ConnectedControllers();
   std::unique_ptr<lan::SessionManager> lan_;
@@ -284,6 +292,25 @@ class GuiRuntime : protected gui_detail::GuiState {
   std::deque<std::function<void()>> automation_tasks_;
   bool automation_closing_ = false;
   InputOutcome InjectRemoteMouse(const RemoteAction& action, int display);
+  // Host-side binary input decoders, one per controller, guarding the
+  // sequence-aware cumulative-motion state. Transport callbacks decode on
+  // the network thread, so the map is mutex-protected; decoders are erased
+  // when their controller disconnects so a reconnecting session restarts
+  // its epoch cleanly.
+  std::mutex input_decoder_mutex_;
+  std::unordered_map<std::string, input_wire::Decoder> input_decoders_;
+  // Translates one binary input frame into the equivalent RemoteAction and
+  // applies sequence gating. Returns false for malformed, stale or
+  // non-input frames; move_rel_cumulative frames carry their exact delta in
+  // the output's dx/dy fields. When a relative-mode click embeds cumulative
+  // counters that are ahead of the applied motion, |pre_click_motion| gains
+  // a move_relative action covering exactly the missing displacement — the
+  // caller must queue it immediately before the click so the batch boundary
+  // holds even when unreliable motion packets were lost. Network callback
+  // thread.
+  bool DecodeBinaryInput(const std::string& remote_id, const char* data,
+                         size_t size, RemoteAction& output,
+                         RemoteAction* pre_click_motion = nullptr);
   std::string gallery_group_control_id_;
 
   void ResetRemoteServiceStatus(RemoteSession& props);

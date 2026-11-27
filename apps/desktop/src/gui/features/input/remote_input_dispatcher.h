@@ -86,6 +86,7 @@ class RemoteInputDispatcher {
   };
 
   static bool IsMove(const RemoteAction& action);
+  static bool IsPixelScroll(const RemoteAction& action);
   static unsigned MouseUpMask(const RemoteAction& action);
   void RemoveResetsLocked();
   void QueueReleaseLocked(const std::string& id);

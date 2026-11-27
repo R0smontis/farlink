@@ -324,13 +324,55 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
       SetClickState(mouse_event, click_state);
       break;
     case MouseFlag::wheel_vertical:
-      mouse_event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine,
-                                                  2, remote_action.m.s, 0);
+    case MouseFlag::wheel_horizontal: {
+      // Pixel-precise continuous scrolling (binary ScrollPixel wire): the
+      // dx/dy fields carry exact physical pixels, injected through the
+      // continuous-event variant commercial remote desktop uses — CGEventCreateScrollWheelEvent2
+      // with pixel units, the continuous bit set, and the double-precision
+      // point deltas so sub-pixel fractions survive in the event stream.
+      const bool pixel_precise =
+          remote_action.m.dx != 0 || remote_action.m.dy != 0;
+      if (pixel_precise) {
+        const double dx_px = remote_action.m.dx;
+        const double dy_px = remote_action.m.dy;
+        // CGEventCreateScrollWheelEvent2 scales its constructor arguments
+        // internally (they are not raw pixels), so the event is created
+        // zeroed and every delta channel is written explicitly: integer
+        // pixels for the coarse consumers, fixed-point and point deltas
+        // carrying the fractional fidelity continuous scrolling needs.
+        mouse_event = CGEventCreateScrollWheelEvent2(
+            NULL, kCGScrollEventUnitPixel, 2, 0, 0, 0);
+        if (mouse_event) {
+          CGEventSetIntegerValueField(mouse_event,
+                                      kCGScrollWheelEventIsContinuous, 1);
+          CGEventSetIntegerValueField(
+              mouse_event, kCGScrollWheelEventDeltaAxis1,
+              static_cast<int64_t>(std::llround(dy_px)));
+          CGEventSetIntegerValueField(
+              mouse_event, kCGScrollWheelEventDeltaAxis2,
+              static_cast<int64_t>(std::llround(dx_px)));
+          CGEventSetIntegerValueField(
+              mouse_event, kCGScrollWheelEventFixedPtDeltaAxis1,
+              static_cast<int64_t>(dy_px * 65536.0));
+          CGEventSetIntegerValueField(
+              mouse_event, kCGScrollWheelEventFixedPtDeltaAxis2,
+              static_cast<int64_t>(dx_px * 65536.0));
+          CGEventSetDoubleValueField(mouse_event,
+                                     kCGScrollWheelEventPointDeltaAxis1,
+                                     dy_px);
+          CGEventSetDoubleValueField(mouse_event,
+                                     kCGScrollWheelEventPointDeltaAxis2,
+                                     dx_px);
+        }
+      } else if (remote_action.m.flag == MouseFlag::wheel_vertical) {
+        mouse_event = CGEventCreateScrollWheelEvent(
+            NULL, kCGScrollEventUnitLine, 2, remote_action.m.s, 0);
+      } else {
+        mouse_event = CGEventCreateScrollWheelEvent(
+            NULL, kCGScrollEventUnitLine, 2, 0, remote_action.m.s);
+      }
       break;
-    case MouseFlag::wheel_horizontal:
-      mouse_event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine,
-                                                  2, 0, remote_action.m.s);
-      break;
+    }
     default:
       if (left_dragging_) {
         mouse_type = kCGEventLeftMouseDragged;

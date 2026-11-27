@@ -54,6 +54,12 @@ class PlatformMouseController final : public MouseController {
 
   enum class WaylandAbsoluteMode { kUnknown, kPixels, kNormalized, kDisabled };
 
+  // Sub-notch pixel scroll remainders for the binary ScrollPixel wire, one
+  // per axis. X11 only injects whole notch clicks, so the fractional part
+  // accumulates here and continuous trackpad gestures are never dropped.
+  double wheel_pixel_remainder_x_ = 0;
+  double wheel_pixel_remainder_y_ = 0;
+
   _XDisplay* display_ = nullptr;
   std::vector<DisplayInfo> display_info_list_;
   int screen_width_ = 0;
