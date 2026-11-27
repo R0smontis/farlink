@@ -36,7 +36,7 @@
 #include <port_forward_wire.h>
 
 #include "features/port_forward/port_forward_controller.h"
-#include "launch_options.h"
+#include "app/launch_options.h"
 #include "runtime/gui_runtime.h"
 
 using namespace std::chrono_literals;

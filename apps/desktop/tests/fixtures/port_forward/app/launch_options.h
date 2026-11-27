@@ -1,5 +1,6 @@
 // Hermetic test fixture mirroring the LaunchOptions shape the controller
-// consumes. Drift in the real launch_options.h breaks the fixture build.
+// consumes, shadowing the production app/launch_options.h path. Drift in
+// the real launch_options.h breaks the fixture build.
 #ifndef _LAUNCH_OPTIONS_H_
 #define _LAUNCH_OPTIONS_H_
 #include <set>

@@ -405,6 +405,7 @@ function setup_targets()
     target("port_forward_reverse_test")
         set_kind("binary")
         set_default(false)
+        set_languages("c++20")
         -- Fixture include dir MUST come first: it shadows the production
         -- gui_runtime/launch_options/rd_log headers with the hermetic
         -- harness, so the real controller dispatch runs against controlled
@@ -422,7 +423,8 @@ function setup_targets()
     target("port_forward_consent_test")
         set_kind("binary")
         set_default(false)
-        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        set_languages("c++20")
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui", "apps/desktop/src/common")
         add_files("apps/desktop/tests/port_forward_consent_test.cpp",
             "apps/desktop/src/gui/runtime/trusted_devices.cpp",
             "apps/desktop/src/gui/runtime/device_identity_store.cpp",
