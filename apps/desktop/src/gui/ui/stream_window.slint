@@ -97,6 +97,8 @@ export global StreamStrings {
     in-out property <string> stats-p95-gap: "p95 gap";
     in-out property <string> stats-video-jitter: "Video jitter";
     in-out property <string> stats-audio-jitter: "Audio jitter";
+    in-out property <string> stats-decode: "Decode";
+    in-out property <string> stats-render: "Render";
     in-out property <string> keyboard-shortcuts: "Keyboard shortcuts";
     in-out property <string> shortcut-prefer-local: "Prefer local";
     in-out property <string> shortcut-send-to-remote: "Send to remote";
@@ -560,6 +562,8 @@ export component StreamWindow inherits Window {
     in property <string> stats-interval-p95: "—";
     in property <string> stats-video-jitter: "—";
     in property <string> stats-audio-jitter: "—";
+    in property <string> stats-decode-ms: "—";
+    in property <string> stats-render-ms: "—";
     in property <bool> file-transfer-visible: false;
     in property <[FileTransferEntry]> file-transfers;
 
@@ -626,7 +630,7 @@ export component StreamWindow inherits Window {
     private property <length> stats-row-height: 18px;
     private property <length> stats-header-height: 18px;
     private property <length> stats-content-height:
-        root.stats-header-height + root.stats-rows.length * root.stats-row-height + 174px;
+        root.stats-header-height + root.stats-rows.length * root.stats-row-height + 194px;
     private property <length> stats-panel-height:
         min(root.stats-content-height + 16px, max(0px, video.height - root.control-toolbar-height - root.control-panel-gap));
     private property <length> stats-panel-y: root.control-panel-y(root.stats-panel-height);
@@ -1619,7 +1623,8 @@ export component StreamWindow inherits Window {
                             + "\n" + StreamStrings.stats-connection-mode
                             + "\n" + StreamStrings.stats-freezes
                             + "\n" + StreamStrings.stats-max-gap
-                            + "\n" + StreamStrings.stats-video-jitter;
+                            + "\n" + StreamStrings.stats-video-jitter
+                            + "\n" + StreamStrings.stats-decode;
                         font-size: ImGuiFontStyle.small;
                     }
                     right-label-width-probe := Text {
@@ -1628,7 +1633,8 @@ export component StreamWindow inherits Window {
                             + "\n" + StreamStrings.stats-encryption
                             + "\n" + StreamStrings.stats-freezes-per-min
                             + "\n" + StreamStrings.stats-p95-gap
-                            + "\n" + StreamStrings.stats-audio-jitter;
+                            + "\n" + StreamStrings.stats-audio-jitter
+                            + "\n" + StreamStrings.stats-render;
                         font-size: ImGuiFontStyle.small;
                     }
                     resolution-width-probe := Text {
@@ -1754,7 +1760,7 @@ export component StreamWindow inherits Window {
                     FlatSurface {
                         x: 0px;
                         y: root.stats-header-height + root.stats-rows.length * stats-table.row-height
-                            + 70px;
+                            + 90px;
                         width: parent.width; height: 44px;
                         background: #f7f9fc; border-radius: UiRadius.control;
                         outline-color: UiSurface.edge;
@@ -1794,6 +1800,7 @@ export component StreamWindow inherits Window {
                         root.stats-freeze-count, root.stats-freezes-per-min,
                         root.stats-freeze-max, root.stats-interval-p95,
                         root.stats-video-jitter, root.stats-audio-jitter,
+                        root.stats-decode-ms, root.stats-render-ms,
                     ];
                     for label[index] in [
                         "FPS", StreamStrings.stats-resolution, StreamStrings.stats-video-latency,
@@ -1802,6 +1809,7 @@ export component StreamWindow inherits Window {
                         StreamStrings.stats-freezes, StreamStrings.stats-freezes-per-min,
                         StreamStrings.stats-max-gap, StreamStrings.stats-p95-gap,
                         StreamStrings.stats-video-jitter, StreamStrings.stats-audio-jitter,
+                        StreamStrings.stats-decode, StreamStrings.stats-render,
                     ]: Rectangle {
                         private property <string> reading: stats-table.metric-values[index];
                         private property <length> encryption-icon-width:

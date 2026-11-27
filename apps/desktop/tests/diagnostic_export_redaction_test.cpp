@@ -166,6 +166,12 @@ void ZipContainsRedactedLogsAndSessionJson() {
   summary.freezes_per_min = 9.6;
   summary.rtt_ms = 21.0;
   summary.video_in_loss = 0.01;
+  // D8 per-stage attribution fields (Wave 6D).
+  summary.decode_ms_avg = 1.8;
+  summary.decode_ms_p95 = 3.2;
+  summary.render_ms_avg = 4.2;
+  summary.render_ms_p95 = 9.5;
+  summary.dominant_bottleneck = "render";
 
   const fs::path zip_path = root / "out.zip";
   const auto result = crossdesk::feedback::ExportDiagnostics(
@@ -186,6 +192,12 @@ void ZipContainsRedactedLogsAndSessionJson() {
   Expect(Contains(zip, "session_summary.json"), "zip must contain session json entry");
   Expect(Contains(zip, "\"freeze_count\":2"), "session json must carry freeze count");
   Expect(Contains(zip, "\"codec\":\"H265\""), "session json must carry codec");
+  Expect(Contains(zip, "\"decode_ms_avg\":1.8"), "session json must carry decode mean");
+  Expect(Contains(zip, "\"decode_ms_p95\":3.2"), "session json must carry decode p95");
+  Expect(Contains(zip, "\"render_ms_avg\":4.2"), "session json must carry render mean");
+  Expect(Contains(zip, "\"render_ms_p95\":9.5"), "session json must carry render p95");
+  Expect(Contains(zip, "\"dominant_bottleneck\":\"render\""),
+         "session json must carry bottleneck classification");
   // The stored-ZIP entries are uncompressed, so entry content is visible in
   // the byte stream directly.
   fs::remove_all(root, ec);

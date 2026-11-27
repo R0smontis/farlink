@@ -38,10 +38,23 @@ struct SessionSummaryFields {
   double freeze_max_ms = 0;
   double p95_max_ms = 0;
   double freezes_per_min = 0;
+  // D8 per-stage attribution: rolling trailing-second decode/render windows
+  // plus the dominant bottleneck classification at export time. Negative
+  // means the stage was never measured (backend without timestamp plumbing
+  // or no presented frames); the exporter serializes exactly what it is
+  // given and never invents a zero. dominant_bottleneck is the lowercase
+  // machine-readable enum name ("none"/"network"/"jitter"/"decode"/
+  // "render") — stable for harness parsing, never localized.
+  double decode_ms_avg = -1;
+  double decode_ms_p95 = -1;
+  double render_ms_avg = -1;
+  double render_ms_p95 = -1;
+  std::string dominant_bottleneck = "none";
   // Latest network sample.
   double rtt_ms = -1;
   double video_in_loss = 0;
 };
+
 
 // Exports sanitized snapshots of the active application and transport logs,
 // plus basic environment information. Log content is passed through

@@ -29,12 +29,13 @@ bool RemoteInputDispatcher::Accepts(const RemoteAction& action) {
 
 void RemoteInputDispatcher::Connect(const std::string& id) {
   if (id.empty()) return;
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_);
   if (stopping_ || !connected_.insert(id).second) return;
   logs_.erase(id);  // A new session must get its first diagnostic.
   // In-flight resets finish before this session's input; queued old resets
   // must not change the new session's display. Failed releases are retained.
   RemoveResetsLocked();
+  lock.unlock();
   ready_.notify_one();
 }
 
@@ -42,7 +43,7 @@ RemoteInputDispatcher::Result RemoteInputDispatcher::Push(
     const std::string& id, const RemoteAction& action, Completion completion) {
   // HostInfo owns raw arrays; it must never enter this value-copy queue.
   if (!Accepts(action)) return Result::rejected;
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_);
   if (stopping_ || !connected_.count(id)) return Result::rejected;
   if (!completion && (IsMove(action) || IsPixelScroll(action)) &&
       !pending_.empty()) {
@@ -80,12 +81,17 @@ RemoteInputDispatcher::Result RemoteInputDispatcher::Push(
   }
   pending_.push_back({id, action, Clock::now(), ItemKind::input, 0, std::move(completion)});
   ++pending_counts_[id];
+  // Wake the worker AFTER releasing the mutex: notifying while holding it
+  // makes the woken worker immediately block on the same mutex (the classic
+  // hurry-up-and-wait futex convoy), adding a full context-switch round trip
+  // to every input event's queue latency.
+  lock.unlock();
   ready_.notify_one();
   return Result::queued;
 }
 
 void RemoteInputDispatcher::Disconnect(const std::string& id) {
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_);
   if (stopping_ || !connected_.erase(id)) return;
   QueueReleaseLocked(id);
   if (connected_.empty() && reset_display_) {
@@ -93,12 +99,26 @@ void RemoteInputDispatcher::Disconnect(const std::string& id) {
     pending_.push_back(
         {{}, std::nullopt, Clock::now(), ItemKind::reset_display});
   }
+  lock.unlock();
   ready_.notify_one();
 }
 
 void RemoteInputDispatcher::WaitIdle() {
-  std::unique_lock lock(mutex_);
-  idle_.wait(lock, [this] { return pending_.empty() && !executing_; });
+  {
+    std::unique_lock lock(mutex_);
+    idle_.wait(lock, [this] {
+      return pending_.empty() && !executing_ &&
+             !reset_running_.load(std::memory_order_acquire);
+    });
+  }
+  // Join the reset lane outside the mutex so the lane can re-acquire it to
+  // signal completion.
+  std::thread lane;
+  {
+    std::lock_guard lane_lock(reset_mutex_);
+    lane = std::move(reset_worker_);
+  }
+  if (lane.joinable()) lane.join();
 }
 
 bool RemoteInputDispatcher::HasPendingReleases() {
@@ -126,6 +146,12 @@ void RemoteInputDispatcher::Stop() {
     }
     ready_.notify_one();
     worker_.join();
+    std::thread lane;
+    {
+      std::lock_guard lane_lock(reset_mutex_);
+      lane = std::move(reset_worker_);
+    }
+    if (lane.joinable()) lane.join();
   });
 }
 
@@ -303,6 +329,38 @@ void RemoteInputDispatcher::CompleteCleanupLocked(const Item& item,
   }
 }
 
+void RemoteInputDispatcher::RunReset(Item item) {
+  if (!reset_display_) {
+    if (reset_active_count_.fetch_sub(1, std::memory_order_acq_rel) == 1)
+      reset_running_.store(false, std::memory_order_release);
+    return;
+  }
+  std::thread previous;
+  {
+    std::lock_guard lane_lock(reset_mutex_);
+    previous = std::move(reset_worker_);
+  }
+  // reset_running_ was already raised by the worker before the handoff, so a
+  // WaitIdle caller cannot slip through the transition window. The lane
+  // joins its predecessor INSIDE the new thread: even if a previous driver
+  // mode change is still crawling, the input worker never waits for it.
+  std::thread lane([this, item = std::move(item),
+                    previous = std::move(previous)]() mutable {
+    if (previous.joinable()) previous.join();
+    try {
+      reset_display_();
+    } catch (...) {
+    }
+    if (reset_active_count_.fetch_sub(1, std::memory_order_acq_rel) == 1)
+      reset_running_.store(false, std::memory_order_release);
+    // A waiter in WaitIdle must observe the reset lane draining too.
+    std::lock_guard lock(mutex_);
+    if (pending_.empty() && !executing_) idle_.notify_all();
+  });
+  std::lock_guard lane_lock(reset_mutex_);
+  reset_worker_ = std::move(lane);
+}
+
 InputOutcome RemoteInputDispatcher::Execute(const Item& item) {
   if (item.IsReset()) return reset_display_();
   if (item.IsInput()) return apply_(item.id, *item.action);
@@ -327,6 +385,31 @@ void RemoteInputDispatcher::Run() {
     }
     Item item = std::move(*next);
     executing_ = true;
+    // Host input dispatch queue latency: enqueue -> worker pickup, in
+    // microseconds, recorded for real input items only (cleanup/retry/reset
+    // timing is dominated by backoff, not user-perceivable input latency).
+    if (item.IsInput()) {
+      const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                          Clock::now() - item.queued_at)
+                          .count();
+      if (us >= 0) queue_latency_.Record(static_cast<uint64_t>(us));
+    }
+    // Display resets run on the dedicated reset lane: a driver mode change
+    // can take hundreds of milliseconds and must never stall input queued
+    // behind it for a newly connected controller.
+    if (item.IsReset()) {
+      executing_ = false;
+      // Mark the lane busy BEFORE releasing the mutex: a WaitIdle caller
+      // must never observe pending-empty/not-executing while the reset
+      // handoff is still in flight between this worker and the lane thread.
+      reset_active_count_.fetch_add(1, std::memory_order_acq_rel);
+      reset_running_.store(true, std::memory_order_release);
+      if (pending_.empty()) idle_.notify_all();
+      lock.unlock();
+      RunReset(std::move(item));
+      lock.lock();
+      continue;
+    }
     lock.unlock();
     const auto started = Clock::now();
     InputOutcome outcome = InputOutcome::failed;

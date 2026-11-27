@@ -9,7 +9,9 @@
 
 #include <remote_action.h>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -102,6 +104,78 @@ class RemoteInputDispatcher {
                           int64_t queued_ms, int64_t execution_ms,
                           InputOutcome outcome);
   void Run();
+  // Execute a queued display reset on the dedicated reset thread. Resetting
+  // the display mode can take hundreds of milliseconds on Windows while the
+  // driver re-enumerates; running it on the input worker would stall every
+  // controller's mouse/keyboard behind it (head-of-line blocking). The reset
+  // has no ordering relationship with per-controller input — it only ever
+  // runs after the last controller disconnects and is cancelled when a new
+  // controller connects — so it is safe to run concurrently with input.
+  void RunReset(Item item);
+
+ public:
+  // Host input dispatch queue-latency statistics: time from Push() enqueue
+  // to the worker picking the item up, in microseconds. Lock-free atomics,
+  // updated once per dequeued input item on the worker thread; readers are
+  // diagnostics/tests. The p50 is exact over a small atomic ring of the most
+  // recent samples — input rates are high enough that the last 64 samples
+  // cover well under a second of interactive use, exactly the window where a
+  // user perceives a stall.
+  struct QueueLatencyStats {
+    static constexpr size_t kWindowSize = 64;
+    std::atomic<uint64_t> samples{0};
+    std::atomic<uint64_t> total_us{0};
+    std::atomic<uint64_t> max_us{0};
+    // Ring of recent per-sample microseconds. Individual slots are written
+    // only by the worker thread; readers may observe a slightly stale but
+    // always fully-written value because each slot is a single atomic.
+    std::array<std::atomic<uint64_t>, kWindowSize> ring{};
+
+    void Record(uint64_t us) {
+      const uint64_t n = samples.fetch_add(1, std::memory_order_relaxed);
+      total_us.fetch_add(us, std::memory_order_relaxed);
+      uint64_t current_max = max_us.load(std::memory_order_relaxed);
+      while (us > current_max &&
+             !max_us.compare_exchange_weak(current_max, us,
+                                           std::memory_order_relaxed)) {
+      }
+      ring[n % kWindowSize].store(us, std::memory_order_relaxed);
+    }
+
+    struct Snapshot {
+      uint64_t samples = 0;
+      double mean_us = 0;
+      uint64_t max_us = 0;
+      uint64_t p50_us = 0;
+      uint64_t p95_us = 0;
+    };
+    Snapshot Get() const {
+      Snapshot result;
+      const uint64_t n = samples.load(std::memory_order_relaxed);
+      result.samples = n;
+      if (n == 0) return result;
+      result.mean_us =
+          static_cast<double>(total_us.load(std::memory_order_relaxed)) / n;
+      result.max_us = max_us.load(std::memory_order_relaxed);
+      const size_t count = static_cast<size_t>(std::min<uint64_t>(n, kWindowSize));
+      std::array<uint64_t, kWindowSize> values{};
+      for (size_t i = 0; i < count; ++i)
+        values[i] = ring[i].load(std::memory_order_relaxed);
+      std::sort(values.begin(), values.begin() + count);
+      result.p50_us = values[(count - 1) / 2];
+      result.p95_us = values[std::min<size_t>(
+          count - 1, static_cast<size_t>(count * 95 / 100))];
+      return result;
+    }
+  };
+  // Snapshot of the cumulative input queue-latency statistics. Exposed for
+  // diagnostics and the latency microbenchmark; read-only, lock-free.
+  QueueLatencyStats::Snapshot TakeQueueLatencyStats() const {
+    return queue_latency_.Get();
+  }
+
+ private:
+
 
   Apply apply_;
   Release release_;
@@ -120,6 +194,16 @@ class RemoteInputDispatcher {
   bool executing_ = false;
   std::once_flag stop_once_;
   std::thread worker_;
+  // Dedicated display-reset lane: at most one reset runs at a time. The
+  // worker hands reset items to this thread instead of executing them
+  // inline, so a slow driver-mode change cannot stall input behind it.
+  // reset_mutex_ alone guards the thread handle and the busy flag; the
+  // handoff uses the item itself, which is trivially copyable state.
+  std::mutex reset_mutex_;
+  std::thread reset_worker_;
+  std::atomic<bool> reset_running_{false};
+  std::atomic<int> reset_active_count_{0};
+  QueueLatencyStats queue_latency_;
 };
 
 }  // namespace crossdesk

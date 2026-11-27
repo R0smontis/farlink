@@ -140,8 +140,24 @@ void PeerEventHandler::OnReceiveVideoBuffer(
       props->streaming_ = true;
       return;
     }
-    const auto timing = props->video_latency_->Frame(
-        video_frame->captured_timestamp, local_now_us, timing_now);
+    // Per-stage attribution: the transport reports when this frame finished
+    // RTP reassembly (received_timestamp) and when the decoder handed it back
+    // (decoded_timestamp), both in the same local monotonic microsecond clock
+    // as MiniRtcGetSystemTimeMicros. Their difference is the exact decode
+    // stage cost — queue wait plus hardware/software decode — independent of
+    // any clock-domain translation because it is a same-clock subtraction.
+    // Zero timestamps mean the backend did not measure that stage (either
+    // pre-calibration or a decoder without timestamp plumbing); such frames
+    // pass -1 and never enter the decode rolling window.
+    double decode_ms = -1;
+    if (video_frame->received_timestamp > 0 &&
+        video_frame->decoded_timestamp >= video_frame->received_timestamp) {
+      decode_ms = static_cast<double>(
+          video_frame->decoded_timestamp - video_frame->received_timestamp) /
+          1000.0;
+    }
+    const auto timing = props->video_latency_->FrameWithDecode(
+        video_frame->captured_timestamp, local_now_us, decode_ms, timing_now);
     bool background_snapshot_only = false;
     auto native_renderer = props->GetVideoRenderer();
     if (native_renderer && native_renderer->IsActive()) {

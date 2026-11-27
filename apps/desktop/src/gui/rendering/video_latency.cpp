@@ -118,6 +118,42 @@ std::string SerializeInterPresentGap(
   return out;
 }
 
+
+// Serialize the per-stage decode/render rolling windows (D8 stage
+// attribution) as a compact key=value block on the same machine-readable
+// teardown line. Both windows cover the trailing ~second of the session, so
+// they describe the steady-state pipeline the user actually experienced, not
+// connect-time decoder warmup. mean/p95/max are exact order statistics of
+// the 60-sample ring. A stage with zero recorded samples (backend never
+// reported timestamps, or no frame rendered) serializes its mean as "none"
+// so a parser can distinguish "unmeasured" from "zero cost".
+std::string SerializeStageBreakdown(
+    const VideoLatencyStats::StageSnapshot& stage) {
+  char buf[320];
+  const auto mean_or_none = [](double value, char* out, size_t size) {
+    if (value < 0) {
+      std::snprintf(out, size, "none");
+    } else {
+      std::snprintf(out, size, "%.2f", value);
+    }
+  };
+  char decode_mean[24], decode_p95[24], decode_max[24];
+  char render_mean[24], render_p95[24], render_max[24];
+  mean_or_none(stage.decode.mean_ms, decode_mean, sizeof(decode_mean));
+  mean_or_none(stage.decode.p95_ms, decode_p95, sizeof(decode_p95));
+  mean_or_none(stage.decode.max_ms, decode_max, sizeof(decode_max));
+  mean_or_none(stage.render.mean_ms, render_mean, sizeof(render_mean));
+  mean_or_none(stage.render.p95_ms, render_p95, sizeof(render_p95));
+  mean_or_none(stage.render.max_ms, render_max, sizeof(render_max));
+  std::snprintf(buf, sizeof(buf),
+                "stage decode_samples=%zu decode_mean_ms=%s decode_p95_ms=%s"
+                " decode_max_ms=%s render_samples=%zu render_mean_ms=%s"
+                " render_p95_ms=%s render_max_ms=%s",
+                stage.decode.samples, decode_mean, decode_p95, decode_max,
+                stage.render.samples, render_mean, render_p95, render_max);
+  return buf;
+}
+
 }  // namespace
 
 void LogVideoFirstFramePresented(const VideoLatencyStats& stats,
@@ -200,12 +236,19 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
   // outside its window and stays unmeasured, exactly like the histogram.
   const std::string inter_present = SerializeInterPresentGap(
       stats.TakeInterPresentGapStats(), stats.TakeInterPresentWindow());
+  // Per-stage attribution (D8): the decode/render rolling windows identify
+  // whether the trailing second of the session was bound on decode or
+  // render. Emitted on the same line so one teardown record carries every
+  // machine-readable series; the network/jitter legs are already on the
+  // transport side of the same log stream.
+  const std::string stage = SerializeStageBreakdown(stats.TakeStageSnapshot());
   LOG_INFO(
-      "Session metrics (controller): remote={} {} resolutions={} {}",
+      "Session metrics (controller): remote={} {} resolutions={} {} {}",
       context->remote_id,
       fps_series.empty() ? "fps_seconds=none" : "fps_seconds " + fps_series,
       resolutions.empty() ? "none" : resolutions,
-      inter_present.empty() ? "inter_present=none" : inter_present);
+      inter_present.empty() ? "inter_present=none" : inter_present,
+      stage);
 }
 
 }  // namespace crossdesk

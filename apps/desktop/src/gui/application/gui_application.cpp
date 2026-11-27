@@ -4640,10 +4640,12 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     props->video_latency_snapshot_.reset();
     props->inter_present_snapshot_.reset();
     props->inter_present_window_snapshot_ = {};
+    props->stage_snapshot_ = {};
   } else if (refresh_stats) {
     props->video_latency_snapshot_ = props->video_latency_->Get(fps_now);
     props->inter_present_snapshot_ = props->video_latency_->TakeInterPresentGapStats();
     props->inter_present_window_snapshot_ = props->video_latency_->TakeInterPresentWindow();
+    props->stage_snapshot_ = props->video_latency_->TakeStageSnapshot();
   }
   const auto& latency = props->video_latency_snapshot_;
   stream->set_stats_video_latency(UiText(
@@ -4709,6 +4711,31 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
       status == MiniRtcConnectionStatus::MiniRtcConnectionConnected ? format_delay(video_delay_ms) : "—"));
   stream->set_stats_audio_jitter(UiText(
       status == MiniRtcConnectionStatus::MiniRtcConnectionConnected ? format_delay(audio_delay_ms) : "—"));
+  // D8 per-stage attribution: decode/render rolling means, with the dominant
+  // bottleneck tag appended to the render reading only when the classifier
+  // flags a real degradation — a healthy pipeline shows bare numbers, per the
+  // no-prose UI copy rule the tag is the bare machine-readable stage name.
+  const auto& stage = props->stage_snapshot_;
+  const bool stats_live = status == MiniRtcConnectionStatus::MiniRtcConnectionConnected;
+  const auto format_stage = [](double mean_ms) {
+    if (mean_ms < 0) return std::string("—");
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%.1f ms", mean_ms);
+    return std::string(buf);
+  };
+  std::string decode_text = "—";
+  std::string render_text = "—";
+  if (stats_live && props->net_traffic_stats_button_pressed_) {
+    decode_text = format_stage(stage.decode.mean_ms);
+    render_text = format_stage(stage.render.mean_ms);
+    const auto bottleneck = ClassifyLatencyBottleneck(
+        display_rtt.value_or(-1), video_delay_ms,
+        stage.decode.mean_ms, stage.render.mean_ms);
+    if (bottleneck != LatencyBottleneck::none)
+      render_text += std::string(" · ") + LatencyBottleneckName(bottleneck);
+  }
+  stream->set_stats_decode_ms(UiText(decode_text));
+  stream->set_stats_render_ms(UiText(render_text));
   if (refresh_stats && status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
     LOG_DEBUG("Latency stats: remote={} video_ms={} video_samples={} video_endpoint={} "
               "rtt_raw_ms={} rtt_display_ms={}",
@@ -6215,6 +6242,22 @@ void GuiApplication::ExportDiagnosticLogs() {
           const auto net = best->net_traffic_stats_.Load();
           session_summary.rtt_ms = net.rtt_ms;
           session_summary.video_in_loss = net.video_inbound_stats.loss_rate;
+          // D8 per-stage attribution: copy the trailing-second decode/render
+          // windows and classify the dominant bottleneck with the same
+          // smoothed RTT and live jitter target the HUD uses, so the exported
+          // bundle matches what the user saw on screen.
+          const auto stage = best->video_latency_->TakeStageSnapshot();
+          session_summary.decode_ms_avg = stage.decode.mean_ms;
+          session_summary.decode_ms_p95 = stage.decode.p95_ms;
+          session_summary.render_ms_avg = stage.render.mean_ms;
+          session_summary.render_ms_p95 = stage.render.p95_ms;
+          const auto smoothed_rtt = best->net_traffic_stats_.SmoothedRttMs();
+          const auto media_timing = best->net_traffic_stats_.LoadMediaTiming();
+          session_summary.dominant_bottleneck = LatencyBottleneckName(
+              ClassifyLatencyBottleneck(smoothed_rtt.value_or(-1),
+                                        media_timing.first,
+                                        stage.decode.mean_ms,
+                                        stage.render.mean_ms));
         }
       }
       ui_->diagnostic_export = std::async(std::launch::async,

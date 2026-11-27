@@ -238,6 +238,11 @@ ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
     json += "  \"p95_max_ms\":" + number(session->p95_max_ms) + ",\n";
     json += "  \"freezes_per_min\":" + number(session->freezes_per_min) + ",\n";
     json += "  \"rtt_ms\":" + number(session->rtt_ms) + ",\n";
+    json += "  \"decode_ms_avg\":" + number(session->decode_ms_avg) + ",\n";
+    json += "  \"decode_ms_p95\":" + number(session->decode_ms_p95) + ",\n";
+    json += "  \"render_ms_avg\":" + number(session->render_ms_avg) + ",\n";
+    json += "  \"render_ms_p95\":" + number(session->render_ms_p95) + ",\n";
+    json += "  \"dominant_bottleneck\":\"" + escape(session->dominant_bottleneck) + "\",\n";
     json += "  \"video_in_loss\":" + number(session->video_in_loss) + "\n";
     json += "}\n";
     entries.push_back({"session_summary.json", std::move(json)});

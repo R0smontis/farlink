@@ -578,6 +578,8 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"p95 间隔", {"p95 间隔", "p95 gap", "p95 интервал", "p95 間隔", "p95 間隔", "p95 간격", "p95-Lücke", "Intervalle p95", "Intervalo p95", "Intervalo p95"}},
   {"视频抖动", {"视频抖动", "Video jitter", "Джиттер видео", "視訊抖動", "映像ジッター", "비디오 지터", "Video-Jitter", "Gigue vidéo", "Jitter de vídeo", "Jitter de vídeo"}},
   {"音频抖动", {"音频抖动", "Audio jitter", "Джиттер аудио", "音訊抖動", "音声ジッター", "오디오 지터", "Audio-Jitter", "Gigue audio", "Jitter de audio", "Jitter de áudio"}},
+  {"解码", {"解码", "Decode", "Декодирование", "解碼", "デコード", "디코딩", "Dekodierung", "Décodage", "Decodificación", "Decodificação"}},
+  {"渲染", {"渲染", "Render", "Рендеринг", "渲染", "レンダリング", "렌더링", "Rendering", "Rendu", "Renderizado", "Renderização"}},
   {"键盘快捷键", {"键盘快捷键", "Keyboard shortcuts", "Сочетания клавиш", "鍵盤快速鍵", "キーボードショートカット", "키보드 단축키", "Tastenkürzel", "Raccourcis clavier", "Atajos de teclado", "Atalhos de teclado"}},
   {"优先本机", {"优先本机", "Prefer local", "Локальный приоритет", "優先本機", "ローカル優先", "로컬 우선", "Lokal bevorzugen", "Local d'abord", "Preferir local", "Preferir local"}},
   {"远程唤醒", {"远程唤醒", "Wake", "Пробудить", "遠端喚醒", "Wake-on-LAN", "원격 깨우기", "Aufwecken", "Réveiller", "Activar", "Despertar"}},
@@ -904,6 +906,8 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"stats_p95_gap", "p95 间隔"},
   {"stats_video_jitter", "视频抖动"},
   {"stats_audio_jitter", "音频抖动"},
+  {"stats_decode", "解码"},
+  {"stats_render", "渲染"},
   {"keyboard_shortcuts", "键盘快捷键"},
   {"shortcut_prefer_local", "优先本机"},
   {"shortcut_send_to_remote", "发送到远端"},
@@ -1455,6 +1459,8 @@ inline constexpr const char* kSlintLiterals[] = {
   X(stats_p95_gap) \
   X(stats_video_jitter) \
   X(stats_audio_jitter) \
+  X(stats_decode) \
+  X(stats_render) \
   X(keyboard_shortcuts) \
   X(shortcut_prefer_local) \
   X(shortcut_send_to_remote) \

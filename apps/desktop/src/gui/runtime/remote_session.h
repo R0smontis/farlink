@@ -303,6 +303,11 @@ struct RemoteSession {
   // measured span as its denominator.
   std::optional<VideoLatencyStats::InterPresentGapStats> inter_present_snapshot_;
   VideoLatencyStats::InterPresentWindow inter_present_window_snapshot_;
+  // UI-thread snapshot of the trailing-second decode/render stage windows
+  // (D8 per-stage attribution), refreshed at the same 1 Hz tick as the other
+  // latency snapshots. Copy-out readers, so refreshing never disturbs the
+  // hot decode/render recording paths.
+  VideoLatencyStats::StageSnapshot stage_snapshot_;
   NetTrafficStatsCache net_traffic_stats_;
   ReceivedVideoStats received_video_stats_;
 
