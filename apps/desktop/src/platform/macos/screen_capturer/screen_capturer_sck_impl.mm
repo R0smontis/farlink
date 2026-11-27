@@ -18,6 +18,7 @@
 #include <IOSurface/IOSurface.h>
 #include <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -47,6 +48,37 @@ static constexpr auto kCaptureStartTimeout = std::chrono::seconds(5);
 // for the full detector window. 1 s is 20x the worst healthy start and still
 // shrinks a zombie retry cycle from 5+2 s to 1+2 s.
 static constexpr auto kFirstFrameTimeout = std::chrono::seconds(1);
+
+// ScreenCaptureKit buffers output frames up to SCStreamConfiguration.queueDepth
+// before dropping. The default is 8: whenever encode admission or a multi-peer
+// callback briefly costs more than one frame interval, stale frames pile up in
+// that queue and every subsequent delivery carries up to 8 frames (~130 ms at
+// 60 fps) of hidden capture lag.
+//
+// The pool-retention invariant sets the safe minimum. The capture pipeline
+// retains each delivered CVPixelBuffer downstream: the transport admits at
+// most kMaxEncodeFramesInFlight = 2 frames into VideoToolbox, and
+// VTCompressionSession retains each source pixel buffer until its output
+// callback runs. Because SCStream serves sample buffers from a backing pool
+// sized by queueDepth, queueDepth = 1 or 2 can starve the stream outright —
+// every pool buffer is still retained by in-flight encode work when the next
+// display interval arrives, so SCStream stalls instead of capturing. A depth
+// of 3 covers both encode-retained buffers plus one buffer the capture
+// callback itself is still dispatching, while capping worst-case capture
+// queue latency at 3 frames instead of 8. FARLINK_SCK_QUEUE_DEPTH overrides
+// the depth for A/B measurement; values below 3 risk the pool starvation
+// described above.
+static NSInteger ResolveSckQueueDepth() {
+  constexpr NSInteger kDefaultQueueDepth = 3;
+  const char* env = std::getenv("FARLINK_SCK_QUEUE_DEPTH");
+  if (!env || env[0] == '\0') return kDefaultQueueDepth;
+  char* end = nullptr;
+  const long parsed = std::strtol(env, &end, 10);
+  if (end == env || *end != '\0' || parsed < 1 || parsed > 8) {
+    return kDefaultQueueDepth;
+  }
+  return static_cast<NSInteger>(parsed);
+}
 
 static std::string NSErrorToString(NSError *error) {
   if (!error) {
@@ -804,6 +836,12 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
   config.height = filter.contentRect.size.height * filter.pointPixelScale;
   config.captureResolution = SCCaptureResolutionAutomatic;
   config.minimumFrameInterval = CMTimeMake(1, fps_);
+  // Bound capture-side queueing. macOS defaults to a queueDepth of 8, which
+  // lets stale frames accumulate hidden capture lag whenever the downstream
+  // pipeline briefly falls behind; 3 is the safe minimum given the encode
+  // pool retention documented at ResolveSckQueueDepth. Include the depth in
+  // the live-stream comparison below so an env change applies on restart.
+  config.queueDepth = ResolveSckQueueDepth();
 
   std::unique_lock<std::mutex> lock(lock_);
   if (!capture_requested_ || generation != configuration_generation_) return;
@@ -837,6 +875,7 @@ void ScreenCapturerSckImpl::OnShareableContentCreated(SCShareableContent *conten
         applied_configuration_.height == config.height &&
         applied_configuration_.showsCursor == config.showsCursor &&
         applied_configuration_.pixelFormat == config.pixelFormat &&
+        applied_configuration_.queueDepth == config.queueDepth &&
         CMTimeCompare(applied_configuration_.minimumFrameInterval, config.minimumFrameInterval) == 0;
     if (same_config) {
       [source updateContentFilter:filter completionHandler:finished];

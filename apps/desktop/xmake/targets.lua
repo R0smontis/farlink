@@ -388,6 +388,21 @@ function setup_targets()
             add_files("apps/desktop/tests/macos_capture_restart_tool.mm",
                 "apps/desktop/src/platform/macos/input/mouse/mouse_capturer.mm")
             add_frameworks("ApplicationServices", "CoreGraphics")
+        -- Offscreen Apple Silicon GPU verification for the production Metal
+        -- video shader: compiles the exact shader text the app compiles,
+        -- renders synthetic text/edge patterns at upscale and 1:1, verifies
+        -- CAS acutance gain, zero halo/overshoot, bit-exact flat regions,
+        -- the Retina-native upscale path and 4K GPU cost. Run manually:
+        --   xmake build metal_cas_renderer_test && \\
+        --   xmake run metal_cas_renderer_test
+        target("metal_cas_renderer_test")
+            set_kind("binary")
+            set_default(false)
+            set_languages("c++20")
+            add_mxxflags("-fobjc-arc")
+            add_includedirs("apps/desktop/src")
+            add_files("apps/desktop/tests/metal_cas_renderer_test.mm")
+            add_frameworks("Metal", "CoreVideo", "Foundation", "QuartzCore")
         target("clipboard_image_mac_test")
             set_kind("binary")
             set_default(false)
