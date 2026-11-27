@@ -179,6 +179,41 @@ The fork extends upstream CrossDesk across these independent areas:
     (`CGEventCreateScrollWheelEvent2` continuous pixel + 16.16 fixed-point
     deltas), and unreliable sequenced cursor-position updates.
 
+- **Wave-6 color, presentation, decode & loss-recovery upgrades (W6A/W6B in
+  minirtc, W6C/W6D here)** — four independent verification-backed upgrades:
+  - *W6A zero-hop inline decode & zero-copy reassembly (minirtc)*: steady-state
+    VideoToolbox frames submit inline from the network thread
+    (`CanDecodeInline`/`TryDecodeInline`, exact `kMaxDecodeBacklog=2` admission,
+    `MINIRTC_INLINE_DECODE=0` A/B), single-copy direct-write RTP frame
+    reassembly for H.264/H.265/AV1, and end-to-end `420f` full-range BT.709
+    VUI propagation/decode. Detail: `deps/submodules/minirtc/docs/FORK_CHANGES.md`.
+  - *W6B wide-block RS-FEC & FEC-aware NACK (minirtc)*: NEON GF(256)
+    Reed-Solomon fast path widened to `k <= 48, r <= 16`, negotiated via
+    `a=x-minirtc-fec-wide:48-16` with legacy `rs-v1` bit-exact fallback
+    (45-packet keyframe burst: legacy 16/4 recovers 0/10, wide 48/16 recovers
+    10/10 bit-exact), plus an FEC-aware first-NACK hold-off for isolated
+    1–2 packet gaps with burst bypass.
+  - *W6C macOS full-range BT.709 capture + CAMetalDisplayLink*: ScreenCaptureKit
+    captures `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` + ITU-R BT.709
+    instead of limited-range BT.601 (the legacy path crushed 256 luma codes
+    into the 220-code 16–235 studio swing and pushed sRGB reds/greens through
+    the wrong matrix; `FARLINK_MAC_CAPTURE_LIMITED_601=1` restores it for A/B),
+    and a dedicated `QOS_CLASS_USER_INTERACTIVE` runloop thread runs
+    CAMetalDisplayLink (preferredFrameLatency 1, 60–120 Hz range, auto-pausing
+    after two idle ticks so a static desktop costs zero wakeups;
+    `FARLINK_METAL_PACING=immediate` keeps the W5C render-queue mode for A/B).
+    Measured `macos_color_and_displaylink_test`: 256/256 distinct monotonic
+    output levels with max roundtrip error 0 LSB (420v+BT.601 control: 220
+    levels), sRGB primaries max channel error 1 LSB, 20/20 rapid attach/detach
+    stress cycles with zero leaked threads.
+  - *W6D per-stage latency attribution & input fast-lane*: the D8 stream stats
+    overlay/diagnostic export now attributes end-to-end latency per stage
+    (network RTT / jitter-buffer target / decode / render) with a
+    `ClassifyLatencyBottleneck` dominant-contributor classifier mirroring the
+    reference-grade interactive budget (sub-25 ms RTT, sub-8 ms jitter, sub-6 ms
+    decode, sub-10 ms render), plus a fast-lane input dispatch path. Verified
+    by `stage_latency_attribution_test`.
+
 ## Modified upstream files
 
 | File | Nature of change |
@@ -232,6 +267,16 @@ The fork extends upstream CrossDesk across these independent areas:
 | `apps/desktop/src/gui/features/input/scroll_accumulator.h` | W5D 16.16 fixed-point fractional scroll carry. |
 | `libs/wire/src/remote_action.cpp` | W5D input-wire related capability serialization. |
 | `apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp` | W5D pixel-precise `CGEventCreateScrollWheelEvent2` continuous-pixel scrolling. |
+| `apps/desktop/src/platform/macos/gui/metal_video_renderer.mm` | W6C `CrossDeskMetalDisplayLinkDriver` — dedicated `QOS_CLASS_USER_INTERACTIVE` runloop thread running CAMetalDisplayLink with pre-acquired drawables, idle auto-pause, latched wakeup and synchronous invalidate+join teardown. |
+| `apps/desktop/src/platform/macos/screen_capturer/screen_capturer_sck_impl.mm` | W6C full-range BT.709 capture (`kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` + ITU_R_709_2; `FARLINK_MAC_CAPTURE_LIMITED_601=1` restores legacy limited-range BT.601). |
+| `apps/desktop/src/gui/rendering/video_latency.cpp` | W6D per-stage rolling-mean latency attribution plumbing. |
+| `apps/desktop/src/gui/rendering/video_latency.h` | W6D `LatencyBottleneck` per-stage classifier (`ClassifyLatencyBottleneck`/`LatencyBottleneckName`). |
+| `apps/desktop/src/gui/features/input/remote_input_dispatcher.cpp` | W6D input fast-lane dispatch path. |
+| `apps/desktop/src/gui/features/input/remote_input_dispatcher.h` | Declarations for the above. |
+| `apps/desktop/src/gui/features/feedback/diagnostic_export.cpp` | W6D per-stage latency attribution in the redacted diagnostic bundle. |
+| `apps/desktop/src/gui/features/feedback/diagnostic_export.h` | Declarations for the above. |
+| `apps/desktop/src/gui/runtime/peer_media_callbacks.cpp` | W6D per-stage latency metric feed from the decode/render pipeline. |
+| `apps/desktop/src/gui/ui/stream_window.slint` | W6D taller HUD layout rendering the per-stage latency attribution rows. |
 
 ## Added files
 
@@ -288,3 +333,5 @@ The fork extends upstream CrossDesk across these independent areas:
 | `libs/wire/include/input_wire.h` | W5D 32-byte zero-allocation binary input protocol (`FIN1`). |
 | `libs/wire/tests/input_wire_test.cpp` | W5D input-wire round-trip/loss-recovery/benchmark tests. |
 | `apps/desktop/tests/pixel_scroll_and_dispatcher_test.cpp` | W5D pixel-scroll fixed-point + dispatcher binary-input tests. |
+| `apps/desktop/tests/macos_color_and_displaylink_test.mm` | W6C full-range BT.709 round-trip exactness (256/256 levels, 0 LSB error) + CAMetalDisplayLink lifecycle verification against the production renderer translation unit. |
+| `apps/desktop/tests/stage_latency_attribution_test.cpp` | W6D per-stage latency attribution classifier and plumbing tests. |

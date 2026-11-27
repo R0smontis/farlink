@@ -37,7 +37,19 @@ Contrast-Adaptive Sharpening (−32% stroke blur width, zero halo) plus
 ScreenCaptureKit `queueDepth = 3`, and a 32-byte zero-allocation binary input
 wire protocol (~58× faster than JSON at ~37 ns/op) with loss-immune relative
 mouse motion, pixel-precise macOS trackpad scrolling, and unreliable sequenced
-cursor updates. Licensed GPL-3.0-only like
+cursor updates. Wave 6 completes the color and latency pipeline end to end:
+full-range BT.709 ScreenCaptureKit capture replacing the limited-range BT.601
+path (256/256 distinct luma levels round-trip with 0 LSB error instead of the
+crushed 220-code studio swing), a `CAMetalDisplayLink` phase-locked presentation
+driver with pre-acquired drawables and zero-power idle auto-pause, zero-hop
+inline VideoToolbox decode admission with single-copy RTP reassembly in minirtc
+(1080p60 loopback delivered_fps 59.86 → 60.00, latency p99 18 ms → 13 ms),
+wide-block NEON GF(256) RS-FEC (`k <= 48, r <= 16`, negotiated via
+`a=x-minirtc-fec-wide:48-16` with legacy `rs-v1` bit-exact fallback) recovering
+keyframe-sized bursts the legacy 16/4 shape never can, an FEC-aware NACK
+hold-off for isolated gaps, and per-stage latency attribution (network/jitter/
+decode/render) in the stream-stats HUD and redacted diagnostic export. Licensed
+GPL-3.0-only like
 upstream; the bundled `deps/submodules/minirtc` media library is
 [a Farlink fork](https://github.com/R0smontis/minirtc) of upstream
 [kunkundi/minirtc](https://github.com/kunkundi/minirtc), licensed LGPL-3.0.

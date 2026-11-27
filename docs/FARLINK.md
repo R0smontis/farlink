@@ -155,6 +155,42 @@ minirtc 侧独立测试全绿：`data_channel_latency_test`、`fec_parity_floor_
 （HEVC+H.264 两臂）、`video_playout_buffer_test`、`hevc_sps_chroma_test`（35/35）、
 `rtx_suppression_test`、`fec_curve_test`、`fir_throttle_test`。
 
+### 2.12 Wave-6 色彩 / 呈现 / 解码 / 抗丢包升级
+
+四条独立验证线（W6A/W6B 在 minirtc，W6C/W6D 在本仓库），全部实测数字来自本机
+（M1 Pro、macOS 27.2 arm64）：
+
+| 线 | 改动 | 实测数据 | 提交 / 位置 |
+|----|------|----------|-------------|
+| **W6A 零跳内联解码与零拷贝重组（minirtc）** | 稳态 VideoToolbox 帧从网络线程直接内联提交解码（`CanDecodeInline`/`TryDecodeInline`，try_lock 门控，参数集字节比对；会话创建/恢复仍走 `task_queue_decode_`），精确 `kMaxDecodeBacklog=2` 准入 + 关键帧恢复旁路 + 每流 `on_worker` 排序计数器；H.264/H.265/AV1 单拷贝直接写入式 RTP 重组（一次容量分配，`SetSize` 封口）；解码器原生请求 `420f` 全幅输出、编码器把输入矩阵写到 VTCompressionSession 色彩属性（每会话一次），BT.709 端到端往返 | `inline_decode_and_reassembly_test`：H.264+H.265 两臂 Y=0/2/253/255 极值不削波往返、内联分类矩阵全对；端到端 harness A/B 见下表 | minirtc `268c89fc`、`632b2283`；`MINIRTC_INLINE_DECODE=0` 可同二进制 A/B |
+| **W6B 宽块 RS-FEC 与 FEC 感知 NACK（minirtc）** | NEON GF(256) Reed-Solomon 快路径扩到 `k <= 48, r <= 16`（credit/burst 上限 4800→24000 字节），经 `a=x-minirtc-fec-wide:48-16` SDP 属性协商（应答仅在对方宣告时回显）；系数矩阵与宽度无关，旧 `rs-v1` 块（k≤16/r≤4）修复字节逐位一致——旧端无损失回退；`NackRequester::SetFecActive` 在 FEC 激活时对孤立 1–2 包缺口把首次 NACK 推迟到 clamp(rtt/3,6,12)ms，突发丢失（≥3）完全绕过 | `wide_fec_and_nack_test`：45 包关键帧突发旧 16/4 恢复 **0/10**、宽 48/16 恢复 **10/10 逐位一致**；热缓存编码 ~36µs/解码 ~41µs；k=48 r=16 连丢 16 包 100% 逐位恢复；SDP 回退与 NACK 时序契约全过 | minirtc `1a99c122` |
+| **W6C 全幅 BT.709 采集 + CAMetalDisplayLink 呈现** | ScreenCaptureKit 采集改 `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` + ITU-R BT.709（旧 420v/BT.601 把桌面 256 个亮度码压进 16–235 的 220 码演播室摆幅，暗色 UI 渐变可见色带，sRGB 红绿走错矩阵；`FARLINK_MAC_CAPTURE_LIMITED_601=1` 回退旧行为）；新增 `CrossDeskMetalDisplayLinkDriver`：专用 `QOS_CLASS_USER_INTERACTIVE` runloop 线程跑 CAMetalDisplayLink（preferredFrameLatency 1、60–120Hz、静态桌面两次空闲 tick 后自动暂停零后台唤醒、提交经闭锁 CFRunLoopSource 唤醒不丢），`FARLINK_METAL_PACING=immediate` 保留 W5C 队列模式供 A/B | `macos_color_and_displaylink_test`（编译产线渲染器本体）：420f+BT.709 256 步进斜坡 **256/256 个互不相同的单调输出级、最大往返误差 0 LSB、0..31 与 224..255 零压碎**（420v+BT.601 对照组只有 220 级）；sRGB 三基色最大通道误差 1 LSB；DisplayLink 300ms 活动期 36–37 tick、闲置后零 tick、invalidate+join 0.09–0.14ms、20/20 快速 attach/detach 压力循环零线程泄漏 | `metal_video_renderer.mm`、`screen_capturer_sck_impl.mm` |
+| **W6D 分级延迟归因 HUD/诊断 + 输入快车道** | D8 流统计浮层与脱敏诊断导出新增逐段延迟归因（网络 RTT / 抖动缓冲目标 / 解码 / 呈现四段滚动均值），`ClassifyLatencyBottleneck` 按 参考级交互预算（RTT<25ms、抖动<8ms、解码<6ms、呈现<10ms）选出超预算最多主导段；输入派发快车道；HUD 加高 20px（174→194）容纳新行 | `stage_latency_attribution_test`：分类器契约 + 输入队列 10000 样本 mean 11.7µs/p95 14µs/max 72µs 全过；`slint_stream_render_test` 在 194px 新 HUD 下全过 | `video_latency.h`、`remote_input_dispatcher.cpp`、`stream_window.slint` |
+
+**端到端 harness 复核（合并后最终 HEAD，`frame_rate_harness`，loopback ICE HostOnly）**：
+
+| 场景 | delivered_fps | lat_p50/p95/p99 | 备注 |
+|------|---------------|------------------|------|
+| LAN 干净 1080p60 HEVC 8s，`MINIRTC_INLINE_DECODE=0` | **59.86**（sent 481/delivered 480/dropped 1） | **11ms / 14ms / 18ms** | RTT 0.22ms，peak 9.82 Mbps |
+| LAN 干净 1080p60 HEVC 8s，`MINIRTC_INLINE_DECODE=1`（默认） | **60.00**（sent 480/delivered 480/dropped 0） | **11ms / 12ms / 13ms** | RTT 0.27ms，peak 9.87 Mbps——内联解码满分交付且 p99 尾延迟 18→13ms |
+| 受限 WAN 10Mbps/30ms/**3%loss** 1080p60 HEVC 8s（默认配置） | **58.98**（sent 480/delivered 472） | **53ms / 134ms / 198ms** | RTT 59.7ms，shape 均值 2.58 Mbps——比 Wave-5 的 2%loss 场景更苛刻（丢包率 +50%）下交付率反而 55.0→58.98，宽块 FEC + FEC 感知 NACK 下持续交付未断流 |
+
+minirtc 侧独立测试全绿（含 Wave-6 新增）：`inline_decode_and_reassembly_test`、
+`wide_fec_and_nack_test`、`vt_crisp_refresh_quality_test`（HEVC+H.264 两臂）、
+`data_channel_latency_test`、`fec_parity_floor_test`、`zero_hz_detector_test`、
+`video_playout_buffer_test`、`fec_curve_test`、`fir_throttle_test`、`hevc_sps_chroma_test`（35/35）。
+桌面侧全绿（含 Wave-6 新增与 194px HUD 复测）：`macos_color_and_displaylink_test`、
+`stage_latency_attribution_test`、`metal_cas_renderer_test`、`input_wire_test`、
+`pixel_scroll_and_dispatcher_test`、`diagnostic_export_redaction_test`、
+`inter_present_gap_test`、`inter_present_emission_test`、`slint_ui_smoke_test`、
+`slint_stream_render_test`、`slint_popup_render_test`、`crossdesk_wire_test`、
+`wake_on_lan_test`、`port_forward_{tunnel,reverse,consent,wire}_test`、
+`stream_control_ergonomics_test`、`clipboard_image_wire_test`、`keyboard_state_wire_test`、
+`video_frame_rate_wire_test`、`bitrate_limits_test`、`fps_cap_ladder_test`、
+`config_video_codec_roundtrip_test`、`lan_discovery_test`、`screen_lock_monitor_test`、
+`cursor_position_test`、`video_toolbox_in_flight_test`、`encoder_ceiling_reprobe_test`、
+`connection_status_protocol_test`。
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、
