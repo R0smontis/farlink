@@ -151,6 +151,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   std::vector<std::string> PortForwardAttachableSessions();
   bool PortForwardConnectionInitiator(const std::string& remote_id);
   std::string PortForwardDeviceKey(const std::string& remote_id);
+  std::string VerifiedPortForwardConsentKey(const std::string& remote_id);
   std::map<std::uint16_t, std::uint16_t> ConfiguredPortForwardRules(
       const std::string& device_key);
   // Operator workflow surface for the UI: manage controller-side rules for

@@ -57,12 +57,14 @@ class PortForwardController {
   void DetachHost(const std::string& remote_id);
   void DetachAll();
 
-  // Live per-device consent. Host endpoints apply the replacement allowlist
-  // immediately; ports absent from the list deny new opens. Existing streams
-  // to newly-denied ports are closed — consent revocation is effective at
-  // once, not only for future connections.
-  void SetHostAllowedPorts(const std::string& device_key,
-                           const std::set<std::uint16_t>& ports);
+  // Re-resolve one connection's host-side consent from host-local facts
+  // (verified trusted-device persistent consent unioned with the operator's
+  // session-scoped CLI grant). Called when the trust proof completes or the
+  // operator edits the persistent list; revocation applies to live streams.
+  void RefreshHostConsent(const std::string& remote_id);
+  // Apply a persistent-consent edit to exactly the live connections whose
+  // cryptographically verified trusted-device identity is this key.
+  void RefreshHostConsentForKey(const std::string& consent_key);
 
   // UI/INI/CLI operator workflow surface. Rules persist per device through
   // the runtime's config path; the controller only consumes them.

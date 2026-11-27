@@ -390,6 +390,16 @@ function setup_targets()
             add_syslinks("Ws2_32")
         end
 
+    target("port_forward_consent_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/port_forward_consent_test.cpp",
+            "apps/desktop/src/gui/runtime/trusted_devices.cpp",
+            "apps/desktop/src/gui/runtime/device_identity_store.cpp",
+            "apps/desktop/src/common/private_file.cpp")
+        add_packages("openssl3", "nlohmann_json")
+
     target("lan_discovery_test")
         set_kind("binary")
         set_default(false)

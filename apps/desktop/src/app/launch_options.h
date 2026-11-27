@@ -9,6 +9,7 @@
 #define _LAUNCH_OPTIONS_H_
 
 #include <string>
+#include <set>
 #include <vector>
 
 namespace crossdesk {
@@ -42,6 +43,15 @@ struct LaunchOptions {
   // present, otherwise the first UI-initiated connection). They are operator
   // intent for one session only — never persisted, never broadened.
   std::vector<PortForwardRule> port_forward_rules;
+  // --port-forward-allow <port>[,<port>...]: explicit local host consent for
+  // incoming controllers to reach these loopback destination ports through
+  // this machine. This grant is process-lifetime operator intent — it is
+  // never persisted, so consent cannot outlive the session context in which
+  // the operator granted it, and every individual connection still faces the
+  // full admission chain (authorized control session + negotiated SRTP).
+  // Persistent consent across restarts exists only for cryptographically
+  // verified trusted devices (see port_forward_runtime.cpp).
+  std::set<std::uint16_t> port_forward_allow;
   // --no-local-capture: the instance never initializes local screen/audio
   // capture. Controller-only deployments use this to avoid touching
   // ScreenCaptureKit at all — on macOS a second

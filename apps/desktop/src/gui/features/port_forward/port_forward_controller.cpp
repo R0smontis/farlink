@@ -38,18 +38,32 @@ bool PortForwardController::PeerSupports(const std::string& remote_id) const {
   return found != peer_support_.end() && found->second;
 }
 
-void PortForwardController::SetHostAllowedPorts(
-    const std::string& device_key, const std::set<std::uint16_t>& ports) {
+void PortForwardController::RefreshHostConsentForKey(
+    const std::string& consent_key) {
+  // A persistent-consent edit reaches exactly the live connections whose
+  // verified identity matches the edited key. Re-resolution is host-local:
+  // each connection's own verified proof decides whether the key applies.
   std::lock_guard lock(mutex_);
   for (auto& [id, endpoint] : hosts_) {
-    // hosts_ is keyed by connection id while consent is keyed by device
-    // identity; the runtime resolves one to the other, so a device-level
-    // consent update reaches every live connection of that device — and no
-    // connection of any other device.
-    if (owner_.PortForwardDeviceKey(id) != device_key) continue;
-    endpoint.allowed = ports;
-    if (endpoint.engine) endpoint.engine->SetAllowedRemotePorts(ports);
+    if (owner_.VerifiedPortForwardConsentKey(id) != consent_key) continue;
+    endpoint.allowed = owner_.HostPortForwardAllowlist(id);
+    if (endpoint.engine) endpoint.engine->SetAllowedRemotePorts(endpoint.allowed);
   }
+}
+
+void PortForwardController::RefreshHostConsent(const std::string& remote_id) {
+  // Re-resolve consent for one live connection from host-local facts. Called
+  // when the trust proof completes (a verified identity may add persistent
+  // consent) or when the operator changes the persistent list. The engine
+  // applies the replacement at once: ports absent from the new list deny new
+  // opens and close affected live streams — revocation is immediate, not
+  // deferred to the next connection.
+  std::lock_guard lock(mutex_);
+  const auto it = hosts_.find(remote_id);
+  if (it == hosts_.end()) return;
+  it->second.allowed = owner_.HostPortForwardAllowlist(remote_id);
+  if (it->second.engine)
+    it->second.engine->SetAllowedRemotePorts(it->second.allowed);
 }
 
 PortForwardClient* PortForwardController::EnsureClient(
@@ -200,11 +214,17 @@ void PortForwardController::OnFrame(const char* data, std::size_t size,
 }
 
 bool PortForwardController::ClientAdmitted(const std::string& remote_id) {
-  // The view-only/interactive grant lives on the machine that owns the
-  // rules: an outgoing session knows its own control state. Reverse
-  // forwarding over an incoming control session is locally initiated
-  // operator intent, so the interactive toggle does not apply — but
-  // authorization, capability and negotiated encryption always do.
+  // The client endpoint serves operator-configured rules, and rules bind
+  // only to explicitly chosen OUTGOING targets: a rule says "when I connect
+  // to that host, forward these ports" — never "whoever controls me may
+  // reach into my machine's loopback services through a tunnel I carry".
+  // Incoming control sessions therefore never acquire forwarding rules on
+  // this side; the reverse direction exists only when the OTHER machine
+  // runs its own rules against its own consent, which is the symmetric
+  // design working as intended rather than a gap. The interactive toggle
+  // (view-only) applies for outgoing sessions where it lives; admission for
+  // the endpoint itself still requires authorization, capability and
+  // negotiated encryption either way.
   if (owner_.PortForwardClientActive(remote_id)) return true;
   const auto support = peer_support_.find(remote_id);
   return owner_.IsAuthorizedController(remote_id) &&
@@ -213,7 +233,21 @@ bool PortForwardController::ClientAdmitted(const std::string& remote_id) {
 }
 
 bool PortForwardController::HostAdmitted(const std::string& remote_id) {
-  return owner_.IsAuthorizedController(remote_id) &&
+  // The host endpoint serves opens the PEER initiates toward this machine's
+  // loopback. Admission is direction-symmetric but keyed to host-local facts
+  // in both session shapes:
+  //   - incoming control session: the controller passed the full
+  //     password/trust admission chain (IsAuthorizedController);
+  //   - outgoing session: we ourselves established the session interactively,
+  //     so its connected presence in the session table IS the authorization
+  //     fact — the same fact the rest of the app uses to send input and
+  //     clipboard. PortForwardClientActive already requires connected +
+  //     encrypted + capability; requiring it here keeps the reverse
+  //     direction available exactly "where approved" — an interactive,
+  //     encrypted, capable session — while consent (resolved host-locally)
+  //     remains the independent gate on what the peer may reach.
+  return (owner_.IsAuthorizedController(remote_id) ||
+          owner_.PortForwardClientActive(remote_id)) &&
          owner_.PortForwardSessionSecure(remote_id);
 }
 

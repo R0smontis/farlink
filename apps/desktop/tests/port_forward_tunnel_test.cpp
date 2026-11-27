@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include <port_forward_wire.h>
+
 #include "port_forward_tunnel.h"
 
 #ifndef _WIN32
@@ -78,6 +80,14 @@ class MemoryLink {
 
   bool SendToClient(const char* data, std::size_t size) {
     std::lock_guard lock(mutex_);
+    // Observe kOpenErr wire codes for correct-code proof: kind at [4] == 3,
+    // error code little-endian at [6,8).
+    if (size >= 8 && data[0] == 'F' && data[1] == 'P' && data[2] == 'F' &&
+        data[3] == '1' && data[4] == 3) {
+      const auto* p = reinterpret_cast<const unsigned char*>(data);
+      open_err_codes.push_back(
+          static_cast<std::uint16_t>(p[6] | (p[7] << 8)));
+    }
     to_client_.emplace_back(data, size);
     return true;
   }
@@ -108,6 +118,8 @@ class MemoryLink {
     for (const auto& frame : to_client_) total += frame.size();
     return total;
   }
+
+  std::vector<std::uint16_t> open_err_codes;
 
  private:
   crossdesk::PortForwardClient* client_ = nullptr;
@@ -496,6 +508,16 @@ int main() {
     const int tcp = ConnectLoopback(local);
     ok &= Expect(tcp >= 0, "refused-test client connects to listener");
     harness.RunFor(600ms);
+    ok &= Expect(std::find(harness.link.open_err_codes.begin(),
+                           harness.link.open_err_codes.end(),
+                           crossdesk::port_forward::kErrorRefused) !=
+                     harness.link.open_err_codes.end(),
+                 "refused destination reports kErrorRefused (1) on the wire");
+    ok &= Expect(std::find(harness.link.open_err_codes.begin(),
+                           harness.link.open_err_codes.end(),
+                           crossdesk::port_forward::kErrorDenied) ==
+                     harness.link.open_err_codes.end(),
+                 "consented port never reports kErrorDenied");
     const auto snapshot = harness.client->Snapshot();
     ok &= Expect(snapshot.open_streams == 0,
                  "refused stream is cleaned up on the client");
@@ -515,6 +537,11 @@ int main() {
     const int denied_tcp = ConnectLoopback(denied_local);
     ok &= Expect(denied_tcp >= 0, "denied-test client connects to listener");
     denied.RunFor(600ms);
+    ok &= Expect(std::find(denied.link.open_err_codes.begin(),
+                           denied.link.open_err_codes.end(),
+                           crossdesk::port_forward::kErrorDenied) !=
+                     denied.link.open_err_codes.end(),
+                 "consent denial reports kErrorDenied (2) on the wire");
     const auto denied_host_snapshot = denied.host->Snapshot();
     ok &= Expect(denied_host_snapshot.last_error.find("not approved") !=
                      std::string::npos,
@@ -699,6 +726,69 @@ int main() {
                  "teardown leaks no file descriptors");
     std::cout << "fd count: start=" << fds_at_start << " before-close=" << fds_before
               << " after-close=" << fds_after << '\n';
+  }
+
+  // ---- Capacity error code: stream 65 is refused with kErrorCapacity -----------
+  {
+    EchoServer echo;
+    echo.Start();
+    Harness harness;
+    harness.host->SetAllowedRemotePorts({echo.port()});
+    std::string error;
+    const std::uint16_t local = harness.client->AddRule(0, echo.port(), &error);
+    std::vector<int> fds;
+    // Fill all 64 stream slots.
+    for (int i = 0; i < 64; ++i) {
+      const int fd = ConnectLoopback(local);
+      if (fd >= 0) fds.push_back(fd);
+    }
+    harness.RunFor(800ms);
+    ok &= Expect(harness.host->Snapshot().open_streams == 64,
+                 "64 streams occupy every host slot");
+    // The 65th connection must be rejected by the client engine's own cap:
+    // it never reaches the wire (the host never even sees a kOpen), the
+    // engine records the capacity failure visibly, and neither side grows
+    // beyond 64 streams. Direct host-side capacity proof: the same cap in
+    // the host engine is exercised below by injecting kOpen frames past the
+    // client, which is exactly the hostile-peer case the host cap exists for.
+    const int overflow = ConnectLoopback(local);
+    ok &= Expect(overflow >= 0, "overflow client connects to listener");
+    harness.RunFor(500ms);
+    ok &= Expect(harness.client->Snapshot().last_error.find("maximum") !=
+                     std::string::npos,
+                 "client cap refusal is visible in error state");
+    ok &= Expect(harness.host->Snapshot().open_streams == 64,
+                 "host stream count stays capped at 64");
+    ok &= Expect(harness.client->Snapshot().open_streams == 64,
+                 "client stream count stays capped at 64");
+    // Hostile/buggy peer case: inject 2 kOpen frames directly into the host
+    // engine (bypassing the client cap entirely — exactly what a hostile
+    // peer would do). The host must answer the overflow with kErrorCapacity
+    // on the wire.
+    harness.link.open_err_codes.clear();
+    for (std::uint32_t probe = 9000; probe < 9002; ++probe) {
+      std::string open(16, '\0');
+      open[0] = 'F'; open[1] = 'P'; open[2] = 'F'; open[3] = '1';
+      open[4] = 1;  // kOpen
+      open[6] = static_cast<char>(echo.port() & 0xff);
+      open[7] = static_cast<char>(echo.port() >> 8);
+      open[8] = static_cast<char>(probe & 0xff);
+      open[9] = static_cast<char>((probe >> 8) & 0xff);
+      harness.host->OnFrame(open.data(), open.size());
+    }
+    harness.RunFor(200ms);
+    ok &= Expect(std::find(harness.link.open_err_codes.begin(),
+                           harness.link.open_err_codes.end(),
+                           crossdesk::port_forward::kErrorCapacity) !=
+                     harness.link.open_err_codes.end(),
+                 "hostile overflow kOpen reports kErrorCapacity (3) on the wire");
+    ok &= Expect(harness.host->Snapshot().open_streams == 64,
+                 "host count still capped after hostile probes");
+    if (overflow >= 0) close(overflow);
+    for (const int fd : fds) close(fd);
+    harness.client->StopAll();
+    harness.host->Reset();
+    echo.Stop();
   }
 
   // ---- Stream id parity partitioning -----------------------------------------

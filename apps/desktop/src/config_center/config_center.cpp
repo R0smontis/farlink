@@ -292,7 +292,14 @@ int ConfigCenter::Load() {
   device_port_forward_allowlist_.clear();
   if (port_forward_allow.is_object()) {
     for (const auto& [device, value] : port_forward_allow.items()) {
-      if (device.empty() || !value.is_array()) continue;
+      // Persistent consent is meaningful only for a cryptographically
+      // verified trusted-device key ("trusted/<public_key>"). Any other key
+      // shape — a LAN device id, a signal user id, a hostname — names a
+      // peer-claimed identity this host never authenticated, so the entry is
+      // inert by construction: dropped at load, never written at save.
+      if (device.rfind("trusted/", 0) != 0 || device.size() <= 8 ||
+          !value.is_array())
+        continue;
       std::set<std::uint16_t> ports;
       for (const auto& port : value) {
         if (!port.is_number_integer()) continue;

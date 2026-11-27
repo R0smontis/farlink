@@ -11,6 +11,7 @@
 
 #include <shared_mutex>
 
+#include "launch_options.h"
 #include "rd_log.h"
 #include "runtime/gui_runtime.h"
 #include "runtime/peer_event_handler.h"
@@ -80,11 +81,50 @@ bool GuiRuntime::PortForwardClientActive(const std::string& remote_id) {
 
 std::set<std::uint16_t> GuiRuntime::HostPortForwardAllowlist(
     const std::string& remote_id) {
-  // Consent is keyed by the same device identity the operator workflow uses,
-  // so approval survives reconnects but never leaks across devices. Unknown
-  // controllers get the empty set: every open is denied visibly.
-  if (!config_center_) return {};
-  return config_center_->GetPortForwardAllowlist(PortForwardDeviceKey(remote_id));
+  // Consent resolution uses only host-local facts — never anything the peer
+  // claims about itself:
+  //
+  // 1. Persistent consent (INI) exists ONLY for a cryptographically
+  //    authenticated identity: the trusted-device public key whose possession
+  //    this exact connection proved by signature over a fresh nonce, and
+  //    which is pinned in the local trust store. The key in the INI is
+  //    "trusted/<public_key>"; nothing else is ever written or read. LAN
+  //    device ids, signal user ids and hostnames are all peer-claimed or
+  //    ephemeral and therefore can never name persistent consent.
+  //
+  // 2. Session consent is explicit local operator intent for this process
+  //    lifetime (--port-forward-allow). It is never persisted, so it cannot
+  //    outlive the context in which it was granted, and each connection still
+  //    faces the full admission chain (authorization + negotiated SRTP)
+  //    before this list is even consulted.
+  //
+  // Both are unioned; the default for every connection is the empty set —
+  // deny all, visibly.
+  std::set<std::uint16_t> ports = GetLaunchOptions().port_forward_allow;
+  if (const auto key = VerifiedPortForwardConsentKey(remote_id);
+      !key.empty() && config_center_) {
+    const auto persistent = config_center_->GetPortForwardAllowlist(key);
+    ports.insert(persistent.begin(), persistent.end());
+  }
+  return ports;
+}
+
+std::string GuiRuntime::VerifiedPortForwardConsentKey(
+    const std::string& remote_id) {
+  // The only cross-connection identity this host has independently
+  // authenticated: a controller that completed the trusted-device proof on
+  // THIS connection with a key pinned in the local trust store. Everything
+  // else a peer says — its LAN device_id, its signal user id, its hostname —
+  // is a claim this host never verified, and the LAN protocol carries no
+  // device identity at all (the host itself generates the controller's
+  // session id). Consent keyed to any of those would be consent keyed to a
+  // stranger's word.
+  std::lock_guard lock(controller_trust_mutex_);
+  const auto it = controller_trust_.find(remote_id);
+  if (it == controller_trust_.end() ||
+      !it->second.IsTrusted(trusted_devices_.get()))
+    return {};
+  return "trusted/" + it->second.verified->public_key;
 }
 
 void GuiRuntime::NotePortForwardPeerSupport(const std::string& remote_id,
@@ -128,13 +168,19 @@ bool GuiRuntime::PortForwardConnectionInitiator(const std::string& remote_id) {
 }
 
 std::string GuiRuntime::PortForwardDeviceKey(const std::string& remote_id) {
+  // This key names controller-side forwarding RULES only — the operator's own
+  // outbound intent ("when I connect to that host, forward these ports"). It
+  // is never used for host-side consent: what this machine allows others to
+  // reach is resolved exclusively through VerifiedPortForwardConsentKey and
+  // explicit session grants. The LAN device id in the preference key is
+  // host-claimed, but it arrives over the password-authenticated channel —
+  // the shared-secret password IS the LAN authentication baseline, so a
+  // peer able to assert the id is already authenticated to the same standard
+  // every other LAN feature (input, clipboard, file transfer) relies on.
+  // Signal sessions key by server+id the operator explicitly selected.
   if (auto props = FindRemoteSession(remote_id); props)
     return props->device_preference_key_;
-  // Incoming controllers key by their connection identity; trusted-device
-  // keying applies where a verified device exists, falling back to the
-  // session id. Either way consent never leaks across devices because the
-  // key is always scoped to how the operator approved the device.
-  return remote_id;
+  return {};
 }
 
 std::map<std::uint16_t, std::uint16_t> GuiRuntime::ConfiguredPortForwardRules(
@@ -189,18 +235,41 @@ bool GuiRuntime::RemovePortForwardRule(const std::string& remote_id,
 bool GuiRuntime::SetHostPortForwardConsent(
     const std::string& device_key, const std::set<std::uint16_t>& ports,
     std::string* error) {
+  // Persistent consent is accepted ONLY for a cryptographically verified
+  // trusted-device key. The caller cannot invent one: the key must carry the
+  // "trusted/" prefix and the public key behind it must be pinned in the
+  // local trust store right now — writing consent for a key this host has
+  // never verified would be persisting approval for a stranger's claim.
+  // Session-scoped consent for unverified controllers is the operator's CLI
+  // grant (--port-forward-allow), never this persistent path.
   for (const std::uint16_t port : ports) {
     if (!port) {
       if (error) *error = "port zero is never a valid consent entry";
       return false;
     }
   }
+  constexpr std::string_view prefix = "trusted/";
+  if (device_key.rfind(std::string(prefix), 0) != 0) {
+    if (error)
+      *error = "persistent consent requires a verified trusted-device key "
+               "(trusted/<public_key>); unverified controllers use the "
+               "session-scoped --port-forward-allow grant";
+    return false;
+  }
+  const auto public_key = device_key.substr(prefix.size());
+  if (!trusted_devices_ || !trusted_devices_->Contains(public_key)) {
+    if (error)
+      *error = "no trusted device with this public key is pinned locally";
+    return false;
+  }
   if (!config_center_ ||
       config_center_->SetPortForwardAllowlist(device_key, ports) != 0) {
     if (error) *error = "could not persist consent";
     return false;
   }
-  port_forward_.SetHostAllowedPorts(device_key, ports);
+  // Apply the replacement to every live connection whose verified identity
+  // is this key — and to no other connection.
+  port_forward_.RefreshHostConsentForKey(device_key);
   return true;
 }
 

@@ -393,7 +393,12 @@ struct PortForwardClient::Impl : PumpCore {
       return fail(AddressInUse(socket_error) ? "local port is already in use"
                                              : "cannot bind loopback listener");
     }
-    if (listen(listener, 16) != 0) {
+    // Backlog matches the stream cap: a burst of simultaneous connections
+    // (a browser opening a dev server, parallel SSH multiplexing) must not
+    // be dropped by the kernel before Poll drains the queue. Anything beyond
+    // the cap is rejected by the engine itself, so a larger queue buys
+    // nothing.
+    if (listen(listener, static_cast<int>(kPortForwardMaxStreams)) != 0) {
       CloseSocket(listener);
       return fail("cannot listen on loopback socket");
     }

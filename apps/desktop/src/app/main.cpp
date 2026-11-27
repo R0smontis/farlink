@@ -485,6 +485,7 @@ int main(int argc, char* argv[]) {
   if (!crossdesk::ParseLaunchOptions(argc, argv)) {
     std::cerr << "Usage: --lan-connect <ip:port> [--view-only] [--no-local-capture]\n"
                  "       [--port-forward <local_port>:<remote_port>]...\n"
+                 "       [--port-forward-allow <port>[,<port>...]]\n"
                  "The access password is read from the FARLINK_LAN_PASSWORD "
                  "environment variable, never from the command line.\n";
     return 1;

@@ -54,6 +54,37 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
         continue;
       }
       g_launch_options.port_forward_rules.push_back({local, remote});
+    } else if (std::strcmp(argv[i], "--port-forward-allow") == 0) {
+      if (i + 1 >= argc || argv[i + 1][0] == '-') {
+        valid = false;
+        continue;
+      }
+      const std::string spec = argv[++i];
+      // Comma-separated destination ports; every entry must be a valid
+      // nonzero port or the whole option is rejected — a partially parsed
+      // consent list would silently narrow what the operator wrote.
+      bool spec_valid = !spec.empty();
+      std::set<std::uint16_t> ports;
+      std::size_t begin = 0;
+      while (spec_valid && begin <= spec.size()) {
+        const auto comma = spec.find(',', begin);
+        const auto end = comma == std::string::npos ? spec.size() : comma;
+        unsigned port = 0;
+        const auto result = std::from_chars(spec.data() + begin, spec.data() + end, port);
+        if (end == begin || result.ec != std::errc{} ||
+            result.ptr != spec.data() + end || port == 0 || port > 65535) {
+          spec_valid = false;
+          break;
+        }
+        ports.insert(static_cast<std::uint16_t>(port));
+        if (comma == std::string::npos) break;
+        begin = comma + 1;
+      }
+      if (!spec_valid) {
+        valid = false;
+        continue;
+      }
+      g_launch_options.port_forward_allow.insert(ports.begin(), ports.end());
     } else if (std::strcmp(argv[i], "--no-local-capture") == 0) {
       g_launch_options.no_local_capture = true;
     }
