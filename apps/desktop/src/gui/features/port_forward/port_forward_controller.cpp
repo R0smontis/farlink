@@ -11,7 +11,7 @@
 #include <port_forward_wire.h>
 #include <stream_names.h>
 
-#include "launch_options.h"
+#include "app/launch_options.h"
 #include "rd_log.h"
 #include "runtime/gui_runtime.h"
 #include "runtime/peer_event_handler.h"
