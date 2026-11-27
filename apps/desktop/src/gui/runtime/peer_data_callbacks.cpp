@@ -538,6 +538,22 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->high_fps_supported_ = remote_action.i.supports_high_fps;
         props->clipboard_image_supported_ =
             remote_action.i.supports_clipboard_image;
+        // A reconnecting capable host re-advertises; a stale mute intent
+        // re-applies against the fresh session, while a stock host simply
+        // never receives a command.
+        const bool was_host_mute_capable = props->host_mute_supported_.load();
+        props->host_mute_supported_ = remote_action.i.supports_host_mute;
+        if (props->host_mute_supported_.load() && !was_host_mute_capable &&
+            props->host_mute_requested_.load()) {
+          RemoteAction mute{};
+          mute.type = ControlType::host_mute;
+          mute.a = true;
+          const auto mute_message = mute.to_json();
+          MiniRtcSendReliableDataFrame(
+              handler->IsDirect() ? handler->DirectPeer() : props->peer_,
+              mute_message.data(), mute_message.size(),
+              props->control_data_label_.c_str());
+        }
         props->video_settings_supported_ =
             remote_action.i.supports_video_settings;
         if (first_advertisement && props->video_settings_supported_) {
@@ -617,6 +633,14 @@ void PeerEventHandler::OnReceiveDataBuffer(
       else if (ret != 0)
         // Legacy/web transports without the per-peer API retain their fallback.
         runtime->devices_.StopSpeakerCapturer();
+    }
+    if (remote_action.type == ControlType::host_mute) {
+      // Only an authorized controller may mute this machine's speaker. The
+      // mute is reference-counted per controller in the runtime, and the
+      // original speaker state restores when the last requester unmutes or
+      // disconnects, so a mute can never outlive its session.
+      if (!runtime->IsAuthorizedController(remote_id)) return;
+      runtime->ApplyHostMuteCommand(remote_id, remote_action.a);
     }
   }
 }

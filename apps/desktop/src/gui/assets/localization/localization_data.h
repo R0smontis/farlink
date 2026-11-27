@@ -335,6 +335,8 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"画面接收中...", {"画面接收中...", "Receiving screen...", "Получение изображения...", "畫面接收中...", "受信画面…", "수신화면...", "Empfangsbildschirm...", "Écran de réception...", "Pantalla de recepción...", "Recebendo tela..."}},
   {"画面设置", {"画面设置", "Video settings", "Настройки видео", "畫面設定", "ビデオ設定", "영상 설정", "Videoeinstellungen", "Paramètres vidéo", "Configuración de vídeo", "Configurações de vídeo"}},
   {"画面质量", {"画面质量", "Video Quality", "Качество видео", "畫面質量", "ビデオ品質", "비디오 품질", "Videoqualität", "Qualité vidéo", "Calidad de vídeo", "Qualidade de vídeo"}},
+  {"码率", {"码率", "Bitrate", "Битрейт", "碼率", "ビットレート", "비트레이트", "Bitrate", "Débit", "Tasa de bits", "Taxa de bits"}},
+  {"被控端静音", {"被控端静音", "Host mute", "Звук на хосте", "被控端靜音", "ホストをミュート", "호스트 음소거", "Host stummschalten", "Muet sur l’hôte", "Silenciar anfitrión", "Silenciar host"}},
   {"真彩", {"真彩", "True Color", "Истинный цвет", "真彩", "トゥルーカラー", "트루 컬러", "Echtfarbe", "Couleurs vraies", "Color verdadero", "Cor verdadeira"}},
   {"画面采集帧率", {"画面采集帧率", "Video Capture Frame Rate", "Частота захвата видео", "畫面採集幀率", "ビデオキャプチャフレームレート", "비디오 캡처 프레임 속도", "Bildrate der Videoaufnahme", "Fréquence d'images de capture vidéo", "Velocidad de fotogramas de captura de vídeo", "Taxa de quadros de captura de vídeo"}},
   {"界面", {"界面", "Interface", "Интерфейс", "介面", "インターフェース", "인터페이스", "Oberfläche", "Interfaces", "Interfaz", "Interface"}},
@@ -741,6 +743,8 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"video_quality_high", "高"},
   {"video_quality_medium", "中"},
   {"video_quality_low", "低"},
+  {"video_bitrate", "码率"},
+  {"host_mute", "被控端静音"},
   {"video_encode_format", "视频编码格式"},
   {"av1", "AV1"},
   {"h264", "H.264"},
@@ -1278,6 +1282,8 @@ inline constexpr const char* kSlintLiterals[] = {
   X(video_quality_high) \
   X(video_quality_medium) \
   X(video_quality_low) \
+  X(video_bitrate) \
+  X(host_mute) \
   X(video_encode_format) \
   X(av1) \
   X(h264) \

@@ -287,6 +287,22 @@ int ConfigCenter::Load() {
       }
     }
   }
+  const auto bitrate_caps = nlohmann::json::parse(
+      ini_->GetValue(section_, "device_video_bitrate_cap_bps", "{}"), nullptr, false);
+  device_video_bitrate_cap_bps_.clear();
+  if (bitrate_caps.is_object()) {
+    for (const auto& [device, value] : bitrate_caps.items()) {
+      if (!device.empty() && value.is_number_integer()) {
+        const auto bps = value.get<std::int64_t>();
+        // Accept exactly the explicit preset ceilings; anything else (a
+        // hand-edit, or a value from another build) is dropped, never
+        // silently clamped into a tier the user did not choose.
+        if (bps == 8'000'000 || bps == 20'000'000 || bps == 50'000'000 ||
+            bps == 80'000'000)
+          device_video_bitrate_cap_bps_.emplace(device, static_cast<int>(bps));
+      }
+    }
+  }
   auto sizes = nlohmann::json::parse(
       ini_->GetValue(section_, "device_stream_window_sizes", "{}"), nullptr, false);
   ini_->stream_window_sizes = sizes.is_object() ? std::move(sizes) : nlohmann::json::object();
@@ -859,6 +875,30 @@ int ConfigCenter::SetKeyboardShortcutMode(const std::string& device, int mode) {
   if (StoreValues({{"device_keyboard_shortcut_mode", nlohmann::json(devices).dump()}}) != 0)
     return -1;
   device_keyboard_shortcut_mode_ = std::move(devices);
+  return 0;
+}
+
+int ConfigCenter::GetVideoBitrateCapBps(const std::string& device) const {
+  const auto found = device_video_bitrate_cap_bps_.find(device);
+  return found == device_video_bitrate_cap_bps_.end() ? 0 : found->second;
+}
+
+int ConfigCenter::SetVideoBitrateCapBps(const std::string& device, int bps) {
+  // Only exact presets (or 0 = Auto) persist; the selector is the sole
+  // writer, and clamping arbitrary input here would silently rewrite user
+  // intent into a neighbouring tier.
+  if (device.empty() || bps < 0 || bps > 100'000'000) return -1;
+  if (bps != 0 && bps != 8'000'000 && bps != 20'000'000 &&
+      bps != 50'000'000 && bps != 80'000'000) return -1;
+  if (bps == GetVideoBitrateCapBps(device)) return 0;
+  auto devices = device_video_bitrate_cap_bps_;
+  if (bps == 0)
+    devices.erase(device);  // Auto is the absence of an entry, not a stored 0.
+  else
+    devices[device] = bps;
+  if (StoreValues({{"device_video_bitrate_cap_bps", nlohmann::json(devices).dump()}}) != 0)
+    return -1;
+  device_video_bitrate_cap_bps_ = std::move(devices);
   return 0;
 }
 

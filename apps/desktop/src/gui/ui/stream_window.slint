@@ -44,6 +44,9 @@ export global StreamStrings {
     in-out property <string> priority-frame-rate: "Frame rate";
     in-out property <string> priority-quality: "Quality";
     in-out property <string> priority-balanced: "Balanced";
+    in-out property <string> bitrate: "Bitrate";
+    in-out property <string> bitrate-auto: "Auto";
+    in-out property <string> host-mute: "Host mute";
 
     in-out property <string> select-display: "Select Display";
     in-out property <string> send-shortcut: "Send Shortcut";
@@ -489,6 +492,12 @@ export component StreamWindow inherits Window {
     in-out property <int> frame-rate-index: 1;
     in-out property <int> adaptation-policy-index: 1;
     callback change-video-settings(int, int, int);
+    in property <bool> bitrate-cap-enabled: false;
+    in-out property <int> bitrate-cap-index: 0;
+    callback choose-bitrate-cap(int);
+    in property <bool> host-mute-supported: false;
+    in-out property <bool> host-mute-enabled: false;
+    callback toggle-host-mute(bool);
     in property <bool> true-color-enabled;
     callback toggle-true-color(bool);
     in-out property <float> mouse-sensitivity-percent: 100;
@@ -640,6 +649,7 @@ export component StreamWindow inherits Window {
         + 36px + 8px
         + 2 * (18px + 4px + 27px + 8px) + (root.sensitivity-error == "" ? 0px : 28px)
         + (root.keyboard-shortcut-row-visible ? 57px : 0px)
+        + 57px + (root.host-mute-supported ? 36px : 0px)
         + (18px + 4px + 27px + 8px) + (root.diagnostic-feedback == "" ? 0px : 28px)
         + (root.remote-resolution-visible ? 57px + (root.remote-resolution-feedback == "" ? 0px : 32px) : 0px);
     private property <length> video-menu-height: min(root.settings-content-height,
@@ -1994,6 +2004,17 @@ export component StreamWindow inherits Window {
                             options: [StreamStrings.priority-frame-rate, StreamStrings.priority-quality, StreamStrings.priority-balanced];
                             selected: root.adaptation-policy-index; enabled: root.video-settings-enabled;
                             choose(index) => { root.change-video-settings(root.video-quality-index, root.frame-rate-index, index); }
+                        }
+                        VideoSettingRow {
+                            label: StreamStrings.bitrate;
+                            options: [StreamStrings.bitrate-auto, "8M", "20M", "50M", "80M"];
+                            selected: root.bitrate-cap-index; enabled: root.bitrate-cap-enabled;
+                            choose(index) => { root.choose-bitrate-cap(index); }
+                        }
+                        if root.host-mute-supported: SettingsToggleRow {
+                            label: StreamStrings.host-mute; divider: false;
+                            checked: root.host-mute-enabled; toggle-on-click: false;
+                            clicked => { root.toggle-host-mute(!root.host-mute-enabled); }
                         }
                         if !root.video-settings-enabled || root.video-settings-feedback != "": Text {
                             text: root.video-settings-enabled ? root.video-settings-feedback : StreamStrings.video-settings-unavailable; wrap: word-wrap;

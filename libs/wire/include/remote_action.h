@@ -37,6 +37,12 @@ enum ControlType {
   video_codec_status = 14,
   display_resolution = 15,
   display_resolution_status = 16,
+  // Controller -> host: mute/unmute the host machine's own speaker output
+  // while the remote session continues. Payload is the union bool `a`,
+  // mirroring audio_capture. Only sent to hosts advertising
+  // supports_host_mute; hosts restore the original speaker state when the
+  // controlling session ends.
+  host_mute = 17,
 };
 
 enum MouseFlag {
@@ -178,6 +184,10 @@ struct HostInfo {
   // clipboard messages on the clipboard stream. Senders must never deliver
   // clipboard_image frames to peers that do not advertise it.
   bool supports_clipboard_image;
+  // Optional capability; absent means the host has no host-side speaker mute
+  // control. Controllers must never send host_mute commands to a peer that
+  // does not advertise it; legacy peers drop the unknown type harmlessly.
+  bool supports_host_mute;
 };
 
 struct ServiceStatus {

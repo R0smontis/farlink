@@ -296,6 +296,9 @@ inline int ApplyStreamWindowStrings(
       Text(localization::video_priority_quality[language]));
   strings.set_priority_balanced(
       Text(localization::video_priority_balanced[language]));
+  strings.set_bitrate(Text(localization::video_bitrate[language]));
+  strings.set_host_mute(Text(localization::host_mute[language]));
+  strings.set_bitrate_auto(Text(localization::Literal("自动", language)));
   strings.set_audio(Text(localization::audio_capture[language]));
   strings.set_mute(Text(localization::mute[language]));
   strings.set_select_file(Text(localization::select_file[language]));

@@ -95,6 +95,10 @@ class ConfigCenter {
   // 1 = prefer local shortcuts (keys still reach the peer as copies).
   // Anything outside [0, 1] is rejected; unknown devices default to 0.
   int SetKeyboardShortcutMode(const std::string& device, int mode);
+  // bps: 0 = Auto (no cap, congestion/encoder ceiling applies), otherwise
+  // exactly one explicit preset ceiling in bits per second. Values outside
+  // the preset set are rejected; unknown devices default to 0.
+  int SetVideoBitrateCapBps(const std::string& device, int bps);
   int SetStreamWindowSize(const std::string& device, StreamWindowSize size);
   int SetPortableServicePromptSuppressed(bool suppressed);
   int SetLastPresentedRelease(const std::string& version);
@@ -143,6 +147,7 @@ class ConfigCenter {
   int GetMouseSensitivityPercent() const { return mouse_sensitivity_percent_.load(); }
   int GetWheelSensitivityPercent(const std::string& device) const;
   int GetKeyboardShortcutMode(const std::string& device) const;
+  int GetVideoBitrateCapBps(const std::string& device) const;
   std::optional<StreamWindowSize> GetStreamWindowSize(const std::string& device) const;
   bool IsPortableServicePromptSuppressed() const;
   std::string GetLastPresentedRelease() const;
@@ -203,6 +208,7 @@ class ConfigCenter {
   int legacy_wheel_sensitivity_percent_ = 100;
   std::map<std::string, int> device_wheel_sensitivity_;
   std::map<std::string, int> device_keyboard_shortcut_mode_;
+  std::map<std::string, int> device_video_bitrate_cap_bps_;
   bool portable_service_prompt_suppressed_ = false;
   std::string last_presented_release_;
   std::string file_transfer_save_path_ = "";
