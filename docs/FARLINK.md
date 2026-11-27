@@ -191,6 +191,35 @@ minirtc 侧独立测试全绿（含 Wave-6 新增）：`inline_decode_and_reasse
 `cursor_position_test`、`video_toolbox_in_flight_test`、`encoder_ceiling_reprobe_test`、
 `connection_status_protocol_test`。
 
+### 2.13 Wave-6 整合烟雾暴露的呈现/指标缺陷与修复
+
+合并后的端到端烟雾（`e2e/smoke.sh`，loopback 双实例真实会话）暴露了单元测试覆盖不到的三处缺陷，均已定位根因并修复：
+
+| 缺陷 | 根因 | 修复 | 证据 |
+|------|------|------|------|
+| **displaylink  pacing 下约半数会话零呈现**（`frames_presented=0`，40s 内首帧不上屏） | `Attach()` 在 `addSubview`/布局/几何生效**之前**创建 `CAMetalDisplayLink`；在 WindowServer 尚未合成该 layer 时创建的链接可能永久不绑定任何显示器——对象保持有效、接受 `paused=NO`、整会话不回调一次，同 layer 上重建也无法恢复（实测 watchdog 重建 25+ 次无一复活）；故障率约 50%，与窗口出现时序竞争 | 驱动创建推迟到视频视图入窗、布局与几何应用之后（`metal_video_renderer.mm` `Attach` 重排） | 修复后连续 24 次默认配置烟雾零闩锁；`presentedTime=0` 被拒呈现比例从 2–8% 降到 ~0.2% |
+| **inline 解码 + immediate  pacing 呈现约 2s 后停摆**（`counts=34,29` 随后归零） | 同一闩锁的 immediate 形态：layer 从未合成时 `nextDrawable` 在禁用超时的 render queue 上无限阻塞，串行队列卡死、合并标志永不复位——与内联解码本身无关 | 同上（重排后 layer 必然进入合成） | 修复后 immediate 3/3 通过：1829/1852、1842/1842、1849/1850 呈现 |
+| **会话指标恒空**（`decode_samples=0 render_samples=0 inter_present=none`，即便呈现健康） | 退出路径先触发连接断开事件，`peer_event_handler` 的 `video_latency_->Reset()` 先于 `LogVideoSessionSummary` 运行，滚动窗口在读取前被清空；`fps_seconds` 因不参与 Reset 而幸存 | 断开处理器在任何重置前捕获 codec/帧率档，并在视频重置前发射一次性会话摘要（consume-once 保证后续发射为空操作） | 修复后全量填充：decode_mean 1.79ms/inter_present 931 区间/render_mean 实测；`session_teardown_ordering_test` 锁定该顺序契约 |
+| **首帧行半数 `codec=unknown`** | 首个传输统计样本（携带解码器名）比首帧晚到约 30ms，镜像竞态 | 解码器名未就绪时延迟发射首帧行，宽限 1500ms（自首次呈现计），逾期以已知信息发射 | 修复后首帧行稳定 `codec=H265` |
+
+**2×2 验收矩阵**（loopback 烟雾，`MINIRTC_INLINE_DECODE` ∈ {0,1} × `FARLINK_METAL_PACING` ∈ {displaylink,immediate}，每格 ≥30s 60fps 档）：
+
+| 单元格 | 时长 | 呈现/解码 | 平均呈现 fps | fps_seconds |
+|--------|------|-----------|--------------|-------------|
+| inline=1 + displaylink（默认） | 32s+ | 932/948、940/944、946/950（98.3–99.8%） | 59.1–60.0 | 全程无零计数秒 |
+| inline=1 + immediate | 32.2–32.3s | 1829/1852、1842/1842、1849/1850（98.8–100%） | 59.5–60.0 | 全程无零计数秒 |
+| inline=0 + displaylink | 33.3s | 1873/1877（99.8%） | 60.0 | 全程无零计数秒 |
+| inline=0 + immediate | 32.3s | 1829/1851（98.8%） | 60.1 | 全程无零计数秒 |
+
+**pacing 模式实测权衡**（同机 120Hz ProMotion 面板，60fps 流）：
+
+| 模式 | 呈现间隔 p95_max | render_mean（解码回调→真实上屏） | 备注 |
+|------|------------------|----------------------------------|------|
+| displaylink（默认） | **17ms**（cadence 贴准 vsync） | ~45ms | 相位锁定逐帧贴 VBlank，代价是 tick 等待 + 预取 drawable 各约一拍 |
+| immediate | 25ms | **~21ms** | 提交即渲染，端到端延迟更低但间隔抖动更大 |
+
+两模式 decode_mean 均 ~1.8ms（VideoToolbox 硬解），解码与 pacing 选择无关。
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、

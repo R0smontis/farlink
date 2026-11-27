@@ -213,6 +213,31 @@ The fork extends upstream CrossDesk across these independent areas:
     reference-grade interactive budget (sub-25 ms RTT, sub-8 ms jitter, sub-6 ms
     decode, sub-10 ms render), plus a fast-lane input dispatch path. Verified
     by `stage_latency_attribution_test`.
+  - *Wave-6 integration smoke defect fixes (here)*: end-to-end loopback smoke
+    of the merged stack exposed three defects no unit test covered, all
+    root-caused and fixed:
+    (1) `CAMetalDisplayLink` created before the video layer reached the
+    compositor could permanently attach to no display — valid object,
+    `paused=NO` accepted, zero callbacks for the whole session, recreation
+    on the same layer never recovering — presenting zero frames in ~half of
+    the sessions in displaylink mode and jamming immediate-mode presentation
+    behind a non-composited drawable queue; the driver is now created only
+    after the view is inside the window hierarchy with layout and geometry
+    applied (24 consecutive latch-up-free validation sessions, zero-time
+    `presentedTime` share down from 2–8% to ~0.2%);
+    (2) quit-path teardown ran the disconnect handler's
+    `VideoLatencyStats::Reset()` before `LogVideoSessionSummary`, wiping the
+    rolling decode/render/inter-present windows in every session — the
+    summary is now emitted inside the disconnect handler before the reset
+    (consume-once guards the later emission), with codec normalization and a
+    1500ms codec-grace for the first-frame line;
+    (3) regression test `session_teardown_ordering_test` pins the
+    summary-before-reset contract. Full 2×2 loopback acceptance matrix
+    (`MINIRTC_INLINE_DECODE` × `FARLINK_METAL_PACING`, ≥30s at 60fps per
+    cell): presentation ratio 98.8–100%, avg presented fps 59.1–60.1, no
+    zero-count second in any cell; measured pacing trade-off on the 120Hz
+    panel — displaylink cadence p95_max 17ms at ~45ms decode-to-screen,
+    immediate p95_max 25ms at ~21ms. Detail: `docs/FARLINK.md` §2.13.
 
 ## Modified upstream files
 
