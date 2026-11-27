@@ -192,6 +192,9 @@ struct HostInfo {
   // control. Controllers must never send host_mute commands to a peer that
   // does not advertise it; legacy peers drop the unknown type harmlessly.
   bool supports_host_mute;
+  // Optional capability; absent means the peer neither exposes host-side
+  // loopback port forwarding nor understands controller-side forwarding rules.
+  bool supports_port_forward;
 };
 
 struct ServiceStatus {

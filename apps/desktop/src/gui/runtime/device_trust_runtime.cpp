@@ -101,6 +101,7 @@ bool GuiRuntime::HandleDeviceTrustMessage(const std::string& id, PeerEventHandle
   const auto type = type_it->get<std::string>();
   if (type.rfind("device_trust_", 0) != 0) return false;
   if (!trusted_devices_) return true;
+  bool verified_now = false;
   try {
     if (type == "device_trust_challenge") {
       const auto props = FindRemoteSession(id);
@@ -124,10 +125,25 @@ bool GuiRuntime::HandleDeviceTrustMessage(const std::string& id, PeerEventHandle
       if (!state.verified) {
         state.invalid = true;
         state.failure_reason = TrustedDevices::ProofFailureReason(failure);
+      } else {
+        verified_now = true;
       }
     }
   } catch (const std::exception&) {
     // Untrusted protocol input never escapes the transport callback.
+    return true;
+  }
+  if (verified_now) {
+    // A verified trusted-device identity can unlock persistent port-forward
+    // consent AND qualifies the connection for reverse-rule binding (the
+    // verified identity IS the operator's selection of this controller).
+    // Both re-resolutions happen here, at the moment the proof is accepted —
+    // never earlier, because before the verification above the host had no
+    // authenticated identity to key on. The trust mutex is already released,
+    // so the port-forward lock ordering (port-forward mutex may acquire the
+    // trust mutex, never the reverse) is preserved.
+    port_forward_.RefreshHostConsent(id);
+    port_forward_.ApplyVerifiedReverseBinding(id);
   }
   return true;
 }

@@ -303,6 +303,56 @@ int ConfigCenter::Load() {
       }
     }
   }
+  const auto port_forward_allow = nlohmann::json::parse(
+      ini_->GetValue(section_, "device_port_forward_allowlist", "{}"), nullptr, false);
+  device_port_forward_allowlist_.clear();
+  if (port_forward_allow.is_object()) {
+    for (const auto& [device, value] : port_forward_allow.items()) {
+      // Persistent consent is meaningful only for a cryptographically
+      // verified trusted-device key ("trusted/<public_key>"). Any other key
+      // shape — a LAN device id, a signal user id, a hostname — names a
+      // peer-claimed identity this host never authenticated, so the entry is
+      // inert by construction: dropped at load, never written at save.
+      if (device.rfind("trusted/", 0) != 0 || device.size() <= 8 ||
+          !value.is_array())
+        continue;
+      std::set<std::uint16_t> ports;
+      for (const auto& port : value) {
+        if (!port.is_number_integer()) continue;
+        const auto number = port.get<std::int64_t>();
+        // Consent is only ever as broad as the operator wrote: invalid
+        // entries drop out instead of widening or shifting meaning.
+        if (number >= 1 && number <= 65535)
+          ports.insert(static_cast<std::uint16_t>(number));
+      }
+      if (!ports.empty())
+        device_port_forward_allowlist_.emplace(device, std::move(ports));
+    }
+  }
+  const auto port_forward_rules = nlohmann::json::parse(
+      ini_->GetValue(section_, "device_port_forward_rules", "{}"), nullptr, false);
+  device_port_forward_rules_.clear();
+  if (port_forward_rules.is_object()) {
+    for (const auto& [device, value] : port_forward_rules.items()) {
+      if (device.empty() || !value.is_object()) continue;
+      std::map<std::uint16_t, std::uint16_t> rules;
+      for (const auto& [local_text, remote] : value.items()) {
+        if (!remote.is_number_integer()) continue;
+        long long local = 0;
+        const auto parsed = std::from_chars(local_text.data(),
+            local_text.data() + local_text.size(), local);
+        const auto remote_number = remote.get<long long>();
+        if (parsed.ec == std::errc{} &&
+            parsed.ptr == local_text.data() + local_text.size() &&
+            local >= 1 && local <= 65535 && remote_number >= 1 &&
+            remote_number <= 65535)
+          rules.emplace(static_cast<std::uint16_t>(local),
+                        static_cast<std::uint16_t>(remote_number));
+      }
+      if (!rules.empty())
+        device_port_forward_rules_.emplace(device, std::move(rules));
+    }
+  }
   auto sizes = nlohmann::json::parse(
       ini_->GetValue(section_, "device_stream_window_sizes", "{}"), nullptr, false);
   ini_->stream_window_sizes = sizes.is_object() ? std::move(sizes) : nlohmann::json::object();
@@ -431,6 +481,26 @@ int ConfigCenter::Save() {
 
   ini_->SetValue(section_, "file_transfer_save_path",
                 file_transfer_save_path_.c_str());
+
+  {
+    nlohmann::json allowlists = nlohmann::json::object();
+    for (const auto& [device, ports] : device_port_forward_allowlist_) {
+      nlohmann::json values = nlohmann::json::array();
+      for (const std::uint16_t port : ports) values.push_back(port);
+      allowlists[device] = std::move(values);
+    }
+    ini_->SetValue(section_, "device_port_forward_allowlist",
+                  allowlists.dump().c_str());
+    nlohmann::json rule_sets = nlohmann::json::object();
+    for (const auto& [device, rules] : device_port_forward_rules_) {
+      nlohmann::json entries = nlohmann::json::object();
+      for (const auto& [local, remote] : rules)
+        entries[std::to_string(local)] = remote;
+      rule_sets[device] = std::move(entries);
+    }
+    ini_->SetValue(section_, "device_port_forward_rules",
+                  rule_sets.dump().c_str());
+  }
 
   SI_Error rc = CommitIni();
   if (rc < 0) {
@@ -1036,4 +1106,62 @@ std::string ConfigCenter::GetFileTransferSavePath() const {
   std::lock_guard<std::mutex> lock(file_path_mutex_);
   return file_transfer_save_path_;
 }
+std::set<std::uint16_t> ConfigCenter::GetPortForwardAllowlist(
+    const std::string& device) const {
+  const auto found = device_port_forward_allowlist_.find(device);
+  return found == device_port_forward_allowlist_.end()
+             ? std::set<std::uint16_t>{}
+             : found->second;
+}
+
+int ConfigCenter::SetPortForwardAllowlist(
+    const std::string& device, const std::set<std::uint16_t>& ports) {
+  if (device.empty()) return -1;
+  for (const std::uint16_t port : ports)
+    if (!port) return -1;
+  auto updated = device_port_forward_allowlist_;
+  if (ports.empty()) updated.erase(device);
+  else updated[device] = ports;
+  nlohmann::json json = nlohmann::json::object();
+  for (const auto& [id, saved] : updated) {
+    nlohmann::json values = nlohmann::json::array();
+    for (const std::uint16_t port : saved) values.push_back(port);
+    json[id] = std::move(values);
+  }
+  if (StoreValues({{"device_port_forward_allowlist", json.dump()}}) != 0)
+    return -1;
+  device_port_forward_allowlist_ = std::move(updated);
+  return 0;
+}
+
+std::map<std::uint16_t, std::uint16_t> ConfigCenter::GetPortForwardRules(
+    const std::string& device) const {
+  const auto found = device_port_forward_rules_.find(device);
+  return found == device_port_forward_rules_.end()
+             ? std::map<std::uint16_t, std::uint16_t>{}
+             : found->second;
+}
+
+int ConfigCenter::SetPortForwardRules(
+    const std::string& device,
+    const std::map<std::uint16_t, std::uint16_t>& rules) {
+  if (device.empty()) return -1;
+  for (const auto& [local, remote] : rules)
+    if (!local || !remote) return -1;
+  auto updated = device_port_forward_rules_;
+  if (rules.empty()) updated.erase(device);
+  else updated[device] = rules;
+  nlohmann::json json = nlohmann::json::object();
+  for (const auto& [id, saved] : updated) {
+    nlohmann::json entries = nlohmann::json::object();
+    for (const auto& [local, remote] : saved)
+      entries[std::to_string(local)] = remote;
+    json[id] = std::move(entries);
+  }
+  if (StoreValues({{"device_port_forward_rules", json.dump()}}) != 0)
+    return -1;
+  device_port_forward_rules_ = std::move(updated);
+  return 0;
+}
+
 }  // namespace crossdesk

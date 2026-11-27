@@ -2987,6 +2987,7 @@ void GuiApplication::Tick() {
     }
   }
   clipboard_.ApplyPendingRemoteText();
+  PollPortForward();
   ProcessAutomationRequests();
 #ifndef __OHOS__
   std::string activation_token;

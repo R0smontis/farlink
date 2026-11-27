@@ -391,6 +391,44 @@ function setup_targets()
             "apps/desktop/src/gui/runtime")
         add_files("apps/desktop/tests/cursor_position_test.cpp")
 
+    target("port_forward_tunnel_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("crossdesk_wire")
+        add_includedirs("apps/desktop/src/tools")
+        add_files("apps/desktop/tests/port_forward_tunnel_test.cpp",
+            "apps/desktop/src/tools/port_forward_tunnel.cpp")
+        if is_os("windows") then
+            add_syslinks("Ws2_32")
+        end
+
+    target("port_forward_reverse_test")
+        set_kind("binary")
+        set_default(false)
+        -- Fixture include dir MUST come first: it shadows the production
+        -- gui_runtime/launch_options/rd_log headers with the hermetic
+        -- harness, so the real controller dispatch runs against controlled
+        -- connection facts. macOS/Linux loopback only.
+        add_includedirs("apps/desktop/tests/fixtures/port_forward", {public = false})
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui", "apps/desktop/src/tools")
+        add_files("apps/desktop/tests/port_forward_reverse_test.cpp",
+            "apps/desktop/src/gui/features/port_forward/port_forward_controller.cpp",
+            "apps/desktop/src/tools/port_forward_tunnel.cpp")
+        add_deps("crossdesk_wire")
+        if is_os("windows") then
+            add_syslinks("Ws2_32")
+        end
+
+    target("port_forward_consent_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/port_forward_consent_test.cpp",
+            "apps/desktop/src/gui/runtime/trusted_devices.cpp",
+            "apps/desktop/src/gui/runtime/device_identity_store.cpp",
+            "apps/desktop/src/common/private_file.cpp")
+        add_packages("openssl3", "nlohmann_json")
+
     target("lan_discovery_test")
         set_kind("binary")
         set_default(false)
