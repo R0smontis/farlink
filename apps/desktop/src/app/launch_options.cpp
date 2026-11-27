@@ -15,6 +15,28 @@ namespace crossdesk {
 
 namespace {
 LaunchOptions g_launch_options;
+
+// Parses "<local>:<remote>" into a rule. Local zero selects an ephemeral
+// port; remote zero is rejected — a rule that does not name its destination
+// would forward anywhere, which the security model forbids.
+bool ParsePortForwardRule(const std::string& spec,
+                          LaunchOptions::PortForwardRule* out) {
+  const auto colon = spec.find(':');
+  unsigned local = 0, remote = 0;
+  const auto parse = [](const char* begin, const char* end, unsigned& value) {
+    if (begin == end) return false;
+    const auto result = std::from_chars(begin, end, value);
+    return result.ec == std::errc{} && result.ptr == end && value <= 65535;
+  };
+  if (colon == std::string::npos || colon == 0 ||
+      !parse(spec.data(), spec.data() + colon, local) ||
+      !parse(spec.data() + colon + 1, spec.data() + spec.size(), remote) ||
+      remote == 0)
+    return false;
+  out->local_port = local;
+  out->remote_port = remote;
+  return true;
+}
 }
 
 const LaunchOptions& GetLaunchOptions() { return g_launch_options; }
@@ -38,22 +60,23 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
         valid = false;
         continue;
       }
-      const std::string spec = argv[++i];
-      const auto colon = spec.find(':');
-      unsigned local = 0, remote = 0;
-      const auto parse = [](const char* begin, const char* end, unsigned& out) {
-        if (begin == end) return false;
-        const auto result = std::from_chars(begin, end, out);
-        return result.ec == std::errc{} && result.ptr == end && out <= 65535;
-      };
-      if (colon == std::string::npos || colon == 0 ||
-          !parse(spec.data(), spec.data() + colon, local) ||
-          !parse(spec.data() + colon + 1, spec.data() + spec.size(), remote) ||
-          remote == 0) {
+      LaunchOptions::PortForwardRule rule{};
+      if (!ParsePortForwardRule(argv[++i], &rule)) {
         valid = false;
         continue;
       }
-      g_launch_options.port_forward_rules.push_back({local, remote});
+      g_launch_options.port_forward_rules.push_back(rule);
+    } else if (std::strcmp(argv[i], "--port-forward-reverse") == 0) {
+      if (i + 1 >= argc || argv[i + 1][0] == '-') {
+        valid = false;
+        continue;
+      }
+      LaunchOptions::PortForwardRule rule{};
+      if (!ParsePortForwardRule(argv[++i], &rule)) {
+        valid = false;
+        continue;
+      }
+      g_launch_options.port_forward_reverse_rules.push_back(rule);
     } else if (std::strcmp(argv[i], "--port-forward-allow") == 0) {
       if (i + 1 >= argc || argv[i + 1][0] == '-') {
         valid = false;

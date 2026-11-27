@@ -162,6 +162,21 @@ std::vector<std::string> GuiRuntime::PortForwardAttachableSessions() {
   return ids;
 }
 
+std::vector<std::string> GuiRuntime::PortForwardReverseCandidates() {
+  // Incoming control sessions eligible for reverse-rule evaluation. The
+  // controller's own qualification check (verified proof or explicit live
+  // approval) decides what actually binds — this list is only the
+  // enumeration of live authorized-capable incoming connections, used so
+  // reverse listeners exist without waiting for peer traffic.
+  std::vector<std::string> ids;
+  std::shared_lock lock(connection_status_mutex_);
+  for (const auto& [id, status] : connection_status_) {
+    if (status == MiniRtcConnectionStatus::MiniRtcConnectionConnected)
+      ids.push_back(id);
+  }
+  return ids;
+}
+
 bool GuiRuntime::PortForwardConnectionInitiator(const std::string& remote_id) {
   // Outgoing sessions live in remote_sessions_; incoming controllers do not.
   return FindRemoteSession(remote_id) != nullptr;
@@ -197,9 +212,15 @@ bool GuiRuntime::AddPortForwardRule(const std::string& remote_id,
     if (error) *error = "remote port must be nonzero";
     return false;
   }
-  if (!PortForwardClientActive(remote_id) &&
-      !FindRemoteSession(remote_id)) {
-    if (error) *error = "no outgoing session for port forwarding";
+  // Admission is the actual permission check, not session existence: the
+  // session must be live, interactive, capable and encrypted right now. A
+  // connected-but-unencrypted or capability-less session rejecting the rule
+  // here is what keeps the error visible at the operator's action instead of
+  // surfacing later as a silent inactive listener.
+  if (!PortForwardClientActive(remote_id)) {
+    if (error)
+      *error = "session is not admitted for port forwarding (requires an "
+               "interactive encrypted session with a capable peer)";
     return false;
   }
   if (!port_forward_.AddClientRule(remote_id, local_port, remote_port, error))
@@ -270,6 +291,30 @@ bool GuiRuntime::SetHostPortForwardConsent(
   // Apply the replacement to every live connection whose verified identity
   // is this key — and to no other connection.
   port_forward_.RefreshHostConsentForKey(device_key);
+  return true;
+}
+
+bool GuiRuntime::ApprovePortForwardReverseBinding(const std::string& remote_id,
+                                                  std::string* error) {
+  // Explicit one-shot approval for reverse forwarding on this exact live
+  // connection. This is the operator workflow for controllers WITHOUT a
+  // verified trusted-device identity: approve the specific connection you
+  // can see in front of you, for its lifetime only. The grant is memory-only
+  // — it dies with the connection, is never written to disk, and a reconnect
+  // of the same device is a new unapproved instance.
+  const bool live = [this, &remote_id] {
+    std::shared_lock lock(connection_status_mutex_);
+    const auto found = connection_status_.find(remote_id);
+    return found != connection_status_.end() &&
+           found->second == MiniRtcConnectionStatus::MiniRtcConnectionConnected;
+  }();
+  if (!live) {
+    if (error)
+      *error = "no live incoming control connection with this id — approval "
+               "binds only to a connection you can verify is the one you mean";
+    return false;
+  }
+  port_forward_.ApproveReverseBinding(remote_id);
   return true;
 }
 

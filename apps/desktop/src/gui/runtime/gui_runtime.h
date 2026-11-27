@@ -149,6 +149,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   // Stable per-device key used to scope consent and rules (signal sessions
   // key by server+id, LAN sessions by device id). Empty for unknown sessions.
   std::vector<std::string> PortForwardAttachableSessions();
+  std::vector<std::string> PortForwardReverseCandidates();
   bool PortForwardConnectionInitiator(const std::string& remote_id);
   std::string PortForwardDeviceKey(const std::string& remote_id);
   std::string VerifiedPortForwardConsentKey(const std::string& remote_id);
@@ -163,6 +164,8 @@ class GuiRuntime : protected gui_detail::GuiState {
                           std::string* error);
   bool RemovePortForwardRule(const std::string& remote_id,
                              std::uint16_t local_port, bool persist);
+  bool ApprovePortForwardReverseBinding(const std::string& remote_id,
+                                        std::string* error);
   bool SetHostPortForwardConsent(const std::string& device_key,
                                  const std::set<std::uint16_t>& ports,
                                  std::string* error);

@@ -43,6 +43,20 @@ struct LaunchOptions {
   // present, otherwise the first UI-initiated connection). They are operator
   // intent for one session only — never persisted, never broadened.
   std::vector<PortForwardRule> port_forward_rules;
+  // --port-forward-reverse <local_port>:<remote_port>, repeatable: accepting-
+  // side forwarding rules. Where --port-forward means "when I connect OUT to
+  // that host, expose my loopback service to it", a reverse rule means "when
+  // an approved controller connects IN to me, forward my loopback service to
+  // it through its own host endpoint". Reverse rules NEVER inherit from
+  // outgoing rules and never activate merely because a connection exists:
+  // each incoming connection must independently qualify — either the
+  // controller completed the trusted-device proof with a pinned key, or the
+  // operator explicitly approved that exact live connection through the
+  // runtime API. The tunnel terminates on the controller's own machine,
+  // where the controller's independent host consent decides whether the
+  // destination accepts the open — consent at both ends, neither side's
+  // approval substituting for the other's.
+  std::vector<PortForwardRule> port_forward_reverse_rules;
   // --port-forward-allow <port>[,<port>...]: explicit local host consent for
   // incoming controllers to reach these loopback destination ports through
   // this machine. This grant is process-lifetime operator intent — it is

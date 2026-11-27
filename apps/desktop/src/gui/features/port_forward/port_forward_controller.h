@@ -66,6 +66,15 @@ class PortForwardController {
   // cryptographically verified trusted-device identity is this key.
   void RefreshHostConsentForKey(const std::string& consent_key);
 
+  // One-shot live approval: bind the operator's --port-forward-reverse rules
+  // to THIS exact connection instance. The grant dies with the connection —
+  // never persisted, never inherited by reconnects or any other device.
+  void ApproveReverseBinding(const std::string& remote_id);
+  // Called when a controller's trusted-device proof completes: the verified
+  // pinned identity is itself the operator's selection, so reverse rules
+  // bind without further action. No effect for unverified connections.
+  void ApplyVerifiedReverseBinding(const std::string& remote_id);
+
   // UI/INI/CLI operator workflow surface. Rules persist per device through
   // the runtime's config path; the controller only consumes them.
   bool AddClientRule(const std::string& remote_id, std::uint16_t local_port,
@@ -93,6 +102,9 @@ class PortForwardController {
   struct ClientEndpoint {
     std::unique_ptr<PortForwardClient> engine;
     std::map<std::uint16_t, std::uint16_t> rules;  // local -> remote
+    // Reverse rules bind at most once per endpoint, at approval time — never
+    // re-evaluated into existence for a connection that never qualified.
+    bool reverse_rules_applied = false;
   };
 
   // Null when admission fails; the reason is recorded for the snapshot.
@@ -100,8 +112,11 @@ class PortForwardController {
   PortForwardHost* EnsureHost(const std::string& remote_id);
   void ApplyConfiguredRules(const std::string& remote_id,
                             ClientEndpoint& endpoint);
+  void ApplyReverseRules(const std::string& remote_id,
+                         ClientEndpoint& endpoint);
   bool ClientAdmitted(const std::string& remote_id);
   bool HostAdmitted(const std::string& remote_id);
+  bool ReverseBindingApproved(const std::string& remote_id);
 
   GuiRuntime& owner_;
   // Recursive: runtime admission queries (e.g. PortForwardClientActive ->
@@ -113,6 +128,10 @@ class PortForwardController {
   std::map<std::string, HostEndpoint> hosts_;
   std::map<std::string, bool> peer_support_;
   std::map<std::string, std::string> denials_;
+  // One-shot live reverse-binding approvals, keyed by connection instance.
+  // Entries die with their connection in DetachClient — they are memory-only
+  // operator intent, never persisted and never transferable.
+  std::map<std::string, bool> reverse_approved_;
   bool cli_rules_consumed_ = false;
 };
 

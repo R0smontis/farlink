@@ -90,16 +90,35 @@ PortForwardClient* PortForwardController::EnsureClient(
       parity);
   auto [it, inserted] = clients_.emplace(remote_id, std::move(endpoint));
   if (inserted) ApplyConfiguredRules(remote_id, it->second);
+  // Approval or verification can arrive after the endpoint exists (the
+  // endpoint is created by incoming handshake traffic before the trust proof
+  // completes). Binding is monotonic and one-shot: once qualified, the rules
+  // attach exactly once.
+  if (!it->second.reverse_rules_applied &&
+      !owner_.PortForwardConnectionInitiator(remote_id) &&
+      ReverseBindingApproved(remote_id))
+    ApplyReverseRules(remote_id, it->second);
   return it->second.engine.get();
 }
 
 void PortForwardController::ApplyConfiguredRules(const std::string& remote_id,
                                                  ClientEndpoint& endpoint) {
-  // Precedence is explicit and additive: CLI rules are the operator's intent
-  // for this process and apply once to the first outgoing connection; INI
-  // rules are the per-device persisted set. A conflict on the same local
-  // port is reported and the CLI rule wins, because it is the more specific
-  // instruction.
+  // Rule binding is direction-split with no inference between the two:
+  //
+  //   OUTGOING session (this machine connected out): CLI --port-forward rules
+  //   (once, first outgoing connection) plus the per-device INI rules for the
+  //   target the operator selected.
+  //
+  //   INCOMING control session (a controller connected to us): ONLY the
+  //   explicit --port-forward-reverse set, and only when this exact
+  //   connection independently qualifies through ReverseBindingApproved.
+  //   Outgoing rules never apply here — "when I connect to that host" is a
+  //   fact about a different connection entirely, and the first arbitrary
+  //   incoming device must never inherit intent written for another peer.
+  if (!owner_.PortForwardConnectionInitiator(remote_id)) {
+    if (ReverseBindingApproved(remote_id)) ApplyReverseRules(remote_id, endpoint);
+    return;
+  }
   std::string error;
   const auto& launch = GetLaunchOptions();
   if (!launch.port_forward_rules.empty() && !cli_rules_consumed_) {
@@ -132,6 +151,27 @@ void PortForwardController::ApplyConfiguredRules(const std::string& remote_id,
     } else {
       LOG_WARN("Port forward: configured rule {}:{} rejected: {}", local,
                remote, rule_error);
+    }
+  }
+}
+
+void PortForwardController::ApplyReverseRules(const std::string& remote_id,
+                                              ClientEndpoint& endpoint) {
+  if (endpoint.reverse_rules_applied) return;
+  endpoint.reverse_rules_applied = true;
+  const auto& launch = GetLaunchOptions();
+  std::string error;
+  for (const auto& rule : launch.port_forward_reverse_rules) {
+    const std::uint16_t bound = endpoint.engine->AddRule(
+        static_cast<std::uint16_t>(rule.local_port),
+        static_cast<std::uint16_t>(rule.remote_port), &error);
+    if (bound) {
+      endpoint.rules[bound] = static_cast<std::uint16_t>(rule.remote_port);
+      LOG_INFO("Port forward: reverse rule 127.0.0.1:{} -> controller 127.0.0.1:{} active",
+               bound, rule.remote_port);
+    } else {
+      LOG_WARN("Port forward: reverse rule {}:{} rejected: {}", rule.local_port,
+               rule.remote_port, error);
     }
   }
 }
@@ -197,39 +237,95 @@ void PortForwardController::OnFrame(const char* data, std::size_t size,
       if (auto* client = EnsureClient(remote_id)) client->OnFrame(data, size);
     return;
   }
-  // Stream traffic: deliver to the endpoint that owns the stream. Parity
-  // partitioning makes ownership exclusive, so at most one endpoint has the
-  // id; feeding both is safe because the other drops unknown ids.
+  // Stream traffic: deliver to the endpoint that owns the stream — but only
+  // while the owning role is still admitted. Admission is re-evaluated on
+  // every frame, not cached at attach time: a session that loses
+  // authorization or encryption with data in flight must stop moving bytes
+  // on THIS frame, not at the next poll tick. An endpoint whose admission is
+  // gone is detached outright, because a half-fed engine holding buffered
+  // plaintext is exactly the residue revocation exists to eliminate.
+  if (!client_admitted) clients_.erase(remote_id);
+  if (!host_admitted) hosts_.erase(remote_id);
   bool owned = false;
-  if (auto client = clients_.find(remote_id); client != clients_.end()) {
-    client->second.engine->OnFrame(data, size);
-    owned = true;
+  if (client_admitted) {
+    if (auto client = clients_.find(remote_id); client != clients_.end()) {
+      client->second.engine->OnFrame(data, size);
+      owned = true;
+    }
   }
-  if (auto host = hosts_.find(remote_id); host != hosts_.end()) {
-    host->second.engine->OnFrame(data, size);
-    owned = true;
+  if (host_admitted) {
+    if (auto host = hosts_.find(remote_id); host != hosts_.end()) {
+      host->second.engine->OnFrame(data, size);
+      owned = true;
+    }
   }
   if (!owned && !client_admitted && !host_admitted)
     denials_[remote_id] = "unauthorized or unencrypted session";
 }
 
 bool PortForwardController::ClientAdmitted(const std::string& remote_id) {
-  // The client endpoint serves operator-configured rules, and rules bind
-  // only to explicitly chosen OUTGOING targets: a rule says "when I connect
-  // to that host, forward these ports" — never "whoever controls me may
-  // reach into my machine's loopback services through a tunnel I carry".
-  // Incoming control sessions therefore never acquire forwarding rules on
-  // this side; the reverse direction exists only when the OTHER machine
-  // runs its own rules against its own consent, which is the symmetric
-  // design working as intended rather than a gap. The interactive toggle
-  // (view-only) applies for outgoing sessions where it lives; admission for
-  // the endpoint itself still requires authorization, capability and
-  // negotiated encryption either way.
+  // Session-level admission for a client endpoint. What the endpoint may
+  // then DO is decided separately by the rule-binding qualification in
+  // ReverseBindingApproved / ApplyConfiguredRules — admission here only
+  // establishes that this connection is allowed to carry tunnel traffic at
+  // all:
+  //   - outgoing sessions: the session is live, interactive, capable and
+  //     encrypted (PortForwardClientActive);
+  //   - incoming control sessions: the controller passed the host-local
+  //     authorization chain, the transport negotiated SRTP, and the peer
+  //     advertised the capability.
   if (owner_.PortForwardClientActive(remote_id)) return true;
   const auto support = peer_support_.find(remote_id);
   return owner_.IsAuthorizedController(remote_id) &&
          owner_.PortForwardSessionSecure(remote_id) &&
          support != peer_support_.end() && support->second;
+}
+
+bool PortForwardController::ReverseBindingApproved(const std::string& remote_id) {
+  // Reverse rules expose THIS machine's loopback services to whoever is
+  // controlling us — strictly more dangerous than outbound rules, so the
+  // binding bar is strictly higher than "a connection exists". Exactly two
+  // qualifications exist, and neither can be inferred:
+  //
+  //   1. The controller completed the trusted-device proof on THIS
+  //      connection with a key pinned in the local trust store — a
+  //      cryptographically authenticated identity the operator already
+  //      selected for trust. The verified identity is the selection.
+  //
+  //   2. The operator explicitly approved this exact live connection through
+  //      ApproveReverseBinding — a one-shot, connection-instance-scoped grant
+  //      that dies with the connection and is never broadened, persisted or
+  //      inherited by any other connection, including a reconnect of the
+  //      same device.
+  //
+  // Outgoing rules, mere authorization, device names and reconnect history
+  // all fail this test by design.
+  if (!owner_.VerifiedPortForwardConsentKey(remote_id).empty()) return true;
+  const auto approved = reverse_approved_.find(remote_id);
+  return approved != reverse_approved_.end() && approved->second;
+}
+
+void PortForwardController::ApplyVerifiedReverseBinding(
+    const std::string& remote_id) {
+  std::lock_guard lock(mutex_);
+  if (!ReverseBindingApproved(remote_id)) return;
+  if (!ClientAdmitted(remote_id)) return;
+  // The verified identity itself is the approval — no separate operator
+  // action needed for a controller the operator already pinned. Create the
+  // endpoint eagerly so reverse listeners exist without waiting for traffic.
+  EnsureClient(remote_id);
+}
+
+void PortForwardController::ApproveReverseBinding(const std::string& remote_id) {
+  std::lock_guard lock(mutex_);
+  reverse_approved_[remote_id] = true;
+  // Approval takes effect at once when the connection is admitted: bind the
+  // reverse rules into the endpoint, creating it if necessary so listeners
+  // exist without waiting for peer traffic. An unadmitted connection keeps
+  // the approval for its lifetime but binds nothing — the grant can never
+  // leak into a session that lost authorization or encryption.
+  if (!ClientAdmitted(remote_id)) return;
+  EnsureClient(remote_id);
 }
 
 bool PortForwardController::HostAdmitted(const std::string& remote_id) {
@@ -256,10 +352,19 @@ void PortForwardController::Poll() {
   // Eagerly bind configured listeners as soon as the session admits them.
   // Waiting for the first peer frame would leave operator-configured rules
   // silently inactive on otherwise idle connections — the listener existing
-  // IS the feature.
+  // IS the feature. This covers outgoing sessions (CLI/INI rules) and
+  // incoming sessions alike: the incoming case binds nothing unless the
+  // connection independently qualifies through ReverseBindingApproved, so
+  // enumeration here cannot broaden anything — qualification is re-checked
+  // inside the binding path itself.
   for (const auto& remote_id : owner_.PortForwardAttachableSessions()) {
     if (clients_.find(remote_id) == clients_.end() &&
         ClientAdmitted(remote_id))
+      EnsureClient(remote_id);
+  }
+  for (const auto& remote_id : owner_.PortForwardReverseCandidates()) {
+    if (clients_.find(remote_id) == clients_.end() &&
+        ClientAdmitted(remote_id) && ReverseBindingApproved(remote_id))
       EnsureClient(remote_id);
   }
   for (auto it = clients_.begin(); it != clients_.end();) {
@@ -284,6 +389,10 @@ void PortForwardController::DetachClient(const std::string& remote_id) {
   std::lock_guard lock(mutex_);
   clients_.erase(remote_id);
   denials_.erase(remote_id);
+  // The one-shot approval is scoped to the connection INSTANCE: it dies here
+  // with the connection. A reconnect — even of the same physical device — is
+  // a new instance requiring its own approval or verified proof.
+  reverse_approved_.erase(remote_id);
 }
 
 void PortForwardController::DetachHost(const std::string& remote_id) {
