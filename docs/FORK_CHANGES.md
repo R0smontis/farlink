@@ -118,6 +118,40 @@ The fork extends upstream CrossDesk across these independent areas:
   [--wol-broadcast <ip>]` sends and exits before instance acquisition so
   scripts never disturb a running UI. The v1 LAN beacon format is unchanged.
 
+- **Encrypted loopback TCP port forwarding (W4B)** — controller-side
+  `--port-forward <local>:<remote>` (repeatable, session-scoped) binds a
+  loopback listener on the controller and tunnels TCP streams through the
+  encrypted session's reliable data channel to a loopback destination on the
+  host. Host consent is explicit and narrow: persistent consent exists only
+  for cryptographically verified Ed25519 trusted devices (keyed
+  `trusted/<public_key>` after a fresh-nonce proof against a pinned key);
+  for unverified controllers the operator mechanism is the host-side
+  `--port-forward-allow <port>[,<port>...]` process-lifetime grant, which
+  applies to any authorized session of that host process while it runs (it
+  is not per-remote narrowing — the implementation deliberately does not
+  scope the CLI grant to one peer). Admission requires a live interactive
+  encrypted session: view-only sessions never forward, and admission is
+  re-evaluated per frame so losing authorization or encryption detaches the
+  endpoint immediately with in-flight bytes dying in place. Reverse rules
+  (`--port-forward-reverse`) bind on the accepting side only for trusted
+  devices or explicit one-shot live approval. Unapproved destinations are
+  refused visibly with `kErrorDenied` before any host-side socket opens;
+  unreachable destinations answer `kErrorRefused`. Loopback-only at both
+  ends by design — no LAN exposure is created beyond the existing session.
+- **Stream control ergonomics (W4C)** — in-session bitrate cap presets
+  (Auto/8M/20M/50M/80M) in the stream settings menu, per-device persisted,
+  folded into the subscription `max_bitrate_bps` wire path so caps apply
+  live without reconnecting (the stricter of cap and gallery allocator
+  wins); stream hotkeys Ctrl+Alt+Left/Right cycling the remote display
+  (wrapping) and Ctrl+Alt+F toggling fullscreen, intercepted in the input
+  path with the completing key and its repeats swallowed locally; and a
+  session-scoped host speaker mute toggle (capability-gated
+  `supports_host_mute`) that mutes the controlled machine's physical
+  default output through CoreAudio on macOS with RAII restoration of the
+  exact original state — reference-counted across concurrent controllers
+  so a mute can never outlive its session. Linux/Windows carry inert
+  stubs that never silently half-apply.
+
 ## Modified upstream files
 
 | File | Nature of change |

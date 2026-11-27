@@ -995,6 +995,10 @@ function setup_targets()
         add_packages("libyuv", "openssl3", "nlohmann_json")
         add_deps("rd_log", "desktop_common")
         add_files("apps/desktop/src/thumbnail/*.cpp")
+        -- thumbnail.cpp persists/validates wake_mac_address through
+        -- network/lan/wake_on_lan.h (W4A); implementation links via the main
+        -- binary's network/lan/*.cpp glob.
+        add_includedirs("apps/desktop/src")
         add_includedirs("apps/desktop/src/thumbnail", {public = true})
 
     target("autostart")

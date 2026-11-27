@@ -115,6 +115,22 @@ codec H265，首帧约 1–2.9s（`/tmp/farlink-build-e2e/NOTES.md` round-7）�
   （`bitrate_limits.h:41`、`:12`），无分辨率缩放；且实测编码器对噪声内容产出远低于帽
   （1080p60 peak 5.37 Mbps、4K@60 peak 6.45 Mbps），编码器是内容约束而非 target/帽约束（round-9-5）。
 
+### 2.10 Wave-4 操作面（唤醒 / 端口转发 / 码率帽 / 快捷键 / 被控端静音）
+
+| 改动 | 用户可见效果 | 提交 / 位置 |
+|------|--------------|-------------|
+| 保存设备的远程唤醒（W4A） | 最近设备卡片菜单出现「远程唤醒」（仅当主机在认证 LAN 会话中上报过 MAC）；发送 102 字节 magic packet 到全网广播+各接口子网广播。UI 反馈明确「已发送」≠「已上线」——目标机是否唤醒取决于其固件/OS 唤醒配置，**本 fork 未在真实睡眠主机上验证过端到端唤醒**。无头用法 `--wol <mac> [--wol-broadcast <ip>]` 发送即退出 | `network/lan/wake_on_lan.{h,cpp}`；`wake_on_lan_test`（含 loopback UDP 字节级往返）|
+| 加密回环端口转发（W4B） | 控制端 `--port-forward <local>:<remote>`（可重复、仅本次会话）在控制端回环绑定监听，经加密会话的可靠数据通道转发到被控端回环目标。被控端同意机制：持久同意仅属加密验证过的可信设备（`trusted/<公钥>`，新鲜 nonce 证明+本地钉钥）；未验证控制端用被控端 `--port-forward-allow <端口>[,...]` 进程级显式授权——该授权适用于宿主进程运行期间**任何**已授权会话（实现刻意不按对端收窄）。只读会话（view-only）绝不转发；准入了逐帧重估，失去授权或加密立即脱离端点、在途字节就地销毁。未批准目标在打开任何被控端 socket 之前以 `kErrorDenied` 显式拒绝；不可达目标回 `kErrorRefused`。两端均仅回环——不新增 LAN 暴露面 | `tools/port_forward_tunnel.{h,cpp}`；`port_forward_{tunnel,consent,reverse}_test` |
+| 反向转发规则（W4B followup） | `--port-forward-reverse <local>:<remote>` 仅在接入侧为可信设备或显式一次性实时批准时绑定；出站规则绝不推断反向意图 | 同上 |
+| 码率帽预设（W4C） | 流设置菜单 Auto/8M/20M/50M/80M，按设备持久化，折叠进订阅 `max_bitrate_bps` 线路路径实时生效无需重连；画廊分配器更严格时取严格值。帽值经 `MiniRtcUpdateVideoBitrateLimit` 到达拥塞控制 `SetMaxTotalAllocatedBitrate`——**应用预算是上限不是承诺：编码器实际产出仍受内容与链路约束，未经端到端实测验证具体 bps 是否打满** | `features/settings/bitrate_cap_preset.h`；`stream_control_ergonomics_test` |
+| 流快捷键（W4C） | Ctrl+Alt+←/→ 循环远程显示器（回绕）、Ctrl+Alt+F 切换全屏；完成键及其自动重复与抬起在本地吞掉（与游戏模式和弦一致） | `features/input/stream_hotkey_matcher.h` |
+| 被控端扬声器静音（W4C） | 会话级开关静音被控机物理默认输出（macOS CoreAudio `kAudioDevicePropertyMute`），RAII 恢复精确原始状态；多控制端引用计数，最后请求者解除或断连时恢复——静音绝不比会话活得更久。Linux/Windows 为惰性 stub，绝不半应用。能力位 `supports_host_mute` 门控 | `common/host_audio_mute.h`、`platform/macos/host_audio_mute.mm` |
+
+**已知限制（如实）**：未受信对端的交互会话在线路层无法与有人值守会话区分——harness
+不声称覆盖 Slint 同意 UI 本身；持久同意条目需要可信设备证明链，LAN 直连密码认证
+不满足该链（LAN 协议甚至不传输控制端设备身份），故 LAN 直连场景下唯一可用的同意
+机制就是 `--port-forward-allow` 进程级授权。
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、
