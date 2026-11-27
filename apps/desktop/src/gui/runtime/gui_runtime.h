@@ -13,9 +13,12 @@
 #include <deque>
 #include <future>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include "desktop_automation.h"
+#include "host_audio_mute.h"
 #include "features/clipboard/clipboard_controller.h"
 #include "features/devices/session_device_manager.h"
 #include "features/file_transfer/file_transfer_manager.h"
@@ -162,6 +165,13 @@ class GuiRuntime : protected gui_detail::GuiState {
   // any connected controller lacks support, or on for the first automatic one.
   void ApplyPrivacyAdmission(bool automatic_enable);
   void QueuePrivacyCommand(const std::string& remote_id, const PrivacyCommand& command);
+  // Host-side speaker mute, driven by controller host_mute commands. The
+  // physical mute engages while at least one controller requests it; the
+  // original speaker state restores when the last requester unmutes or its
+  // session ends, so a crashed controller can never strand the machine
+  // muted. No-op on platforms without a backend.
+  void ApplyHostMuteCommand(const std::string& remote_id, bool mute);
+  void ReleaseHostMute(const std::string& remote_id);
   std::vector<DisplayResolutionInfo> QueryHostDisplayResolutions();
   void QueueDisplayResolutionChange(const std::string& id,
                                     PeerEventHandler* source,
@@ -186,6 +196,16 @@ class GuiRuntime : protected gui_detail::GuiState {
   // UI thread: send mapped mouse/keyboard input to the current control target,
   // or every connected session while that target leads DeskHub group control.
   void SendRemoteInput(const RemoteAction& action, float wheel_delta = 0);
+  // Local-chord filter consulted before any keyboard action reaches the
+  // wire. Returning true consumes the edge entirely: nothing is sent and
+  // the key is not tracked as pressed. The base runtime never consumes;
+  // the GUI layer overrides it for stream control chords (display cycling,
+  // fullscreen). Invoked on the UI thread, the same thread every capture
+  // path drains into.
+  virtual bool ConsumeLocalKeyChord(const RemoteAction& action) {
+    (void)action;
+    return false;
+  }
 #ifdef __APPLE__
   // Game-mode delivery hooks invoked by the session device manager's sender
   // thread — NOT the UI thread. Implementations must be thread-safe against
@@ -256,6 +276,14 @@ class GuiRuntime : protected gui_detail::GuiState {
 #endif
 
   PrivacyController privacy_;
+  // Host speaker mute state. The mute object is created lazily on the first
+  // controller request and destroyed (restoring the original speaker state
+  // through RAII) when the last requesting controller unmutes or drops.
+  // Guarded by its own mutex because command handling runs on the RTC
+  // received-data callback thread while disconnect cleanup runs elsewhere.
+  std::mutex host_mute_mutex_;
+  std::unique_ptr<HostAudioMute> host_audio_mute_;
+  std::set<std::string> host_mute_requesters_;
   // Set before initializing callbacks; immutable for the process lifetime.
   bool unattended_host_ = false;
   bool managed_host_frontend_ = false;

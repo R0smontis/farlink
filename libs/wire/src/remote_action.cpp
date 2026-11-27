@@ -107,6 +107,7 @@ void ResetHostInfo(HostInfo& info) {
   info.supports_relative_mouse = false;
   info.supports_clipboard_image = false;
   info.mac_address[0] = '\0';
+  info.supports_host_mute = false;
 }
 
 void CopyHostName(HostInfo& info, const std::string& host_name) {
@@ -305,6 +306,9 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
     case ControlType::audio_capture:
       object["audio_capture"] = action.a;
       break;
+    case ControlType::host_mute:
+      object["host_mute"] = action.a;
+      break;
     case ControlType::display_id:
       object["display_id"] = action.d;
       break;
@@ -360,7 +364,8 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"supports_file_clipboard", action.i.supports_file_clipboard},
           {"file_clipboard_version", action.i.file_clipboard_version},
           {"supports_relative_mouse", action.i.supports_relative_mouse},
-          {"supports_clipboard_image", action.i.supports_clipboard_image}};
+          {"supports_clipboard_image", action.i.supports_clipboard_image},
+          {"supports_host_mute", action.i.supports_host_mute}};
       // Optional wake target: omitted rather than empty so legacy peers and
       // privacy-sensitive paths never carry a meaningless key.
       if (action.i.mac_address[0] != '\0')
@@ -532,6 +537,9 @@ bool RemoteAction::FromJson(const std::string& json_string,
       case ControlType::audio_capture:
         output.a = object.at("audio_capture").get<bool>();
         break;
+      case ControlType::host_mute:
+        output.a = object.at("host_mute").get<bool>();
+        break;
       case ControlType::display_id:
         output.d = object.at("display_id").get<int>();
         break;
@@ -648,6 +656,8 @@ bool RemoteAction::FromJson(const std::string& json_string,
               value.find('\0') == std::string::npos)
             std::memcpy(output.i.mac_address, value.c_str(), value.size() + 1);
         }
+        output.i.supports_host_mute =
+            host_info_object.value("supports_host_mute", false);
         const std::string host_name =
             host_info_object.at("host_name").get<std::string>();
         CopyHostName(output.i, host_name);

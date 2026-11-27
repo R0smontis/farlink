@@ -98,6 +98,16 @@ struct RemoteSession {
   // Advertised by peers implementing the chunked PNG clipboard protocol.
   // Image frames must never be sent to a session where this is false.
   std::atomic<bool> clipboard_image_supported_{false};
+  // Advertised by peers with a host-side speaker mute backend. The Host
+  // mute control must never send host_mute commands without it.
+  std::atomic<bool> host_mute_supported_{false};
+  // UI-thread intent: whether this controller asked the host to mute. The
+  // wire command is re-sent on capability advertisement reconnect.
+  std::atomic<bool> host_mute_requested_{false};
+  // One-time seeding guard for video_bitrate_cap_bps_: the persisted
+  // per-device cap loads once the device preference key is final, never
+  // overwriting a cap the user picked in-session.
+  std::atomic<bool> bitrate_cap_seeded_{false};
   std::atomic<bool> preview_needs_sync_{true};
   std::atomic<uint32_t> preview_ack_{0};
   std::atomic<bool> preview_accepted_{false};
@@ -230,6 +240,11 @@ struct RemoteSession {
   bool video_settings_pending_ = false;
   bool video_settings_failed_ = false;
   uint64_t video_settings_request_tick_ = 0;
+  // In-session video bitrate cap (bps; 0 = Auto, no cap). UI-thread written;
+  // folded into the subscription's max_bitrate_bps by the preview sync, which
+  // is the negotiated runtime wire path. Not under video_settings_mutex_: it
+  // feeds the subscription merge, not the video_settings handshake.
+  std::atomic<int> video_bitrate_cap_bps_{0};
   std::mutex privacy_status_mutex_;
   PrivacyStatus privacy_status_{};
   bool privacy_status_received_ = false;

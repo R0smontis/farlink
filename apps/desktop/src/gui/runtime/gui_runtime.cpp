@@ -92,6 +92,11 @@ void GuiRuntime::SendRemoteInput(const RemoteAction& action, float wheel_delta) 
   if (!mouse && action.type != ControlType::keyboard &&
       action.type != ControlType::keyboard_state)
     return;
+  // Local stream chords are consumed before anything reaches the wire. The
+  // completing edge of a chord never crosses, and neither do its swallowed
+  // auto-repeats or key-up — the peer sees no phantom keys at all.
+  if (action.type == ControlType::keyboard && ConsumeLocalKeyChord(action))
+    return;
   const std::string& target_id = controlled_remote_id_;
   if (target_id.empty()) return;
   const bool group = gallery_group_control_id_ == target_id;

@@ -52,6 +52,7 @@
 #include "features/input/game_mode_capture_state.h"
 #include "features/input/pointer_motion.h"
 #include "features/input/stream_keyboard_focus.h"
+#include "features/settings/bitrate_cap_preset.h"
 #include "filesystem_utf8.h"
 #include "app/launch_options.h"
 #include "localization.h"
@@ -2531,31 +2532,7 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     window.set_maximized(maximize);
   });
   stream->on_switch_display([this, &view](int index) {
-    const auto& props = view.session;
-    if (!props->peer_ || index < 0) return;
-    {
-      std::lock_guard lock(props->remote_version_mutex_);
-      if (index >= static_cast<int>(props->display_info_list_.size())) return;
-    }
-    props->selected_display_ = index;
-#ifdef __APPLE__
-    // The capture scale and the host display bounds both change with the
-    // peer's display; game mode re-enters deliberately, never implicitly.
-    if (game_mode_active_ && game_mode_target_ == props->remote_id_)
-      ExitGameMode();
-#endif
-    view.window->global<ui::RemoteCursor>().invoke_reset();
-    if (controlled_remote_id_ == props->remote_id_) ui_->pointer_motion = {};
-    {
-      std::lock_guard lock(props->remote_cursor_state_mutex_);
-      props->cursor_presentation_ = {};
-    }
-    RemoteAction action{};
-    action.type = ControlType::display_id;
-    action.d = index;
-    const std::string message = action.to_json();
-    MiniRtcSendReliableDataFrame(props->peer_, message.c_str(), message.size(),
-                          props->control_data_label_.c_str());
+    SwitchStreamDisplay(view, index);
   });
   stream->on_send_shortcut([&view](slint::SharedString shortcut) {
     const auto& props = view.session;
@@ -2673,6 +2650,48 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
         requested, props->high_fps_supported_.load(), view.stream_refresh_hz);
     SendVideoSettingsRequest(*props, quality, frame_rate, preference);
   });
+  stream->on_choose_bitrate_cap([this, &view](int index) {
+    const auto& props = view.session;
+    if (!BitrateCapPreset::ValidIndex(index)) return;
+    const int bps = BitrateCapPreset::BpsForIndex(index);
+    // Persist first per device; a failed write must not apply a session
+    // state the user will not recognize next time. Auto erases the entry.
+    if (config_center_->SetVideoBitrateCapBps(
+            props->device_preference_key_, bps) != 0) {
+      view.window->set_bitrate_cap_index(
+          BitrateCapPreset::IndexForBps(props->video_bitrate_cap_bps_.load()));
+      return;
+    }
+    props->video_bitrate_cap_bps_.store(bps);
+    // SameSettings() detects the changed max_bitrate_bps on the next
+    // subscription sync and re-sends it; needs_sync forces the comparison
+    // rather than waiting for the 5 s unacknowledged timeout.
+    props->preview_needs_sync_ = true;
+  });
+  stream->on_toggle_host_mute([this, &view](bool enabled) {
+    const auto& props = view.session;
+    if (!props->peer_ ||
+        props->connection_status_.load() !=
+            MiniRtcConnectionStatus::MiniRtcConnectionConnected ||
+        !props->host_mute_supported_.load()) {
+      view.window->set_host_mute_enabled(props->host_mute_requested_.load());
+      return;
+    }
+    RemoteAction action{};
+    action.type = ControlType::host_mute;
+    action.a = enabled;
+    const auto message = action.to_json();
+    if (MiniRtcSendReliableDataFrame(props->peer_, message.data(),
+                                     message.size(),
+                                     props->control_data_label_.c_str()) != 0) {
+      view.window->set_host_mute_enabled(props->host_mute_requested_.load());
+      return;
+    }
+    // The intent is session-scoped, never persisted: a fresh session starts
+    // unmuted, matching commercial remote desktops. It survives a transient reconnect through the
+    // capability re-advertisement path and dies with the session object.
+    props->host_mute_requested_.store(enabled);
+  });
   stream->on_change_remote_resolution([this, &view](int index) {
     const auto& props = view.session;
     if (!props->peer_ || props->closing_ || index < 0 ||
@@ -2744,16 +2763,7 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
   });
   stream->on_export_diagnostics([this] { ExportDiagnosticLogs(); });
   stream->on_toggle_fullscreen([this, &view] {
-    auto& stream = view.window;
-    view.ObserveWindowState();
-    const bool enter_fullscreen = !stream->get_fullscreen_enabled();
-    stream->set_fullscreen_enabled(enter_fullscreen);
-    auto& window = stream->window();
-    window.request_redraw();
-    window.set_fullscreen(enter_fullscreen);
-#if defined(__APPLE__)
-    NotifyVideoFrameReady(*view.session);
-#endif
+    ToggleStreamFullscreen(view);
   });
   stream->on_disconnect([this, &view] {
     if (FindRemoteSession(view.session->remote_id_) == view.session)
@@ -4461,6 +4471,32 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     stream->set_video_quality_index(props->video_settings_.quality);
     stream->set_frame_rate_index(VideoFrameRateIndex(props->video_settings_.frame_rate));
     stream->set_adaptation_policy_index(props->video_settings_.preference);
+    // The bitrate cap rides the negotiated subscription bandwidth field, so
+    // it is selectable exactly when the peer speaks that extension. The cap
+    // itself applies live without the video_settings handshake.
+    stream->set_bitrate_cap_enabled(
+        status == MiniRtcConnectionStatus::MiniRtcConnectionConnected &&
+        props->preview_subscription_supported_.load() &&
+        props->preview_bandwidth_supported_.load());
+    // The persisted per-device cap seeds exactly once, on the UI thread and
+    // before the subscription merge could publish a session default the user
+    // never confirmed for this device. Seeding needs no re-send: the first
+    // subscription after seeding already carries the cap. It must run ahead
+    // of the index read below or the first frame would flash Auto. The flag
+    // latches only once the device key exists: a sync that ran before the
+    // connection assigned it must not consume the one-shot seed.
+    if (!props->device_preference_key_.empty() &&
+        !props->bitrate_cap_seeded_.exchange(true)) {
+      props->video_bitrate_cap_bps_.store(
+          config_center_->GetVideoBitrateCapBps(props->device_preference_key_));
+    }
+
+    stream->set_bitrate_cap_index(
+        BitrateCapPreset::IndexForBps(props->video_bitrate_cap_bps_.load()));
+    stream->set_host_mute_supported(
+        status == MiniRtcConnectionStatus::MiniRtcConnectionConnected &&
+        props->host_mute_supported_.load());
+    stream->set_host_mute_enabled(props->host_mute_requested_.load());
   }
   // Act on the re-tier decision now that video_settings_mutex_ is released —
   // SendVideoSettingsRequest re-acquires it, so it must not run under the lock.
@@ -5920,6 +5956,104 @@ void GuiApplication::SendScrollInput(float delta_x, float delta_y, float x,
   SendRemoteInput(action, delta);
 }
 
+void GuiApplication::SwitchStreamDisplay(StreamView& view, int index) {
+  const auto& props = view.session;
+  if (!props->peer_ || index < 0) return;
+  {
+    std::lock_guard lock(props->remote_version_mutex_);
+    if (index >= static_cast<int>(props->display_info_list_.size())) return;
+  }
+  props->selected_display_ = index;
+#ifdef __APPLE__
+  // The capture scale and the host display bounds both change with the
+  // peer's display; game mode re-enters deliberately, never implicitly.
+  if (game_mode_active_ && game_mode_target_ == props->remote_id_)
+    ExitGameMode();
+#endif
+  view.window->global<ui::RemoteCursor>().invoke_reset();
+  if (controlled_remote_id_ == props->remote_id_) ui_->pointer_motion = {};
+  {
+    std::lock_guard lock(props->remote_cursor_state_mutex_);
+    props->cursor_presentation_ = {};
+  }
+  RemoteAction action{};
+  action.type = ControlType::display_id;
+  action.d = index;
+  const std::string message = action.to_json();
+  MiniRtcSendReliableDataFrame(props->peer_, message.c_str(), message.size(),
+                        props->control_data_label_.c_str());
+}
+
+void GuiApplication::ToggleStreamFullscreen(StreamView& view) {
+  auto& stream = view.window;
+  view.ObserveWindowState();
+  const bool enter_fullscreen = !stream->get_fullscreen_enabled();
+  stream->set_fullscreen_enabled(enter_fullscreen);
+  auto& window = stream->window();
+  window.request_redraw();
+  window.set_fullscreen(enter_fullscreen);
+#if defined(__APPLE__)
+  NotifyVideoFrameReady(*view.session);
+#endif
+}
+
+void GuiApplication::FireStreamHotkey(StreamHotkey hotkey) {
+  StreamView* view = FindStreamView(controlled_remote_id_);
+  if (!view) return;
+  const auto& props = view->session;
+  switch (hotkey) {
+    case StreamHotkey::kNextDisplay:
+    case StreamHotkey::kPrevDisplay: {
+      int display_count = 0;
+      {
+        std::lock_guard lock(props->remote_version_mutex_);
+        display_count = static_cast<int>(props->display_info_list_.size());
+      }
+      const int next = StreamHotkeyMatcher::CycleDisplay(
+          props->selected_display_, display_count,
+          hotkey == StreamHotkey::kNextDisplay);
+      if (next != props->selected_display_) SwitchStreamDisplay(*view, next);
+      return;
+    }
+    case StreamHotkey::kToggleFullscreen:
+      ToggleStreamFullscreen(*view);
+      return;
+    case StreamHotkey::kNone:
+      return;
+  }
+}
+
+bool GuiApplication::ConsumeLocalKeyChord(const RemoteAction& action) {
+  if (action.type != ControlType::keyboard) return false;
+  const int vk = static_cast<int>(action.k.key_value);
+  const bool is_down = action.k.flag == KeyFlag::key_down;
+
+  // Inactive contexts feed nothing into the tracker: chords belong to a
+  // focused, controlled stream session. Key edges are still tracked while
+  // the window is open so a chord completed exactly at focus loss cannot
+  // wedge the swallow state — ReleaseControl resets the matcher instead.
+  const auto props = FindRemoteSession(controlled_remote_id_);
+  const bool active = focus_on_stream_window_ && props && props->peer_ &&
+      props->control_mouse_ && !props->closing_ &&
+      props->connection_status_.load() ==
+          MiniRtcConnectionStatus::MiniRtcConnectionConnected;
+  if (!active) {
+    stream_hotkey_matcher_.Reset();
+    return false;
+  }
+
+  // Swallow-first ordering (see the matcher contract): the key-up ending
+  // the swallow state is itself consumed locally.
+  if (stream_hotkey_matcher_.SwallowsKey(vk)) {
+    stream_hotkey_matcher_.Update(vk, is_down);
+    return true;
+  }
+  const StreamHotkey hotkey = stream_hotkey_matcher_.Update(vk, is_down);
+  if (hotkey == StreamHotkey::kNone) return false;
+  FireStreamHotkey(hotkey);
+  return true;
+}
+
 void GuiApplication::SendKeyInput(const std::string& text, bool pressed,
                                   bool control, bool alt, bool shift,
                                   bool meta) {
@@ -6492,6 +6626,10 @@ void GuiApplication::ReleaseControl(bool preserve_local_ui) {
   if (ui_->releasing_input) return;
   ui_->releasing_input = true;
   focus_on_stream_window_ = false;
+  // Edges stop flowing while unfocused, so the chord tracker would otherwise
+  // keep a stale picture of physically released modifiers across the focus
+  // loss and wedge the next chord after refocus.
+  stream_hotkey_matcher_.Reset();
   const auto gallery_target = ui_->gallery_control_id;
 #ifdef __APPLE__
   // Capture must end before the ordinary release pass runs: the capturer
@@ -7844,6 +7982,20 @@ void GuiApplication::SyncGallery() {
     const int bitrate = allocations[i] / 1000 * 1000;
     demand.max_bitrate_bps = bitrate;
     if (!bitrate) demand.fps = 0;
+  }
+  // Fold the per-session bitrate cap into the wire demand. The subscription
+  // max_bitrate_bps already reaches MiniRtcUpdateVideoBitrateLimit on capable
+  // hosts, so the cap applies live without reconnecting. When the gallery
+  // allocator also produced a budget, the stricter of the two wins: the cap
+  // is the user's hard ceiling, the allocator only ever borrows below it.
+  for (auto& pending : pending_previews) {
+    auto& props = pending.props;
+    auto& demand = pending.demand;
+    if (!props->preview_bandwidth_supported_) continue;
+    const int cap = props->video_bitrate_cap_bps_.load();
+    if (cap <= 0) continue;
+    const int current = demand.max_bitrate_bps.value_or(0);
+    demand.max_bitrate_bps = current <= 0 ? cap : std::min(current, cap);
   }
   for (auto& pending : pending_previews) {
     auto& props = pending.props;

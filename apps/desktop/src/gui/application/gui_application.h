@@ -23,6 +23,7 @@
 #include "features/input/game_mode_buttons.h"
 #include "features/input/game_mode_scale.h"
 #include "features/input/scroll_accumulator.h"
+#include "features/input/stream_hotkey_matcher.h"
 #include "rendering/video_geometry.h"
 #include "runtime/cursor_state_provider.h"
 #include "runtime/gui_runtime.h"
@@ -150,6 +151,20 @@ private:
   void SendScrollInput(float delta_x, float delta_y, float x, float y);
   void SendKeyInput(const std::string &text, bool pressed, bool control,
                     bool alt, bool shift, bool meta);
+  // Stream control chords (Ctrl+Alt+←/→ display cycling, Ctrl+Alt+F
+  // fullscreen) are local actions: consumed ahead of the wire in
+  // SendRemoteInput, active only while a stream window holds input focus
+  // with control enabled. Swallowing mirrors the game-mode escape chord:
+  // the completing key-down, its auto-repeats and its key-up never cross.
+  bool ConsumeLocalKeyChord(const RemoteAction& action) override;
+  void FireStreamHotkey(StreamHotkey hotkey);
+  StreamHotkeyMatcher stream_hotkey_matcher_;
+  // Shared bodies of the control-bar callbacks so both the UI controls and
+  // the local stream chords drive the identical path: display switching
+  // resets capture/cursor state and sends the exact same display_id wire
+  // command; fullscreen toggling drives the same window transition.
+  void SwitchStreamDisplay(StreamView& view, int index);
+  void ToggleStreamFullscreen(StreamView& view);
 #ifdef __APPLE__
   // Relative-mouse game mode. Enter is capability-gated by the peer's
   // advertised supports_relative_mouse; exit always works and also fires

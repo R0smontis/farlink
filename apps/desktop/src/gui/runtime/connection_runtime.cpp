@@ -77,6 +77,31 @@ void GuiRuntime::UnmuteRemoteAudio(const std::shared_ptr<RemoteSession>& props) 
                         props->control_data_label_.c_str());
 }
 
+void GuiRuntime::ApplyHostMuteCommand(const std::string& remote_id, bool mute) {
+  if (!HostAudioMute::Supported()) return;
+  std::lock_guard lock(host_mute_mutex_);
+  if (mute) {
+    if (!host_audio_mute_) host_audio_mute_ = std::make_unique<HostAudioMute>();
+    if (!host_audio_mute_->Active() && !host_audio_mute_->Mute()) {
+      LOG_WARN("Host mute request from {} could not mute the output device",
+               remote_id);
+      return;
+    }
+    host_mute_requesters_.insert(remote_id);
+    return;
+  }
+  host_mute_requesters_.erase(remote_id);
+  // The destructor restores the exact original speaker state; destroying only
+  // when the last requester releases keeps concurrent controllers correct.
+  if (host_mute_requesters_.empty()) host_audio_mute_.reset();
+}
+
+void GuiRuntime::ReleaseHostMute(const std::string& remote_id) {
+  std::lock_guard lock(host_mute_mutex_);
+  host_mute_requesters_.erase(remote_id);
+  if (host_mute_requesters_.empty()) host_audio_mute_.reset();
+}
+
 void GuiRuntime::HandleConnectionStatusChange() {
   if (!signal_connected_ || !peer_) {
     return;
@@ -228,6 +253,7 @@ void GuiRuntime::HandleServerControllerDisconnected(
     connection_host_names_.erase(remote_id);
     codec_status_controllers_.erase(remote_id);
     privacy_sessions_.Disconnected(remote_id);
+    ReleaseHostMute(remote_id);
     for (const auto& [id, status] : connection_status_) {
       if (status != MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
         continue;

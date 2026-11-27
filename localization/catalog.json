@@ -12071,6 +12071,30 @@
       "fr": "Adresse MAC invalide",
       "es": "Dirección MAC no válida",
       "pt-BR": "Endereço MAC inválido"
+    },
+    "码率": {
+      "zh-Hans": "码率",
+      "en": "Bitrate",
+      "ru": "Битрейт",
+      "zh-Hant": "碼率",
+      "ja": "ビットレート",
+      "ko": "비트레이트",
+      "de": "Bitrate",
+      "fr": "Débit",
+      "es": "Tasa de bits",
+      "pt-BR": "Taxa de bits"
+    },
+    "被控端静音": {
+      "zh-Hans": "被控端静音",
+      "en": "Host mute",
+      "ru": "Звук на хосте",
+      "zh-Hant": "被控端靜音",
+      "ja": "ホストをミュート",
+      "ko": "호스트 음소거",
+      "de": "Host stummschalten",
+      "fr": "Muet sur l’hôte",
+      "es": "Silenciar anfitrión",
+      "pt-BR": "Silenciar host"
     }
   },
   "desktop": {
@@ -12233,6 +12257,8 @@
     "video_quality_high": "高",
     "video_quality_medium": "中",
     "video_quality_low": "低",
+    "video_bitrate": "码率",
+    "host_mute": "被控端静音",
     "video_encode_format": "视频编码格式",
     "av1": "AV1",
     "h264": "H.264",
@@ -12944,6 +12970,8 @@
       "画面接收中...",
       "画面设置",
       "画面质量",
+      "码率",
+      "被控端静音",
       "真彩",
       "画面采集帧率",
       "界面",

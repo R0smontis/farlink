@@ -105,6 +105,19 @@ The fork extends upstream CrossDesk across these independent areas:
   `mac_virtual_display_policy_test`; the interactive smoke test is compile-only because
   of the teardown leak.
 
+- **Zero-cloud Wake-on-LAN for saved devices (W4A)** — hosts advertise their
+  primary station MAC inside the existing `host_info` message, strictly to
+  authenticated direct-LAN controllers; controllers persist it in the
+  recent-connection record. A Wake action on the recent-device card menu
+  (shown only when a MAC is recorded) broadcasts the standard 102-byte magic
+  packet to `255.255.255.255` plus every active IPv4 interface subnet
+  broadcast address. The UI feedback states honestly that "sent" means
+  on-the-wire, not yet online — whether the target machine actually wakes
+  depends on its own firmware/OS wake configuration, which is outside this
+  feature's control and untested here. Headless use: `--wol <mac>
+  [--wol-broadcast <ip>]` sends and exits before instance acquisition so
+  scripts never disturb a running UI. The v1 LAN beacon format is unchanged.
+
 ## Modified upstream files
 
 | File | Nature of change |

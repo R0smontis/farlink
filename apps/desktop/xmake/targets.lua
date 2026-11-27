@@ -112,8 +112,10 @@ function setup_targets()
         elseif is_os("macosx") then
             add_files("apps/desktop/src/platform/macos/system_info.cpp",
                 "apps/desktop/src/platform/macos/screen_lock.cpp",
-                "apps/desktop/src/platform/macos/desktop_automation.mm")
-            add_frameworks("AppKit", "ApplicationServices", {public = true})
+                "apps/desktop/src/platform/macos/desktop_automation.mm",
+                "apps/desktop/src/platform/macos/host_audio_mute.mm")
+            remove_files("apps/desktop/src/common/host_audio_mute_stub.cpp")
+            add_frameworks("AppKit", "ApplicationServices", "CoreAudio", {public = true})
         elseif is_os("linux") then
             add_files("apps/desktop/src/platform/linux/system_info.cpp",
                 "apps/desktop/src/platform/linux/screen_lock.cpp",
@@ -246,6 +248,16 @@ function setup_targets()
         set_default(false)
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/game_mode_exit_ordering_test.cpp")
+
+    -- Pure-logic unit test for the stream control ergonomics: bitrate cap
+    -- preset index/bps conversion and validation, plus the stream hotkey
+    -- matcher (chord recognition, repeat suppression, swallow tracking,
+    -- display cycling wrap-around). No transport, no UI, fully deterministic.
+    target("stream_control_ergonomics_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
+        add_files("apps/desktop/tests/stream_control_ergonomics_test.cpp")
 
     target("instance_scope_test")
         set_kind("binary")

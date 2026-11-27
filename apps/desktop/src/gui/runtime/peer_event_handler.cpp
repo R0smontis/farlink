@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "device_controller.h"
+#include "host_audio_mute.h"
 #include "file_transfer.h"
 #include "localization.h"
 #include "platform.h"
@@ -436,6 +437,10 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         // relative-mouse capability and be offered a mode it cannot serve.
         props->supports_relative_mouse_ = false;
         props->clipboard_image_supported_ = false;
+        // host_mute_requested_ deliberately survives: it is user intent,
+        // re-armed on the next capable advertisement exactly like the video
+        // frame-rate preference. Only the capability clears here.
+        props->host_mute_supported_ = false;
         props->preview_needs_sync_ = true;
         props->preview_ack_ = 0;
         props->preview_accepted_ = false;
@@ -734,6 +739,11 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   // peers never advertise this bit and never receive image frames.
   action.i.supports_clipboard_image = UserSessionFeaturesAvailable();
 #endif
+  // Host speaker mute exists only where a platform backend implements it:
+  // macOS through CoreAudio kAudioDevicePropertyMute today. The bit is a
+  // capability statement about this host, not about session features, so it
+  // deliberately does not follow UserSessionFeaturesAvailable.
+  action.i.supports_host_mute = HostAudioMute::Supported();
   for (std::size_t i = 0; i < action.i.display_num; ++i)
     LOG_INFO("Local display [{}:{}]", i + 1, action.i.display_list[i]);
   auto message = action.to_json();
