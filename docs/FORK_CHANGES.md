@@ -151,6 +151,33 @@ The fork extends upstream CrossDesk across these independent areas:
   exact original state — reference-counted across concurrent controllers
   so a mute can never outlive its session. Linux/Windows carry inert
   stubs that never silently half-apply.
+- **Wave-5 core media upgrades (W5A/W5B in minirtc, W5C/W5D here)** — four
+  independent verification-backed upgrades:
+  - *W5A transport & pacer (minirtc)*: thread-safe MPMC `RingBuffer` + `Data`
+    UB fix; immediate `ikcp_flush` + deadline-driven `KcpUpdateTimer` +
+    event-driven `RtpDataSender` (loopback reliable one-way 9.3 ms → ~20 µs,
+    ping-pong RTT 18.3 ms → ~50 µs); sub-millisecond `PacedSender` (500 µs/1 pkt
+    holdback, 8 ms @60fps direct burst, RTX fast lane, FEC parity floor). Detail:
+    `deps/submodules/minirtc/docs/FORK_CHANGES.md`.
+  - *W5B visual quality & decoder (minirtc)*: Crisp Static Frame Refresh
+    (`kQualityRefresh` + high-budget P-frame refinement), Sunshine-derived
+    VideoToolbox `DataRateLimits` omission under `EnableLowLatencyRateControl` +
+    infinite on-demand screen-content GOP + `EnableLTR=false` (+4.4 dB
+    early-static H.264 PSNR, +1.3 dB HEVC), `RealTime` hardware decode +
+    single-pass zero-intermediate-copy `CMBlockBuffer` assembly.
+  - *W5C macOS async Metal + CAS + SCK*: a dedicated
+    `QOS_CLASS_USER_INTERACTIVE` async Metal presentation queue decoupling
+    `nextDrawable` blocking from the Slint UI/input main thread, Retina-native
+    drawable sizing + envelope-clamped Contrast-Adaptive Sharpening (CAS)
+    shader (−32% stroke blur width, zero halo/overshoot, `FARLINK_METAL_SHARPEN`
+    override), and ScreenCaptureKit `queueDepth = 3` (`FARLINK_SCK_QUEUE_DEPTH`
+    override).
+  - *W5D input wire & pixel scroll*: 32-byte zero-allocation binary input
+    protocol (`FIN1`, ~58× faster than JSON at ~37 ns/op vs ~2150 ns/op, 0 heap
+    allocations), cumulative loss-immune relative mouse motion with
+    click-boundary recovery, pixel-precise smooth macOS trackpad scrolling
+    (`CGEventCreateScrollWheelEvent2` continuous pixel + 16.16 fixed-point
+    deltas), and unreliable sequenced cursor-position updates.
 
 ## Modified upstream files
 
@@ -198,6 +225,13 @@ The fork extends upstream CrossDesk across these independent areas:
 | `libs/wire/tests/wire_test.cpp` | Wire round-trip test updates. |
 | `localization/catalog.json` | New localized strings. |
 | `xmake.lua` | Build wiring for new targets; pins `target_minver=14.0` so local macOS builds match upstream CI's deployment target (upstream passes it only as a CI flag). |
+| `apps/desktop/src/platform/macos/gui/metal_video_renderer.mm` | W5C async `QOS_CLASS_USER_INTERACTIVE` Metal presentation queue decoupling `nextDrawable` from the Slint UI main thread, Retina-native drawable sizing, CAS sharpening integration. |
+| `apps/desktop/src/platform/macos/gui/metal_video_renderer.h` | Declarations for the above. |
+| `apps/desktop/src/platform/macos/screen_capturer/screen_capturer_sck_impl.mm` | W5C ScreenCaptureKit `queueDepth = 3` (`FARLINK_SCK_QUEUE_DEPTH` override). |
+| `apps/desktop/src/gui/features/input/remote_input_dispatcher.cpp` | W5D binary `InputWire` decode dispatch, pixel-scroll accumulation, unreliable cursor updates. |
+| `apps/desktop/src/gui/features/input/scroll_accumulator.h` | W5D 16.16 fixed-point fractional scroll carry. |
+| `libs/wire/src/remote_action.cpp` | W5D input-wire related capability serialization. |
+| `apps/desktop/src/platform/macos/input/mouse/mouse_controller.cpp` | W5D pixel-precise `CGEventCreateScrollWheelEvent2` continuous-pixel scrolling. |
 
 ## Added files
 
@@ -249,3 +283,8 @@ The fork extends upstream CrossDesk across these independent areas:
 | `apps/desktop/tests/diagnostic_export_redaction_test.cpp` | Diagnostic export redaction/ZIP assembly tests. |
 | `apps/desktop/tests/macos_modifier_key_tracker_test.cpp` | Modifier-key tracker unit tests. |
 | `apps/desktop/tests/screen_lock_monitor_test.cpp` | Screen-lock monitor unit tests. |
+| `apps/desktop/src/platform/macos/gui/metal_cas_shader_source.h` | W5C envelope-clamped Contrast-Adaptive Sharpening Metal shader source. |
+| `apps/desktop/tests/metal_cas_renderer_test.mm` | W5C CAS shader + async renderer verification (−32% stroke blur width, zero halo/overshoot). |
+| `libs/wire/include/input_wire.h` | W5D 32-byte zero-allocation binary input protocol (`FIN1`). |
+| `libs/wire/tests/input_wire_test.cpp` | W5D input-wire round-trip/loss-recovery/benchmark tests. |
+| `apps/desktop/tests/pixel_scroll_and_dispatcher_test.cpp` | W5D pixel-scroll fixed-point + dispatcher binary-input tests. |

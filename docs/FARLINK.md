@@ -131,6 +131,30 @@ codec H265，首帧约 1–2.9s（`/tmp/farlink-build-e2e/NOTES.md` round-7）�
 不满足该链（LAN 协议甚至不传输控制端设备身份），故 LAN 直连场景下唯一可用的同意
 机制就是 `--port-forward-allow` 进程级授权。
 
+### 2.11 Wave-5 核心媒体升级（传输/编解码/渲染/输入线）
+
+四条独立验证线，全部实测数字来自本机（M1 Pro、macOS 27.2 arm64）：
+
+| 线 | 改动 | 实测数据 | 提交 / 位置 |
+|----|------|----------|-------------|
+| **W5A minirtc 传输与 pacing** | `RingBuffer` 改互斥保护 MPMC 有界队列（上游零同步，MPMC 压测丢 29225/40000 包 + 401 重复）+ `Data` UB 修复，TSan 干净；KCP 在 send/input/recv 后立即 `ikcp_flush`、nodelay 间隔收紧 5ms、`KcpUpdateTimer::ProcessDelayHintMs` 用 `ikcp_check` 死线驱动；`RtpDataSender::Enqueue` 经 `RequestProcess` 唤醒发送线程；`PacedSender` 亚毫秒精度（holdback 5ms/3pkt → 500µs/1pkt、µs 调度 + 100µs 自旋地板、直连 burst 间隔减半帧间隔 8ms@60fps、RTX 快车道、Sunshine 移植 FEC 最小校验地板） | 进程内 loopback（`data_channel_latency_test`）：可靠单向 p50 **9309µs → 18µs**、p95 18118µs → 41µs；ping-pong RTT p50 **18285µs → 50µs**；20ms RTT+2% 丢包下 500/500 保序送达；MPMC 压测 40000/40000 零丢失零重复 | 子模块 `3cf74bf9`；`ringbuffer.h`、`rtp_data_sender.cpp`、`data_channel_send/receive.cpp`、`paced_sender.cpp`、`rtp_fec.cpp` |
+| **W5B minirtc 视觉质量与解码** | Crisp Static Frame Refresh（`ZeroHzFrameDetector::Verdict::kQualityRefresh` 每次静止判定仅一次高预算 P 帧精修）；Sunshine 移植 VideoToolbox 码控：LowLatencyRC 下完全省略 `DataRateLimits`、屏幕内容无限按需 GOP、`EnableLTR=false`；解码侧 `kVTDecompressionPropertyKey_RealTime` + 单趟零中间拷贝 `CMBlockBuffer` 装配 | `vt_crisp_refresh_quality_test`（真机 VideoToolbox 编码+解码，滚动后静止文本 PSNR）：**H.264 早期静止均值 PSNR +4.40 dB（38.37→42.78）、refresh 帧 +4.24 dB、稳态帧 +1.64 dB、静止总字节 55390→43856、解码延迟均值 7851→5272µs**；HEVC：早期静止 +1.32 dB、refresh 帧 +1.32 dB、静止总字节 23459→21521、解码延迟均值 7966→5500µs（max 78848→10274µs） | 子模块 `0f78f674`；`zero_hz_frame_detector.h`、`video_toolbox_encoder.mm`、`video_toolbox_decoder.mm` |
+| **W5C macOS 异步 Metal + CAS + SCK** | 专用 `QOS_CLASS_USER_INTERACTIVE` 异步 Metal 呈现队列把 `nextDrawable` 阻塞从 Slint UI/输入主线程解耦；Retina 原生 drawable 尺寸 + 包络钳制 CAS 锐化 shader；ScreenCaptureKit `queueDepth = 3`（`FARLINK_SCK_QUEUE_DEPTH` 覆盖；`FARLINK_METAL_SHARPEN` 覆盖锐化） | `metal_cas_renderer_test`：笔画模糊宽度 **−32%**、零 halo/过冲；全部用例通过 | `2ecd5a78`、`4bae0a26`；`metal_video_renderer.mm`、`metal_cas_shader_source.h`、`screen_capturer_sck_impl.mm` |
+| **W5D 输入线路与像素滚动** | 32 字节零分配二进制输入协议（`FIN1`）；累积式丢包免疫相对鼠标位移 + 点击边界恢复；macOS 触控板像素级平滑滚动（`CGEventCreateScrollWheelEvent2` 连续像素 + 16.16 定点 delta）；不可靠带序光标位置更新 | `input_wire_test`：二进制编解码 **37.2 ns/op vs JSON 2151.7 ns/op（~58×）、32 vs 51 字节/帧、0 堆分配**；丢包恢复：注入 310 丢包后 truth_dx 误差 3.1e-6、wire 位移 3570/3570 + 16006/16006 全额还原；`pixel_scroll_and_dispatcher_test` 全过 | `010b5911`；`libs/wire/include/input_wire.h`、`remote_input_dispatcher.cpp`、`scroll_accumulator.h` |
+
+**端到端 harness 复核（合并后最终 HEAD，`frame_rate_harness`，loopback ICE HostOnly）**：
+
+| 场景 | delivered_fps | lat_p50/p95/p99 | 备注 |
+|------|---------------|------------------|------|
+| LAN 干净 1080p60 HEVC 8s | **59.45**（sent 480/delivered 476） | **14ms / 21ms / 32ms** | RTT 0.27ms，peak 9.87 Mbps，零 cwnd/pacer 丢帧 |
+| LAN 干净 1080p120 HEVC 8s | **90.98**（sent 960/delivered 728；编码器吞吐约束非网络） | **16ms / 28ms / 70ms** | RTT 0.17ms，peak 15.3 Mbps，呈现间隔 p95 上界 25ms |
+| 受限 WAN 10Mbps/30ms/2%loss 1080p60 HEVC 8s | **55.0**（sent 481/delivered 441） | **56ms / 120ms / 182ms** | RTT 62ms，shape 均值 2.48 Mbps——编码器按拥塞控制正确收敛到链路预算内而非硬冲，loss 下持续交付未断流 |
+
+minirtc 侧独立测试全绿：`data_channel_latency_test`、`fec_parity_floor_test`、
+`zero_hz_detector_test`（含 4K NV12 哈希 22µs/帧 bench）、`vt_crisp_refresh_quality_test`
+（HEVC+H.264 两臂）、`video_playout_buffer_test`、`hevc_sps_chroma_test`（35/35）、
+`rtx_suppression_test`、`fec_curve_test`、`fir_throttle_test`。
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、

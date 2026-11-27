@@ -25,8 +25,19 @@ controller, host consent via verified trusted-device proof or the process-lifeti
 sessions; view-only sessions never forward), in-session stream bitrate-cap presets
 (Auto/8M/20M/50M/80M applied live through the subscription bitrate path),
 Ctrl+Alt+←/→ display cycling and Ctrl+Alt+F fullscreen hotkeys, and session-scoped
-macOS host speaker mute with exact RAII state restoration. Licensed
-GPL-3.0-only like
+macOS host speaker mute with exact RAII state restoration. Wave 5 adds the core
+media upgrades: a sub-millisecond event-driven transport/pacer in minirtc
+(loopback reliable data-channel one-way 9.3 ms → ~20 µs, RTT 18.3 ms → ~50 µs;
+8 ms @60fps direct burst, RTX fast lane, FEC parity floor, thread-safe MPMC
+`RingBuffer`), crisp static-frame refresh with Sunshine-derived VideoToolbox
+low-latency rate control (+4.4 dB early-static H.264 PSNR, +1.3 dB HEVC) and a
+RealTime zero-copy hardware decode path, an async `QOS_CLASS_USER_INTERACTIVE`
+Metal presentation queue with Retina-native drawables and envelope-clamped
+Contrast-Adaptive Sharpening (−32% stroke blur width, zero halo) plus
+ScreenCaptureKit `queueDepth = 3`, and a 32-byte zero-allocation binary input
+wire protocol (~58× faster than JSON at ~37 ns/op) with loss-immune relative
+mouse motion, pixel-precise macOS trackpad scrolling, and unreliable sequenced
+cursor updates. Licensed GPL-3.0-only like
 upstream; the bundled `deps/submodules/minirtc` media library is
 [a Farlink fork](https://github.com/R0smontis/minirtc) of upstream
 [kunkundi/minirtc](https://github.com/kunkundi/minirtc), licensed LGPL-3.0.
