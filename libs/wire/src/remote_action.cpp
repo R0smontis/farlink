@@ -109,6 +109,7 @@ void ResetHostInfo(HostInfo& info) {
   info.mac_address[0] = '\0';
   info.supports_host_mute = false;
   info.supports_port_forward = false;
+  info.supports_binary_input = false;
 }
 
 void CopyHostName(HostInfo& info, const std::string& host_name) {
@@ -367,7 +368,8 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"supports_relative_mouse", action.i.supports_relative_mouse},
           {"supports_clipboard_image", action.i.supports_clipboard_image},
           {"supports_host_mute", action.i.supports_host_mute},
-          {"supports_port_forward", action.i.supports_port_forward}};
+          {"supports_port_forward", action.i.supports_port_forward},
+          {"supports_binary_input", action.i.supports_binary_input}};
       // Optional wake target: omitted rather than empty so legacy peers and
       // privacy-sensitive paths never carry a meaningless key.
       if (action.i.mac_address[0] != '\0')
@@ -662,6 +664,8 @@ bool RemoteAction::FromJson(const std::string& json_string,
             host_info_object.value("supports_host_mute", false);
         output.i.supports_port_forward =
             host_info_object.value("supports_port_forward", false);
+        output.i.supports_binary_input =
+            host_info_object.value("supports_binary_input", false);
         const std::string host_name =
             host_info_object.at("host_name").get<std::string>();
         CopyHostName(output.i, host_name);

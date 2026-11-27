@@ -46,6 +46,13 @@ class PlatformMouseController final : public MouseController {
   // sub-pixel remainder stays in the carry fields and is resynced against
   // the physical cursor whenever injection has been idle long enough for
   // local input or absolute positioning to have moved it.
+  // Sub-notch pixel scroll remainders for the binary ScrollPixel wire, one
+  // per axis. Windows mouseData is a whole WHEEL_DELTA-unit integer, so the
+  // fractional part of the pixel-to-unit conversion accumulates here and
+  // small continuous trackpad gestures are never dropped.
+  double wheel_pixel_remainder_x_ = 0;
+  double wheel_pixel_remainder_y_ = 0;
+
   static constexpr std::chrono::milliseconds kRelativeAnchorMaxAge{500};
   bool relative_anchor_valid_ = false;
   double relative_anchor_x_ = 0;

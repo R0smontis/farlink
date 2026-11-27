@@ -4,6 +4,7 @@
 
 #include <app_version.h>
 #include <remote_action.h>
+#include <input_wire.h>
 #include <clipboard_image_wire.h>
 #include <stream_names.h>
 #include <nlohmann/json.hpp>
@@ -205,6 +206,33 @@ void PeerEventHandler::OnReceiveDataBuffer(
     runtime->transfers_.HandleAck(data, size, handler, remote_id);
     return;
   }
+  // Zero-allocation binary input frames are distinguished by their FIN1
+  // magic, which can never begin a JSON object. They only carry input kinds,
+  // so they bypass every JSON-only branch below and feed the dispatcher
+  // directly after sequence gating.
+  if (input_wire::IsBinaryFrame(data, size)) {
+    if (!runtime->IsAuthorizedController(remote_id)) return;
+    RemoteAction binary_action{};
+    RemoteAction pre_click_motion{};
+    if (!runtime->DecodeBinaryInput(remote_id, data, size, binary_action,
+                                    &pre_click_motion))
+      return;
+    // The batch-boundary flush is queued immediately before its click so
+    // the dispatcher injects the missing motion first — a click can never
+    // land behind a flick whose unreliable packet was lost.
+    if (pre_click_motion.type == ControlType::mouse &&
+        pre_click_motion.m.flag == MouseFlag::move_relative &&
+        (pre_click_motion.m.dx != 0 || pre_click_motion.m.dy != 0)) {
+      runtime->remote_input_.Push(remote_id, pre_click_motion);
+    }
+    if (runtime->remote_input_.Push(remote_id, binary_action) ==
+        RemoteInputDispatcher::Result::overflow)
+      LOG_WARN(
+          "Remote input queue overflow: clearing stale input and releasing "
+          "keys/buttons");
+    return;
+  }
+
 
   const std::string wire_id = handler->WireId(remote_id);
   MiniRtcPeerPtr* bound_peer =
@@ -463,29 +491,56 @@ void PeerEventHandler::OnReceiveDataBuffer(
     }
 
     std::lock_guard lock(props->remote_cursor_state_mutex_);
-    const uint32_t previous_seq = props->remote_cursor_state_.seq;
-    const bool is_newer =
+    // Split sequence gating. Shape-authoritative messages ride the ordered
+    // reliable mouse stream, so their sequence only competes with earlier
+    // shape messages; position updates ride the unreliable data stream and
+    // gate on their own sequence. Without the split, an unreliable position
+    // overtaking a reliable shape change would mark the shape stale and drop
+    // it — losing cursor appearance updates for a full heartbeat.
+    const uint32_t seq = remote_action.cs.seq;
+    const bool shape_newer =
         !props->remote_cursor_state_received_ ||
-        static_cast<int32_t>(remote_action.cs.seq - previous_seq) > 0;
-    if (is_newer) {
+        static_cast<int32_t>(seq - props->cursor_shape_seq_) > 0;
+    const bool position_newer =
+        !props->remote_cursor_state_received_ ||
+        static_cast<int32_t>(seq - props->cursor_position_seq_) > 0;
+    const bool apply_position = remote_action.cs.position_update && position_newer;
+    if (shape_newer || apply_position) {
       const bool changed =
-          !props->remote_cursor_state_received_ ||
-          props->remote_cursor_state_.visible != remote_action.cs.visible ||
-          props->remote_cursor_state_.shape != remote_action.cs.shape ||
-          props->remote_cursor_state_.render_mode !=
-              remote_action.cs.render_mode ||
-          props->remote_cursor_state_.hidden_reason !=
-              remote_action.cs.hidden_reason;
+          shape_newer &&
+          (!props->remote_cursor_state_received_ ||
+           props->remote_cursor_state_.visible != remote_action.cs.visible ||
+           props->remote_cursor_state_.shape != remote_action.cs.shape ||
+           props->remote_cursor_state_.render_mode !=
+               remote_action.cs.render_mode ||
+           props->remote_cursor_state_.hidden_reason !=
+               remote_action.cs.hidden_reason);
       CursorState merged = remote_action.cs;
-      if (!remote_action.cs.position_update &&
-          props->remote_cursor_state_received_) {
-        merged.position_valid = props->remote_cursor_state_.position_valid;
-        merged.x = props->remote_cursor_state_.x;
-        merged.y = props->remote_cursor_state_.y;
-        merged.display_id = props->remote_cursor_state_.display_id;
+      if (props->remote_cursor_state_received_) {
+        // Shape-stale messages must never revert appearance fields.
+        if (!shape_newer) {
+          merged.visible = props->remote_cursor_state_.visible;
+          merged.shape = props->remote_cursor_state_.shape;
+          merged.render_mode = props->remote_cursor_state_.render_mode;
+          merged.hidden_reason = props->remote_cursor_state_.hidden_reason;
+          merged.visual_offset_x = props->remote_cursor_state_.visual_offset_x;
+          merged.visual_offset_y = props->remote_cursor_state_.visual_offset_y;
+        }
+        // Position-stale (or position-suppressed) messages keep the newer
+        // position already applied.
+        if (!apply_position) {
+          merged.position_valid = props->remote_cursor_state_.position_valid;
+          merged.x = props->remote_cursor_state_.x;
+          merged.y = props->remote_cursor_state_.y;
+          merged.display_id = props->remote_cursor_state_.display_id;
+        }
       }
+      merged.seq = std::max(seq, props->remote_cursor_state_.seq);
+      if (!props->remote_cursor_state_received_) merged.seq = seq;
       props->remote_cursor_state_ = merged;
       props->remote_cursor_state_received_ = true;
+      if (shape_newer) props->cursor_shape_seq_ = seq;
+      if (apply_position) props->cursor_position_seq_ = seq;
       props->cursor_presentation_.Observe(merged, SDL_GetTicks());
       if (changed) {
         LOG_DEBUG("Received cursor state: seq={}, visible={}, shape={}, "
@@ -554,6 +609,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->preview_bandwidth_supported_ = remote_action.i.supports_deskhub_bandwidth;
         props->supports_relative_mouse_ =
             remote_action.i.supports_relative_mouse;
+        props->supports_binary_input_ =
+            remote_action.i.supports_binary_input;
         props->high_fps_supported_ = remote_action.i.supports_high_fps;
         props->clipboard_image_supported_ =
             remote_action.i.supports_clipboard_image;
@@ -815,6 +872,59 @@ InputOutcome GuiRuntime::InjectRemoteMouse(const RemoteAction& remote_action,
 #endif
   return devices_.SendMouseCommand(remote_action, display)
       ? InputOutcome::applied : InputOutcome::failed;
+}
+
+bool GuiRuntime::DecodeBinaryInput(const std::string& remote_id,
+                                   const char* data, size_t size,
+                                   RemoteAction& output,
+                                   RemoteAction* pre_click_motion) {
+  input_wire::Decoded decoded{};
+  if (!input_wire::Decode(data, size, decoded)) return false;
+
+  // Sequence gating is per-controller because every sender owns an
+  // independent sequence space. move_abs drops reordered frames so the
+  // cursor never snaps backwards; move_rel_cumulative converts the wire's
+  // cumulative counters into the exact loss-immune delta.
+  std::lock_guard lock(input_decoder_mutex_);
+  auto& decoder = input_decoders_[remote_id];
+  switch (decoded.kind) {
+    case input_wire::Kind::move_abs:
+      if (!decoder.AcceptMoveAbs(decoded.seq)) return false;
+      break;
+    case input_wire::Kind::move_rel_cumulative: {
+      const auto delta = decoder.ConsumeRelative(
+          decoded.seq, decoded.cum_dx, decoded.cum_dy, decoded.epoch);
+      if (!delta.accepted) return false;
+      decoded.action.m.dx = static_cast<float>(delta.dx);
+      decoded.action.m.dy = static_cast<float>(delta.dy);
+      break;
+    }
+    case input_wire::Kind::mouse_button: {
+      if (!decoded.button_has_cumulative) break;
+      // Click batch boundary: flush any motion still missing from the
+      // unreliable stream before the click. The flush advances the relative
+      // sequence gate past the click's own sequence, which also makes
+      // late-arriving pre-click motion packets drop harmlessly instead of
+      // double-applying their displacement.
+      const auto delta = decoder.FlushRelativeForButton(
+          decoded.seq, decoded.cum_dx, decoded.cum_dy, decoded.epoch);
+      if (delta.accepted && pre_click_motion != nullptr &&
+          (delta.dx != 0 || delta.dy != 0)) {
+        pre_click_motion->type = ControlType::mouse;
+        pre_click_motion->m.flag = MouseFlag::move_relative;
+        pre_click_motion->m.x = 0;
+        pre_click_motion->m.y = 0;
+        pre_click_motion->m.s = 0;
+        pre_click_motion->m.dx = static_cast<float>(delta.dx);
+        pre_click_motion->m.dy = static_cast<float>(delta.dy);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  output = decoded.action;
+  return true;
 }
 
 }  // namespace crossdesk

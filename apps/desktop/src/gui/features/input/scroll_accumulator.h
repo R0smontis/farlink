@@ -17,6 +17,10 @@ namespace crossdesk {
 class ScrollAccumulator {
  public:
   using Clock = std::chrono::steady_clock;
+  // Slint's winit backend represents one wheel notch as 60 logical pixels;
+  // shared with the pixel-precise binary scroll path, which expresses the
+  // same gesture in continuous pixels instead of quantized notches.
+  static constexpr float kPixelsPerNotch = 60;
 
   int Consume(bool vertical, float delta, int percent, Clock::time_point now = Clock::now()) {
     if (!std::isfinite(delta) || delta == 0) return 0;
@@ -26,7 +30,7 @@ class ScrollAccumulator {
       vertical_ = {};
       sensitivity_percent_ = percent;
     }
-    constexpr float kPixelsPerNotch = 60;
+    // kPixelsPerNotch is the shared class constant above.
     auto& axis = vertical ? vertical_ : horizontal_;
     const bool new_gesture =
         !axis.last_event ||

@@ -3,6 +3,7 @@
 #include <SDL3/SDL_timer.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -15,6 +16,7 @@
 
 #include <web_clipboard_protocol.h>
 #include <video_frame_rate.h>
+#include <input_wire.h>
 #include "localization.h"
 #include "rd_log.h"
 #ifdef _WIN32
@@ -122,9 +124,47 @@ void GuiRuntime::SendRemoteInput(const RemoteAction& action, float wheel_delta) 
   auto message = wheel ? std::string{} : action.to_json();
   for (const auto& [id, props] : remote_sessions_) {
     if ((!group && id != target_id) || !available(props)) continue;
+    const bool binary = props->supports_binary_input_.load(std::memory_order_acquire);
     if (wheel) {
-      const int steps = props->scroll_.Consume(action.m.flag == MouseFlag::wheel_vertical,
-          wheel_delta, config_center_->GetWheelSensitivityPercent(props->device_preference_key_));
+      const int percent = config_center_->GetWheelSensitivityPercent(
+          props->device_preference_key_);
+      const bool vertical = action.m.flag == MouseFlag::wheel_vertical;
+      if (binary) {
+        // Pixel-precise path: logical pixel deltas scale by sensitivity and
+        // ride the binary wire as exact continuous values — no quantization,
+        // no remainder state. Hosts without native pixel injection
+        // (Windows/Linux) accumulate the same stream into their notch-based
+        // APIs on the receive side, so nothing is ever dropped.
+        const double scaled =
+            static_cast<double>(wheel_delta) * percent / 100.0;
+        if (scaled == 0) continue;
+        const int legacy_steps = std::max(-32767, std::min(32767,
+            static_cast<int>(scaled / ScrollAccumulator::kPixelsPerNotch)));
+        const float dx_px = vertical ? 0.0f : static_cast<float>(scaled);
+        const float dy_px = vertical ? static_cast<float>(scaled) : 0.0f;
+        std::array<char, input_wire::kHeaderBytes> frame{};
+        std::size_t frame_size = 0;
+        {
+          std::lock_guard enc_lock(props->input_encoder_mutex_);
+          frame_size = props->input_encoder_.EncodeScrollPixel(
+              frame.data(), dx_px, dy_px,
+              static_cast<int16_t>(vertical ? 0 : legacy_steps),
+              static_cast<int16_t>(vertical ? legacy_steps : 0),
+              input_wire::Encoder::NowMicroseconds());
+        }
+        if (frame_size == 0) continue;
+        {
+          std::lock_guard cursor_lock(props->remote_cursor_state_mutex_);
+          props->cursor_presentation_.NoteInput(SDL_GetTicks());
+        }
+        const int result = MiniRtcSendReliableDataFrame(
+            props->peer_, frame.data(), frame_size,
+            props->mouse_label_.c_str());
+        if (result != 0) LOG_WARN("Send remote input failed, ret={}", result);
+        continue;
+      }
+      const int steps = props->scroll_.Consume(vertical,
+          wheel_delta, percent);
       if (steps == 0) continue;
       RemoteAction scaled{};
       scaled.type = ControlType::mouse;
@@ -135,6 +175,59 @@ void GuiRuntime::SendRemoteInput(const RemoteAction& action, float wheel_delta) 
     if (mouse) {
       std::lock_guard cursor_lock(props->remote_cursor_state_mutex_);
       props->cursor_presentation_.NoteInput(SDL_GetTicks());
+    }
+    if (binary) {
+      // Zero-allocation binary path: fixed 32-byte frames built on the
+      // stack, no JSON DOM anywhere on the input hot path.
+      std::array<char, input_wire::kMaxPacketBytes> frame{};
+      std::size_t frame_size = 0;
+      const uint64_t now_us = input_wire::Encoder::NowMicroseconds();
+      std::lock_guard enc_lock(props->input_encoder_mutex_);
+      auto& encoder = props->input_encoder_;
+      if (mouse) {
+        switch (action.m.flag) {
+          case MouseFlag::move:
+            frame_size =
+                encoder.EncodeMoveAbs(frame.data(), action.m.x, action.m.y,
+                                      now_us);
+            break;
+          case MouseFlag::move_relative:
+            encoder.AddRelative(action.m.dx, action.m.dy);
+            frame_size = encoder.EncodeRelative(frame.data(), now_us);
+            break;
+          case MouseFlag::left_down:
+          case MouseFlag::left_up:
+          case MouseFlag::right_down:
+          case MouseFlag::right_up:
+          case MouseFlag::middle_down:
+          case MouseFlag::middle_up:
+            // Absolute-mode clicks position at their own coordinates; the
+            // cumulative variant only applies to game mode, which sends
+            // through SendGameModeActionDirect instead.
+            frame_size = encoder.EncodeMouseButton(
+                frame.data(), action.m.x, action.m.y, action.m.flag, 0,
+                now_us);
+            break;
+          default:
+            break;
+        }
+      } else if (action.type == ControlType::keyboard) {
+        frame_size = encoder.EncodeKey(frame.data(), action.k.key_value,
+                                       action.k.scan_code, action.k.extended,
+                                       action.k.flag, now_us);
+      } else if (action.type == ControlType::keyboard_state) {
+        frame_size = encoder.EncodeKeyState(frame.data(), action.ks, now_us);
+      }
+      if (frame_size == 0) continue;
+      const int result = mouse_move
+          ? MiniRtcSendDataFrame(props->peer_, frame.data(), frame_size,
+                          props->data_label_.c_str())
+          : MiniRtcSendReliableDataFrame(
+                props->peer_, frame.data(), frame_size,
+                mouse ? props->mouse_label_.c_str()
+                      : props->keyboard_label_.c_str());
+      if (result != 0) LOG_WARN("Send remote input failed, ret={}", result);
+      continue;
     }
     // Reuse exactly the leader's mapped coordinates and key metadata. Neither
     // gallery filters nor the follower's preview dimensions affect input.

@@ -436,6 +436,7 @@ void PeerEventHandler::DispatchConnectionStatus(MiniRtcConnectionStatus status,
         // (which does not advertise it) would inherit the previous peer's
         // relative-mouse capability and be offered a mode it cannot serve.
         props->supports_relative_mouse_ = false;
+        props->supports_binary_input_ = false;
         props->clipboard_image_supported_ = false;
         // host_mute_requested_ deliberately survives: it is user intent,
         // re-armed on the next capable advertisement exactly like the video
@@ -732,6 +733,12 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   action.i.supports_relative_mouse = false;
 #endif
   action.i.supports_high_fps = true;
+  // The binary input wire decoder lives in the shared receiver path
+  // (peer_data_callbacks.cpp), so every desktop platform accepts it. The
+  // pixel-scroll injection half is per-platform: macOS injects continuous
+  // pixel deltas natively, Windows/Linux accumulate the same stream into
+  // their notch-based APIs without dropping small scrolls.
+  action.i.supports_binary_input = true;
   action.i.supports_file_browser = UserSessionFeaturesAvailable();
 #ifndef __OHOS__
   action.i.supports_file_clipboard = UserSessionFeaturesAvailable();

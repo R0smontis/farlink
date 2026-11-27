@@ -198,13 +198,38 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
       ip.mi.dwFlags = MOUSEEVENTF_MIDDLEUP;
       break;
     case MouseFlag::wheel_vertical:
-      ip.mi.dwFlags = MOUSEEVENTF_WHEEL;
-      ip.mi.mouseData = remote_action.m.s * 120;
+    case MouseFlag::wheel_horizontal: {
+      // Pixel-precise binary scroll: the dx/dy pixel deltas convert into
+      // WHEEL_DELTA units at 2 units per pixel (60 px = one 120-unit notch).
+      // Windows mouseData is a whole-unit integer, so the fractional
+      // remainder accumulates per axis and small trackpad gestures are
+      // never dropped — the same lossless contract the macOS pixel path
+      // gets from continuous events.
+      const bool pixel_precise =
+          remote_action.m.dx != 0 || remote_action.m.dy != 0;
+      if (pixel_precise) {
+        constexpr double kWheelUnitsPerPixel = 120.0 / 60.0;
+        const bool vertical =
+            remote_action.m.flag == MouseFlag::wheel_vertical;
+        double& remainder =
+            vertical ? wheel_pixel_remainder_y_ : wheel_pixel_remainder_x_;
+        const double px = vertical ? remote_action.m.dy : remote_action.m.dx;
+        remainder += px * kWheelUnitsPerPixel;
+        const int units = static_cast<int>(remainder);
+        remainder -= units;
+        if (units == 0) return 0;
+        ip.mi.dwFlags =
+            vertical ? MOUSEEVENTF_WHEEL : MOUSEEVENTF_HWHEEL;
+        ip.mi.mouseData = static_cast<DWORD>(units);
+      } else if (remote_action.m.flag == MouseFlag::wheel_vertical) {
+        ip.mi.dwFlags = MOUSEEVENTF_WHEEL;
+        ip.mi.mouseData = remote_action.m.s * 120;
+      } else {
+        ip.mi.dwFlags = MOUSEEVENTF_HWHEEL;
+        ip.mi.mouseData = remote_action.m.s * 120;
+      }
       break;
-    case MouseFlag::wheel_horizontal:
-      ip.mi.dwFlags = MOUSEEVENTF_HWHEEL;
-      ip.mi.mouseData = remote_action.m.s * 120;
-      break;
+    }
     default:
       break;
   }

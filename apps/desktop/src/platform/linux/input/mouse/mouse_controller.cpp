@@ -171,19 +171,34 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
           if (!XTestFakeButtonEvent(display_, 2, False, CurrentTime)) return -1;
           XFlush(display_);
           break;
-        case MouseFlag::wheel_vertical: {
-          if (remote_action.m.s > 0) {
-            SimulateMouseWheel(4, remote_action.m.s);
-          } else if (remote_action.m.s < 0) {
-            SimulateMouseWheel(5, -remote_action.m.s);
-          }
-          break;
-        }
+        case MouseFlag::wheel_vertical:
         case MouseFlag::wheel_horizontal: {
-          if (remote_action.m.s > 0) {
-            SimulateMouseWheel(6, remote_action.m.s);
-          } else if (remote_action.m.s < 0) {
-            SimulateMouseWheel(7, -remote_action.m.s);
+          // Pixel-precise binary scroll: X11 has no continuous wheel event,
+          // so pixel deltas convert into notch clicks at 60 px per notch
+          // with the sub-notch remainder accumulating per axis — small
+          // trackpad gestures are never dropped, matching the lossless
+          // contract of the macOS continuous-event path.
+          const bool pixel_precise =
+              remote_action.m.dx != 0 || remote_action.m.dy != 0;
+          const bool vertical =
+              remote_action.m.flag == MouseFlag::wheel_vertical;
+          int steps = 0;
+          if (pixel_precise) {
+            constexpr double kPixelsPerNotch = 60.0;
+            double& remainder = vertical ? wheel_pixel_remainder_y_
+                                         : wheel_pixel_remainder_x_;
+            const double px =
+                vertical ? remote_action.m.dy : remote_action.m.dx;
+            remainder += px;
+            steps = static_cast<int>(remainder / kPixelsPerNotch);
+            remainder -= steps * kPixelsPerNotch;
+          } else {
+            steps = remote_action.m.s;
+          }
+          if (steps > 0) {
+            SimulateMouseWheel(vertical ? 4 : 6, steps);
+          } else if (steps < 0) {
+            SimulateMouseWheel(vertical ? 5 : 7, -steps);
           }
           break;
         }

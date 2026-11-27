@@ -250,6 +250,13 @@ void GuiRuntime::HandleServerControllerDisconnected(
         config_center_->IsLockOnDisconnect() &&
         !(managed_host_frontend_ && remote_id.rfind("lan/", 0) != 0));
     remote_input_.Disconnect(remote_id);
+    {
+      // The binary input decoder is per-session: a reconnecting controller
+      // restarts its sequence and epoch cleanly instead of inheriting the
+      // previous session's cumulative baseline.
+      std::lock_guard dec_lock(input_decoder_mutex_);
+      input_decoders_.erase(remote_id);
+    }
     devices_.OnControllerConnectionsChanged();
     connection_host_names_.erase(remote_id);
     codec_status_controllers_.erase(remote_id);
