@@ -1218,7 +1218,8 @@ function setup_targets()
             "apps/desktop/src/platform/common/gui/service_status_runtime.cpp",
             "apps/desktop/src/gui/features/devices/*.cpp", "apps/desktop/src/gui/features/input/*.cpp",
             "apps/desktop/src/gui/features/clipboard/*.cpp", "apps/desktop/src/gui/features/file_transfer/*.cpp",
-            "apps/desktop/src/gui/features/settings/*.cpp", "apps/desktop/src/gui/features/gallery/*.cpp")
+            "apps/desktop/src/gui/features/settings/*.cpp", "apps/desktop/src/gui/features/gallery/*.cpp",
+            "apps/desktop/src/gui/features/port_forward/*.cpp")
         -- Only these translation units consume the application version. Keep
         -- version changes out of the flags for media and the rest of the GUI.
         add_files("apps/desktop/src/gui/application/gui_application.cpp",
