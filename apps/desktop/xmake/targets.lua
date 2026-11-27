@@ -403,6 +403,81 @@ function setup_targets()
             add_includedirs("apps/desktop/src")
             add_files("apps/desktop/tests/metal_cas_renderer_test.mm")
             add_frameworks("Metal", "CoreVideo", "Foundation", "QuartzCore")
+        -- Wave-6C macOS verification on real Apple Silicon hardware: proves
+        -- full-range BT.709 (420f + ITU_R_709_2) reproduces all 256 luma
+        -- codes monotonically with <=1 LSB sRGB primary error through the
+        -- production Metal shader where limited-range BT.601 quantizes to
+        -- ~220 steps, and exercises the production CAMetalDisplayLink
+        -- driver (compiled in from metal_video_renderer.mm so the tested
+        -- code is the exact code the app runs) through prebound-drawable
+        -- presentation, idle auto-pause, wake and 20 rapid attach/detach
+        -- stress cycles. Run manually:
+        --   xmake build macos_color_and_displaylink_test && \\
+        --   xmake run macos_color_and_displaylink_test
+        target("macos_color_and_displaylink_test")
+            set_kind("binary")
+            set_default(false)
+            set_languages("c++20")
+            add_mxxflags("-fobjc-arc")
+            -- Matches the main application targets: fmt's compile-time
+            -- format-string checker is disabled project-wide because the
+            -- bundled version's consteval parser chokes on Xcode's libc++.
+            add_defines("FMT_CONSTEVAL=")
+            add_includedirs("apps/desktop/src",
+                "apps/desktop/src/gui",
+                "apps/desktop/src/log",
+                "apps/desktop/src/common",
+                "apps/desktop/src/privacy",
+                "apps/desktop/src/config_center",
+                "apps/desktop/src/autostart",
+                "apps/desktop/src/path_manager",
+                "apps/desktop/src/screen_capturer",
+                "apps/desktop/src/speaker_capturer",
+                "apps/desktop/src/device_controller",
+                "apps/desktop/src/thumbnail",
+                "apps/desktop/src/tools",
+                "apps/desktop/src/platform/common/input",
+                "apps/desktop/src/platform/macos/gui",
+                "apps/desktop/src/platform/macos/gui/tray",
+                "apps/desktop/src/platform/macos/input",
+                "libs/wire/include",
+                "libs/controller/include",
+                "deps/submodules/minirtc/src/api",
+                "deps/submodules/minirtc/src/pc",
+                "deps/submodules/minirtc/src/media",
+                "deps/submodules/minirtc/src/media/video/decode",
+                "deps/submodules/minirtc/src/media/video/decode/video_toolbox",
+                "deps/submodules/minirtc/src/media/video/decode/openh264",
+                "deps/submodules/minirtc/src/media/video/decode/dav1d",
+                "deps/submodules/minirtc/src/media/video/encode/openh264",
+                "deps/submodules/minirtc/src/media/video/encode/video_toolbox",
+                "deps/submodules/minirtc/src/media/video/encode/avt",
+                "deps/submodules/minirtc/src/media/video/scale",
+                "deps/submodules/minirtc/src/media/video/assemble_frame",
+                "deps/submodules/minirtc/src/media/video/playout",
+                "deps/submodules/minirtc/src/media/audio/encode",
+                "deps/submodules/minirtc/src/media/audio/decode",
+                "deps/submodules/minirtc/src/media/audio/jitter",
+                "deps/submodules/minirtc/src/qos",
+                "deps/submodules/minirtc/src/rtp/rtp_packet",
+                "deps/submodules/minirtc/src/rtp/rtp_packetizer",
+                "deps/submodules/minirtc/src/frame",
+                "deps/submodules/minirtc/src/ringbuffer",
+                "deps/submodules/minirtc/src/thread",
+                "deps/submodules/minirtc/src/fec",
+                "deps/submodules/minirtc/src/statistics",
+                "deps/submodules/minirtc/src/rtcp",
+                "deps/submodules/minirtc/src/rtcp/rtcp_packet",
+                "deps/submodules/minirtc/src/rtcp/rtcp_sender",
+                "deps/submodules/minirtc/src/rtcp/rtp_feedback",
+                "deps/submodules/minirtc/src/inih",
+                "deps/submodules/minirtc/src/common")
+            add_files("apps/desktop/tests/macos_color_and_displaylink_test.mm",
+                "apps/desktop/src/platform/macos/gui/metal_video_renderer.mm")
+            add_packages("spdlog")
+            add_frameworks("Metal", "QuartzCore", "CoreVideo", "Foundation",
+                "AppKit", "CoreGraphics", "CoreMedia", "VideoToolbox",
+                "IOSurface", "IOKit")
         target("clipboard_image_mac_test")
             set_kind("binary")
             set_default(false)
