@@ -210,6 +210,9 @@ struct RemoteSession {
   HostPlatform remote_platform_ = HostPlatform::Unknown;
   // Retain history metadata after disconnect resets the live capabilities.
   HostPlatform recent_platform_ = HostPlatform::Unknown;
+  // Canonical wake station address learned from host information on direct
+  // LAN sessions. Empty when the peer does not advertise one.
+  std::string recent_wake_mac_address_;
   bool remote_update_dismissed_ = false;
   bool remote_service_status_received_ = false;
   std::mutex video_settings_mutex_;

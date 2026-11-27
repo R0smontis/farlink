@@ -33,6 +33,9 @@ class Thumbnail {
     bool remember_password = false;
     LanTarget lan;
     HostPlatform platform = HostPlatform::Unknown;
+    // Optional learned wake target, canonical AA:BB:CC:DD:EE:FF. Kept outside
+    // the LAN endpoint because a sleeping device has no live listener.
+    std::string wake_mac_address;
   };
 
  public:
@@ -45,11 +48,14 @@ class Thumbnail {
 
   // Also records metadata without an image. Empty password means do not store
   // credentials (and clears any remembered password from a previous session).
+  // A valid wake MAC updates the learned wake target; an empty value preserves
+  // the existing record so older paths never erase it.
   int SaveToThumbnail(const char* nv12, int width, int height,
                       const std::string& remote_id,
                       const std::string& host_name, const std::string& password,
                       HostPlatform platform = HostPlatform::Unknown,
-                      const LanTarget* lan = nullptr);
+                      const LanTarget* lan = nullptr,
+                      std::string_view wake_mac_address = {});
 
   int LoadThumbnail(
       std::vector<std::pair<std::string, Thumbnail::RecentConnection>>&

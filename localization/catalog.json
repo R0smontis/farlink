@@ -11999,6 +11999,78 @@
       "fr": "Local d'abord",
       "es": "Preferir local",
       "pt-BR": "Preferir local"
+    },
+    "远程唤醒": {
+      "zh-Hans": "远程唤醒",
+      "en": "Wake",
+      "ru": "Пробудить",
+      "zh-Hant": "遠端喚醒",
+      "ja": "Wake-on-LAN",
+      "ko": "원격 깨우기",
+      "de": "Aufwecken",
+      "fr": "Réveiller",
+      "es": "Activar",
+      "pt-BR": "Despertar"
+    },
+    "唤醒包已发送": {
+      "zh-Hans": "唤醒包已发送",
+      "en": "Wake packet sent",
+      "ru": "Пакет пробуждения отправлен",
+      "zh-Hant": "喚醒封包已傳送",
+      "ja": "Wake パケットを送信しました",
+      "ko": "Wake 패킷 전송됨",
+      "de": "Wake-Paket gesendet",
+      "fr": "Paquet Wake envoyé",
+      "es": "Paquete Wake enviado",
+      "pt-BR": "Pacote Wake enviado"
+    },
+    "唤醒包发送失败": {
+      "zh-Hans": "唤醒包发送失败",
+      "en": "Wake packet failed",
+      "ru": "Не удалось отправить пакет пробуждения",
+      "zh-Hant": "喚醒封包傳送失敗",
+      "ja": "Wake パケットの送信に失敗しました",
+      "ko": "Wake 패킷 전송 실패",
+      "de": "Wake-Paket fehlgeschlagen",
+      "fr": "Échec de l’envoi du paquet Wake",
+      "es": "Error al enviar el paquete Wake",
+      "pt-BR": "Falha ao enviar pacote Wake"
+    },
+    "唤醒包已发送；设备上线后即可连接": {
+      "zh-Hans": "唤醒包已发送；设备上线后即可连接",
+      "en": "Wake packet sent; connect when the device is online",
+      "ru": "Пакет пробуждения отправлен; подключитесь, когда устройство будет в сети",
+      "zh-Hant": "喚醒封包已傳送；裝置上線後即可連接",
+      "ja": "Wake パケットを送信しました。デバイスがオンラインになったら接続できます",
+      "ko": "Wake 패킷을 보냈습니다. 기기가 온라인이 되면 연결하세요",
+      "de": "Wake-Paket gesendet; verbinden, sobald das Gerät online ist",
+      "fr": "Paquet Wake envoyé ; connectez-vous lorsque l’appareil est en ligne",
+      "es": "Paquete Wake enviado; conéctate cuando el dispositivo esté en línea",
+      "pt-BR": "Pacote Wake enviado; conecte quando o dispositivo estiver online"
+    },
+    "MAC 地址": {
+      "zh-Hans": "MAC 地址",
+      "en": "MAC address",
+      "ru": "MAC-адрес",
+      "zh-Hant": "MAC 位址",
+      "ja": "MAC アドレス",
+      "ko": "MAC 주소",
+      "de": "MAC-Adresse",
+      "fr": "Adresse MAC",
+      "es": "Dirección MAC",
+      "pt-BR": "Endereço MAC"
+    },
+    "MAC 地址无效": {
+      "zh-Hans": "MAC 地址无效",
+      "en": "Invalid MAC address",
+      "ru": "Недопустимый MAC-адрес",
+      "zh-Hant": "MAC 位址無效",
+      "ja": "MAC アドレスが無効です",
+      "ko": "잘못된 MAC 주소",
+      "de": "Ungültige MAC-Adresse",
+      "fr": "Adresse MAC invalide",
+      "es": "Dirección MAC no válida",
+      "pt-BR": "Endereço MAC inválido"
     }
   },
   "desktop": {
@@ -12316,7 +12388,13 @@
     "stats_audio_jitter": "音频抖动",
     "keyboard_shortcuts": "键盘快捷键",
     "shortcut_prefer_local": "优先本机",
-    "shortcut_send_to_remote": "发送到远端"
+    "shortcut_send_to_remote": "发送到远端",
+    "wake_device": "远程唤醒",
+    "wake_packet_sent": "唤醒包已发送",
+    "wake_packet_failed": "唤醒包发送失败",
+    "wake_packet_sent_online_hint": "唤醒包已发送；设备上线后即可连接",
+    "mac_address": "MAC 地址",
+    "invalid_mac_address": "MAC 地址无效"
   },
   "slint": [
     "此端口已被占用，",
@@ -12534,7 +12612,13 @@
     "本端地址",
     "对端地址",
     "低负载编码",
-    "从下一次桌面连接起，优先使用编码器支持的低负载设置。已有连接沿用原设置。"
+    "从下一次桌面连接起，优先使用编码器支持的低负载设置。已有连接沿用原设置。",
+    "远程唤醒",
+    "唤醒包已发送",
+    "唤醒包发送失败",
+    "唤醒包已发送；设备上线后即可连接",
+    "MAC 地址",
+    "MAC 地址无效"
   ],
   "platforms": {
     "desktop": [
@@ -13102,7 +13186,13 @@
       "视频抖动",
       "音频抖动",
       "键盘快捷键",
-      "优先本机"
+      "优先本机",
+      "远程唤醒",
+      "唤醒包已发送",
+      "唤醒包发送失败",
+      "唤醒包已发送；设备上线后即可连接",
+      "MAC 地址",
+      "MAC 地址无效"
     ],
     "android": [
       " · 已完成",
@@ -13492,7 +13582,13 @@
       "IP 直连密码",
       "IP 直连失败，请检查电脑的直连地址和网络。",
       "本端地址",
-      "对端地址"
+      "对端地址",
+      "远程唤醒",
+      "唤醒包已发送",
+      "唤醒包发送失败",
+      "唤醒包已发送；设备上线后即可连接",
+      "MAC 地址",
+      "MAC 地址无效"
     ],
     "ios": [
       "%1$@ 传输失败",
@@ -13862,7 +13958,13 @@
       "IP 直连密码",
       "IP 直连失败，请检查电脑的直连地址和网络。",
       "本端地址",
-      "对端地址"
+      "对端地址",
+      "远程唤醒",
+      "唤醒包已发送",
+      "唤醒包发送失败",
+      "唤醒包已发送；设备上线后即可连接",
+      "MAC 地址",
+      "MAC 地址无效"
     ],
     "harmony": [
       "OpenFEC 告知",
@@ -14185,7 +14287,13 @@
       "IP 直连密码",
       "IP 直连失败，请检查电脑的直连地址和网络。",
       "本端地址",
-      "对端地址"
+      "对端地址",
+      "远程唤醒",
+      "唤醒包已发送",
+      "唤醒包发送失败",
+      "唤醒包已发送；设备上线后即可连接",
+      "MAC 地址",
+      "MAC 地址无效"
     ]
   }
 }

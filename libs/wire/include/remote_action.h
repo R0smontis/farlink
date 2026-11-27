@@ -178,6 +178,10 @@ struct HostInfo {
   // clipboard messages on the clipboard stream. Senders must never deliver
   // clipboard_image frames to peers that do not advertise it.
   bool supports_clipboard_image;
+  // Optional wake-on-LAN station address of the host's primary interface,
+  // canonical AA:BB:CC:DD:EE:FF. Empty when the host cannot determine it.
+  // Never required for parsing: legacy peers neither send nor expect it.
+  char mac_address[18];
 };
 
 struct ServiceStatus {

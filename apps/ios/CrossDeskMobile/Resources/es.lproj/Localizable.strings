@@ -367,3 +367,9 @@
 "IP 直连失败，请检查电脑的直连地址和网络。" = "Error de conexión IP directa. Comprueba la dirección, el puerto y la red del equipo.";
 "本端地址" = "Dirección local";
 "对端地址" = "Dirección remota";
+"远程唤醒" = "Activar";
+"唤醒包已发送" = "Paquete Wake enviado";
+"唤醒包发送失败" = "Error al enviar el paquete Wake";
+"唤醒包已发送；设备上线后即可连接" = "Paquete Wake enviado; conéctate cuando el dispositivo esté en línea";
+"MAC 地址" = "Dirección MAC";
+"MAC 地址无效" = "Dirección MAC no válida";

@@ -106,6 +106,7 @@ void ResetHostInfo(HostInfo& info) {
   info.file_clipboard_version = 0;
   info.supports_relative_mouse = false;
   info.supports_clipboard_image = false;
+  info.mac_address[0] = '\0';
 }
 
 void CopyHostName(HostInfo& info, const std::string& host_name) {
@@ -360,6 +361,10 @@ std::string RemoteAction::ToJson(const RemoteAction& action) {
           {"file_clipboard_version", action.i.file_clipboard_version},
           {"supports_relative_mouse", action.i.supports_relative_mouse},
           {"supports_clipboard_image", action.i.supports_clipboard_image}};
+      // Optional wake target: omitted rather than empty so legacy peers and
+      // privacy-sensitive paths never carry a meaningless key.
+      if (action.i.mac_address[0] != '\0')
+        object["host_info"]["mac_address"] = action.i.mac_address;
       if (!action.display_resolutions.empty())
         object["host_info"]["display_resolutions"] =
             DisplayResolutionsJson(action.display_resolutions);
@@ -633,6 +638,16 @@ bool RemoteAction::FromJson(const std::string& json_string,
             host_info_object.value("supports_relative_mouse", false);
         output.i.supports_clipboard_image =
             host_info_object.value("supports_clipboard_image", false);
+        output.i.mac_address[0] = '\0';
+        if (const auto mac = host_info_object.find("mac_address");
+            mac != host_info_object.end() && mac->is_string()) {
+          const auto& value = mac->get_ref<const std::string&>();
+          // Fixed wire field; malformed or embedded-NUL values are ignored
+          // rather than failing an otherwise valid host advertisement.
+          if (!value.empty() && value.size() < sizeof(output.i.mac_address) &&
+              value.find('\0') == std::string::npos)
+            std::memcpy(output.i.mac_address, value.c_str(), value.size() + 1);
+        }
         const std::string host_name =
             host_info_object.at("host_name").get<std::string>();
         CopyHostName(output.i, host_name);

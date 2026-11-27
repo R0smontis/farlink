@@ -428,10 +428,12 @@ void GuiRuntime::HandleRecentConnections() {
     for (const auto& props : sessions) {
       std::string host_name;
       HostPlatform platform;
+      std::string wake_mac_address;
       {
         std::lock_guard lock(props->remote_version_mutex_);
         host_name = props->remote_host_name_;
         platform = props->recent_platform_;
+        wake_mac_address = props->recent_wake_mac_address_;
       }
       // Record a successful connection before a preview or host info arrives.
       // The close path still updates its final thumbnail. Remember password
@@ -447,7 +449,7 @@ void GuiRuntime::HandleRecentConnections() {
       if (thumbnail_->SaveToThumbnail(
               nullptr, 0, 0, record_id, host_name,
               props->remember_password_ ? props->remote_password_ : "",
-              platform, direct ? &target : nullptr) == 0)
+              platform, direct ? &target : nullptr, wake_mac_address) == 0)
         reload_recent_connections_ = true;
       else
         LOG_ERROR("Failed to save recent connection");

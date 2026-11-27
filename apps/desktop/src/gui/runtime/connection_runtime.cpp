@@ -390,14 +390,16 @@ void GuiRuntime::CloseRemoteSession(std::shared_ptr<RemoteSession> props) {
     peer = std::exchange(props->peer_, nullptr);
   }
   HostPlatform platform;
+  std::string wake_mac_address;
   {
     std::lock_guard lock(props->remote_version_mutex_);
     platform = props->recent_platform_;
+    wake_mac_address = props->recent_wake_mac_address_;
   }
   const auto queued_at = std::chrono::steady_clock::now();
   session_cleanup_tasks_[props->remote_id_] = session_cleanup_queue_.PostTask(
       [props, peer, frame_snapshot, video_width, video_height, platform,
-       thumbnail = thumbnail_, queued_at]() mutable {
+       wake_mac_address, thumbnail = thumbnail_, queued_at]() mutable {
         if (props->peer_events_) props->peer_events_->Deactivate();
         if (peer && !props->lan_session_) {
           LOG_INFO("Background leave connection");
@@ -420,7 +422,8 @@ void GuiRuntime::CloseRemoteSession(std::shared_ptr<RemoteSession> props) {
                   nv12, video_width, video_height, record_id,
                   props->remote_host_name_,
                   props->remember_password_ ? props->remote_password_ : "",
-                  platform, direct ? &target : nullptr) != 0) {
+                  platform, direct ? &target : nullptr,
+                  wake_mac_address) != 0) {
             LOG_ERROR("Failed to save recent connection");
           }
         }

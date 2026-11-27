@@ -29,6 +29,7 @@
 #endif
 
 #include "config_center.h"
+#include "network/lan/wake_on_lan.h"
 #include "launch_options.h"
 #include "path_manager.h"
 #include "platform/autostart_backend.h"
@@ -487,6 +488,24 @@ int main(int argc, char* argv[]) {
                  "The access password is read from the FARLINK_LAN_PASSWORD "
                  "environment variable, never from the command line.\n";
     return 1;
+  }
+  if (crossdesk::GetLaunchOptions().wol) {
+    // Headless wake: no instance lease, no UI, no capture. Exit status is the
+    // wire result so scripts can chain power management reliably.
+    const auto mac =
+        crossdesk::lan::ParseMacAddress(crossdesk::GetLaunchOptions().wol_mac);
+    if (!mac) {
+      std::cerr << "Invalid MAC address\n";
+      return 1;
+    }
+    std::string error;
+    if (!crossdesk::lan::SendMagicPacket(
+            *mac, crossdesk::GetLaunchOptions().wol_broadcast, 9, &error)) {
+      std::cerr << "Wake packet failed: " << error << '\n';
+      return 1;
+    }
+    std::cout << "Wake packet sent\n";
+    return 0;
   }
   if (!child) {
     const auto result = AcquireInstance(launcher_instance, InstanceRole::kLauncher);

@@ -395,6 +395,12 @@ final class LocalizationKeys {
         IDS.put("IP 直连失败，请检查电脑的直连地址和网络。", R.string.text_53b856ab7ac9d8e2);
         IDS.put("本端地址", R.string.text_3a940622a8012b31);
         IDS.put("对端地址", R.string.text_2c5e32d2c5de5c2b);
+        IDS.put("远程唤醒", R.string.text_3b049671f210c746);
+        IDS.put("唤醒包已发送", R.string.text_58d665d873c74b59);
+        IDS.put("唤醒包发送失败", R.string.text_8b0702a8d6e6e292);
+        IDS.put("唤醒包已发送；设备上线后即可连接", R.string.text_9e2abc4a845928f1);
+        IDS.put("MAC 地址", R.string.text_dd3fec00b93499b0);
+        IDS.put("MAC 地址无效", R.string.text_c758a91a32da20e2);
     }
     private LocalizationKeys() {}
 }

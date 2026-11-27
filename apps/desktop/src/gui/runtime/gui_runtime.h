@@ -259,8 +259,12 @@ class GuiRuntime : protected gui_detail::GuiState {
   // Set before initializing callbacks; immutable for the process lifetime.
   bool unattended_host_ = false;
   bool managed_host_frontend_ = false;
+  // include_wake_mac attaches this machine's primary station address. It is
+  // strictly for direct LAN controllers: a cloud peer cannot use the address
+  // and must never receive a link-layer identifier it cannot use.
   std::string BuildHostInformation(bool advertise_trust = false,
-      const std::vector<DisplayResolutionPreference>& preferences = {});
+      const std::vector<DisplayResolutionPreference>& preferences = {},
+      bool include_wake_mac = false);
   void AnnounceHostCapabilities(const std::string& id);
 #ifdef _WIN32
   std::shared_ptr<LocalHostChannel> local_host_;

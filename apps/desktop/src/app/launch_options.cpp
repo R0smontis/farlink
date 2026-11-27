@@ -34,6 +34,19 @@ bool ParseLaunchOptions(int argc, char* argv[]) {
       g_launch_options.view_only = true;
     } else if (std::strcmp(argv[i], "--no-local-capture") == 0) {
       g_launch_options.no_local_capture = true;
+    } else if (std::strcmp(argv[i], "--wol") == 0) {
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        g_launch_options.wol = true;
+        g_launch_options.wol_mac = argv[++i];
+      } else {
+        valid = false;
+      }
+    } else if (std::strcmp(argv[i], "--wol-broadcast") == 0) {
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        g_launch_options.wol_broadcast = argv[++i];
+      } else {
+        valid = false;
+      }
     }
   }
   return valid;

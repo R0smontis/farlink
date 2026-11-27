@@ -367,3 +367,9 @@
 "IP 直连失败，请检查电脑的直连地址和网络。" = "Direct IP connection failed. Check the computer’s direct IP address, port, and network.";
 "本端地址" = "Local endpoint";
 "对端地址" = "Remote endpoint";
+"远程唤醒" = "Wake";
+"唤醒包已发送" = "Wake packet sent";
+"唤醒包发送失败" = "Wake packet failed";
+"唤醒包已发送；设备上线后即可连接" = "Wake packet sent; connect when the device is online";
+"MAC 地址" = "MAC address";
+"MAC 地址无效" = "Invalid MAC address";

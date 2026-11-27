@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL_timer.h>
 
+#include <algorithm>
+#include <mutex>
 #include "rd_log.h"
 
 #ifdef _WIN32
@@ -232,12 +234,21 @@ void GuiRuntime::HandleDisplayResolutionChanges() {
     return;
   last_display_resolutions_ = std::move(current);
   // Re-advertise after local changes/hotplug as well as remote requests. The
-  // optional host-info extension is harmless to pre-feature controllers.
-  const auto message = BuildHostInformation();
+  // optional host-info extension is harmless to pre-feature controllers. The
+  // wake station address is attached per direct LAN controller only.
+  const auto cloud_message = BuildHostInformation();
+  const auto lan_message =
+      std::any_of(controllers.begin(), controllers.end(), [](const auto& id) {
+        return id.rfind("lan/", 0) == 0;
+      })
+          ? BuildHostInformation(false, {}, true)
+          : std::string{};
   for (const auto &id : controllers) {
-    if (IsAuthorizedController(id))
-      SendControllerData(id, message.data(), message.size(),
-                         control_data_label_.c_str());
+    if (!IsAuthorizedController(id)) continue;
+    const auto& message =
+        id.rfind("lan/", 0) == 0 ? lan_message : cloud_message;
+    SendControllerData(id, message.data(), message.size(),
+                       control_data_label_.c_str());
   }
 }
 

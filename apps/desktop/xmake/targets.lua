@@ -392,6 +392,16 @@ function setup_targets()
             add_syslinks("Ws2_32", "Iphlpapi")
         end
 
+    target("wake_on_lan_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/network/lan")
+        add_files("apps/desktop/tests/wake_on_lan_test.cpp",
+            "apps/desktop/src/network/lan/wake_on_lan.cpp")
+        if is_os("windows") then
+            add_syslinks("Ws2_32", "Iphlpapi")
+        end
+
     target("single_instance")
         set_kind("object")
         add_deps("path_manager")
