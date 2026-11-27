@@ -15,9 +15,12 @@ namespace crossdesk {
 
 // macOS video compositor used by CrossDesk only. VideoToolbox CVPixelBuffers
 // are sampled directly through CVMetalTextureCache; packed CPU NV12 remains a
-// fallback for software decoding and cached snapshots. AppKit attachment and
-// rendering are main-thread operations, while frame submission is safe from
-// MiniRTC's decode callback thread.
+// fallback for software decoding and cached snapshots. AppKit attachment is a
+// main-thread operation and frame submission is safe from MiniRTC's decode
+// callback thread. Presentation runs on a dedicated user-interactive render
+// queue so a busy WindowServer drawable pool never blocks the Slint UI or
+// input delivery on the main thread; set FARLINK_METAL_SYNC_PRESENT=1 to fall
+// back to legacy main-thread presentation for debugging.
 class MacMetalVideoRenderer final : public VideoRenderer {
  public:
   MacMetalVideoRenderer();

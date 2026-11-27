@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -18,6 +19,7 @@
 
 #include "platform/machine_identity.h"
 #include "platform/macos/video_pixel_format.h"
+#include "platform/macos/gui/metal_cas_shader_source.h"
 #include "platform/window_drag.h"
 #include "rd_log.h"
 
@@ -381,6 +383,46 @@ size_t AlignUp(size_t value, size_t alignment) {
   return ((value + alignment - 1) / alignment) * alignment;
 }
 
+// Parses FARLINK_METAL_SHARPEN: unset/empty means the automatic gate
+// (sharpen only when scaling or chroma-subsampling softens the picture),
+// "0" forces plain bilinear, any other value in (0, 1] forces that strength.
+// Returns a negative number when automatic gating applies.
+float EnvSharpenOverride() {
+  static const float override_strength = [] {
+    const char* env = std::getenv("FARLINK_METAL_SHARPEN");
+    if (!env || env[0] == '\0') return -1.0f;
+    char* end = nullptr;
+    const float parsed = std::strtof(env, &end);
+    if (end == env || *end != '\0' || !(parsed >= 0.0f)) return -1.0f;
+    return std::min(parsed, 1.0f);
+  }();
+  return override_strength;
+}
+
+// Automatic contrast-adaptive sharpening strength. Upscaling and 4:2:0
+// chroma subsampling both soften one-pixel strokes and subpixel text
+// antialiasing; an exact pixel-1:1 lossless 4:4:4 mapping has nothing to
+// restore and stays pure bilinear so flat regions remain bit-exact.
+float ResolveSharpenStrength(double raster_width, double raster_height,
+                             int source_width, int source_height,
+                             bool subsampled_chroma) {
+  const float env = EnvSharpenOverride();
+  if (env >= 0.0f) return env;
+  if (source_width <= 0 || source_height <= 0) return 0.0f;
+  const bool scaled = std::abs(raster_width - source_width) > 0.5 ||
+                      std::abs(raster_height - source_height) > 0.5;
+  if (scaled) return 0.45f;
+  return subsampled_chroma ? 0.20f : 0.0f;
+}
+
+bool EnvSyncPresentEnabled() {
+  static const bool enabled = [] {
+    const char* env = std::getenv("FARLINK_METAL_SYNC_PRESENT");
+    return env && env[0] == '1';
+  }();
+  return enabled;
+}
+
 enum class SlotUse {
   available,
   pending,
@@ -391,6 +433,10 @@ struct Nv12Color {
   uint32_t full_range = 0;
   uint32_t bt709 = 0;
   float uv_center = 128.0f / 255.0f;
+  // Mirrors the shader struct exactly. Zero reproduces plain bilinear
+  // sampling; the render path derives the strength from scaling and
+  // subsampling (see ResolveSharpenStrength in DrawFrame).
+  float sharpness = 0.0f;
 };
 
 struct FrameSlot {
@@ -411,6 +457,10 @@ struct FrameSlot {
   VideoLatencyFrame timing;
   SlotUse use = SlotUse::available;
   bool valid = false;
+
+  // 4:2:0 chroma subsampling softens text even at 1:1; 4:4:4 lossless does
+  // not. Drives the automatic sharpening gate.
+  bool subsampled_chroma = true;
 
   void ReleaseResources() {
     y_texture = nil;
@@ -443,6 +493,11 @@ struct SharedFrameState {
   std::string selected_stream;
   uint64_t next_sequence = 1;
   uint64_t content_generation = 1;
+  // Last stream/content generation actually committed to the layer. Guarded
+  // by mutex because both the main thread (transition redraws) and the
+  // render queue (steady-state presentation) update them.
+  std::string rendered_stream;
+  uint64_t rendered_content_generation = 0;
 };
 
 bool AllocateSlot(id<MTLDevice> device, FrameSlot& slot, int width,
@@ -505,59 +560,10 @@ bool AllocateSlot(id<MTLDevice> device, FrameSlot& slot, int width,
   return true;
 }
 
-NSString* Nv12ShaderSource() {
-  return @R"metal(
-#include <metal_stdlib>
-using namespace metal;
-
-struct RasterData {
-  float4 position [[position]];
-  float2 texcoord;
-};
-
-vertex RasterData nv12_vertex(uint vertex_id [[vertex_id]]) {
-  constexpr float2 positions[] = {
-    float2(-1.0, -1.0), float2( 1.0, -1.0),
-    float2(-1.0,  1.0), float2( 1.0,  1.0)
-  };
-  constexpr float2 texcoords[] = {
-    float2(0.0, 1.0), float2(1.0, 1.0),
-    float2(0.0, 0.0), float2(1.0, 0.0)
-  };
-  RasterData out;
-  out.position = float4(positions[vertex_id], 0.0, 1.0);
-  out.texcoord = texcoords[vertex_id];
-  return out;
-}
-
-struct Nv12Color {
-  uint full_range;
-  uint bt709;
-  float uv_center;
-};
-
-fragment half4 nv12_fragment(
-    RasterData in [[stage_in]],
-    texture2d<float, access::sample> y_texture [[texture(0)]],
-    texture2d<float, access::sample> uv_texture [[texture(1)]],
-    constant Nv12Color& color [[buffer(0)]]) {
-  constexpr sampler video_sampler(coord::normalized,
-                                  address::clamp_to_edge,
-                                  filter::linear);
-  float y = y_texture.sample(video_sampler, in.texcoord).r;
-  float2 uv = uv_texture.sample(video_sampler, in.texcoord).rg - color.uv_center;
-  if (!color.full_range) {
-    y = (y - 16.0 / 255.0) * (255.0 / 219.0);
-    uv *= 255.0 / 224.0;
-  }
-  const float3 rgb = color.bt709
-      ? float3(y + 1.5748 * uv.y, y - .187324 * uv.x - .468124 * uv.y, y + 1.8556 * uv.x)
-      : float3(y + 1.402 * uv.y, y - .344136 * uv.x - .714136 * uv.y, y + 1.772 * uv.x);
-  return half4(half3(saturate(rgb)), 1.0h);
-}
-)metal";
-}
-
+// The exact shader source compiled by the production renderer lives in
+// metal_cas_shader_source.h so the offscreen GPU verification test
+// (apps/desktop/tests/metal_cas_renderer_test.mm) compiles the same text the
+// app runs instead of a copy.
 }  // namespace
 
 struct MacMetalVideoRenderer::Impl {
@@ -580,15 +586,91 @@ struct MacMetalVideoRenderer::Impl {
   std::shared_ptr<DrawableRequest> drawable_request;
   std::function<void()> drawable_ready;
   std::atomic<bool> attached{false};
-  std::string rendered_stream;
-  uint64_t rendered_content_generation = 0;
   std::shared_ptr<std::atomic<bool>> native_surface_needs_redraw =
       std::make_shared<std::atomic<bool>>(true);
   std::atomic<bool> native_path_logged{false};
   std::atomic<bool> native_fallback_logged{false};
 
+  // Everything an off-main-thread presentation needs, in one refcounted
+  // object. Render-queue blocks capture this shared_ptr instead of touching
+  // Impl/AppKit, so teardown never has to drain the queue synchronously: a
+  // block that runs after detach simply observes attached==false and exits.
+  // CAMetalLayer is retained by the capture, so even a detached layer cannot
+  // dangle; nextDrawable on it either returns nil or renders into a surface
+  // WindowServer no longer composites, which is harmless.
+  struct AsyncRenderState {
+    id<MTLCommandQueue> command_queue = nil;
+    id<MTLRenderPipelineState> pipeline = nil;
+    // Written once on the main thread during Attach before attached flips
+    // true; read-only afterwards. Retained by the async block capture.
+    CAMetalLayer* __strong metal_layer = nil;
+    std::shared_ptr<SharedFrameState> frames;
+    std::shared_ptr<std::atomic<bool>> native_surface_needs_redraw;
+    std::shared_ptr<std::atomic<bool>> detached =
+        std::make_shared<std::atomic<bool>>(false);
+    std::atomic<double> raster_width{0};
+    std::atomic<double> raster_height{0};
+    // Main-thread-cached AppKit facts the render queue must never read
+    // directly. visibility gates the latency statistics exactly like the
+    // synchronous path's window reads did; transitioning routes presentation
+    // through the legacy main-thread drawable handoff while a fullscreen
+    // Space animation holds both drawables.
+    std::atomic<bool> visible{false};
+    std::atomic<bool> transitioning{false};
+    // Coalescing flag for queued presentations on this attachment. Lives in
+    // the shared state because render-queue blocks must never touch Impl
+    // members after teardown: the blocks capture this state object only.
+    std::atomic<bool> render_queued{false};
+    // Latest presented-frame bookkeeping harvested by the UI thread so
+    // RenderOutcome-driven accounting (resolution label, new-frame count)
+    // stays exact even though presentation no longer runs on it. The
+    // latency statistics themselves (frames_presented, inter-present, the
+    // "First frame presented" line) are recorded inside the command-buffer
+    // completion and drawable presented handlers and need no harvesting.
+    mutable std::mutex outcome_mutex;
+    uint64_t outcome_sequence = 0;
+    int outcome_width = 0;
+    int outcome_height = 0;
+    uint64_t outcome_count = 0;
+  };
+
+  // Dedicated user-interactive serial queue owning every steady-state frame
+  // presentation. CAMetalLayer.nextDrawable blocks while both drawables are
+  // in flight in WindowServer; on the Slint main thread that stall froze
+  // input delivery and UI animations for up to a full display interval.
+  // Apple documents nextDrawable and MTLCommandBuffer encoding as thread-
+  // safe off the main thread, so the blocking wait lives here while AppKit
+  // geometry reads stay on the main thread. render_queued coalesces
+  // requests: the newest decoded frame is selected after nextDrawable
+  // returns, never a queued copy.
+  dispatch_queue_t render_queue = nullptr;
+  // Guards async_state replacement at attach/detach. Readers on the decode
+  // threads copy the shared_ptr under this mutex; the state object itself
+  // is immutable once published.
+  mutable std::mutex async_state_mutex;
+  std::shared_ptr<AsyncRenderState> async_state =
+      std::make_shared<AsyncRenderState>();
+  // Set by PublishAsyncGeometry on the main thread once the layer geometry
+  // is known to match the window; cleared on detach. Guards the direct
+  // decode-thread dispatch so the queue never presents into a stale size.
+  std::atomic<bool> geometry_valid{false};
+
+  std::shared_ptr<AsyncRenderState> GetAsyncState() const {
+    std::lock_guard lock(async_state_mutex);
+    return async_state;
+  }
+  // Last async-render outcome count the UI thread has already reported
+  // through RenderLatest. Main thread only; compared against the mutex-
+  // guarded outcome_count inside the async state.
+  uint64_t harvested_outcome_count = 0;
+
   Impl() {
     @autoreleasepool {
+      render_queue = dispatch_queue_create("CrossDesk.MetalVideoRender",
+                                           DISPATCH_QUEUE_SERIAL);
+      dispatch_set_target_queue(
+          render_queue,
+          dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0));
       device = MTLCreateSystemDefaultDevice();
       if (device == nil) {
         LOG_ERROR("Metal video renderer unavailable: no Metal device");
@@ -608,7 +690,7 @@ struct MacMetalVideoRenderer::Impl {
 
       NSError* library_error = nil;
       id<MTLLibrary> library =
-          [device newLibraryWithSource:Nv12ShaderSource()
+          [device newLibraryWithSource:ProductionNv12ShaderSource()
                                options:nil
                                  error:&library_error];
       if (library == nil) {
@@ -635,11 +717,21 @@ struct MacMetalVideoRenderer::Impl {
         LOG_ERROR("Metal NV12 pipeline creation failed: {}",
                   message ? message : "unknown error");
       }
+      async_state->command_queue = command_queue;
+      async_state->pipeline = pipeline;
+      async_state->frames = frames;
+      async_state->native_surface_needs_redraw = native_surface_needs_redraw;
     }
   }
 
   ~Impl() {
     DetachViews();
+    // Mark the shared async state detached so any render-queue block still
+    // waiting inside nextDrawable exits immediately after it returns instead
+    // of committing into a torn-down surface. The state object itself is
+    // captured by those blocks, so resetting it here cannot free memory the
+    // queue still uses.
+    async_state->detached->store(true, std::memory_order_release);
     frames.reset();
     if (texture_cache) {
       CVMetalTextureCacheFlush(texture_cache, 0);
@@ -692,11 +784,24 @@ struct MacMetalVideoRenderer::Impl {
     return nil;
   }
 
+  // Main-thread-only teardown. The shared async state is marked detached
+  // first, so a render-queue block already waiting inside nextDrawable exits
+  // as soon as the call returns instead of committing into a torn-down
+  // surface. The queue is never drained synchronously: a drain could
+  // deadlock if a queue block is inside nextDrawable waiting on WindowServer
+  // while the main thread holds window state WindowServer needs. Blocks
+  // capture the state object, so replacing it here cannot free memory the
+  // queue still uses. In-flight frame slots release through their command-
+  // buffer completion handlers.
   void DetachViews() {
     @autoreleasepool {
       attached.store(false, std::memory_order_release);
+      geometry_valid.store(false, std::memory_order_release);
+      // The state object is immutable once published by Attach, so blocks
+      // running on the render queue never race with teardown writes here:
+      // they only read the detached flag. A re-attach builds a fresh state.
+      async_state->detached->store(true, std::memory_order_release);
       drawable_request.reset();
-      drawable_ready = {};
       NSWindow* window = slint_view.window;
       ((CrossDeskStreamTitleView*)title_accessory_controller.view).resizeVideoHandler = nil;
       if (video_view != nil) {
@@ -721,20 +826,15 @@ struct MacMetalVideoRenderer::Impl {
       video_view = nil;
       slint_view = nil;
       metal_layer = nil;
-      rendered_stream.clear();
-      rendered_content_generation = 0;
+      {
+        std::lock_guard lock(frames->mutex);
+        frames->rendered_stream.clear();
+        frames->rendered_content_generation = 0;
+      }
       native_surface_needs_redraw->store(true, std::memory_order_release);
     }
   }
 
-  MacMetalVideoRenderer::RenderResult MissingDrawableResult() const {
-    native_surface_needs_redraw->store(true, std::memory_order_release);
-    NSWindow* window = slint_view.window;
-    if (window == nil || !window.isVisible || window.isMiniaturized) {
-      return MacMetalVideoRenderer::RenderResult::idle;
-    }
-    return MacMetalVideoRenderer::RenderResult::failed;
-  }
 
   void RestoreVideoViewOrder() {
     if (slint_view == nil || video_view == nil) {
@@ -784,6 +884,83 @@ struct MacMetalVideoRenderer::Impl {
     metal_layer.contentsScale = scale;
     const NSSize limit = [video_view updateViewport];
     return CGSizeMake(limit.width * scale, limit.height * scale);
+  }
+
+  // Publishes the AppKit facts the render queue is not allowed to read into
+  // the async state, then caches the raster geometry for direct submission-
+  // driven presentation. Main thread only.
+  void PublishAsyncGeometry(CGSize raster_limit) {
+    async_state->raster_width.store(raster_limit.width,
+                                    std::memory_order_release);
+    async_state->raster_height.store(raster_limit.height,
+                                     std::memory_order_release);
+    bool visible = false;
+    bool transitioning = false;
+    if (slint_view != nil) {
+      NSWindow* window = slint_view.window;
+      visible = window != nil && window.isVisible && !window.isMiniaturized &&
+          !(video_view != nil && video_view.isHiddenOrHasHiddenAncestor) &&
+          (window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+      transitioning =
+          IsStreamWindowFullscreenTransitioning((__bridge void*)slint_view);
+    }
+    async_state->visible.store(visible, std::memory_order_release);
+    async_state->transitioning.store(transitioning, std::memory_order_release);
+    geometry_valid.store(raster_limit.width > 0 && raster_limit.height > 0,
+                         std::memory_order_release);
+  }
+
+  // Thread-agnostic presentation core. Accesses only the mutex-guarded frame
+  // state, the thread-safe CAMetalLayer and the Metal objects inside the
+  // immutable async state: never AppKit, never Impl members. May run on the
+  // main thread (sync/transition fallback) or on the render queue.
+  static MacMetalVideoRenderer::RenderOutcome RenderFrameCore(
+      const std::shared_ptr<AsyncRenderState>& state,
+      const std::string& remote_id, double raster_width, double raster_height,
+      bool allow_cached_frame, id<CAMetalDrawable> prebound_drawable,
+      double prebound_wait_ms);
+
+  // Dispatches one coalesced presentation onto the render queue. Safe from
+  // any thread. The block captures the immutable async state, never Impl, so
+  // teardown neither drains the queue nor risks a dangling this.
+  void RequestAsyncRender(const std::string& remote_id) {
+    // Copy the shared_ptr under its mutex: Attach replaces it on the main
+    // thread while decode threads read it here.
+    const std::shared_ptr<AsyncRenderState> state = GetAsyncState();
+    if (!attached.load(std::memory_order_acquire) ||
+        !geometry_valid.load(std::memory_order_acquire) ||
+        state->detached->load(std::memory_order_acquire) ||
+        state->transitioning.load(std::memory_order_acquire) ||
+        EnvSyncPresentEnabled() || render_queue == nullptr ||
+        state->metal_layer == nil) {
+      return;
+    }
+    if (state->render_queued.exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    // Copy the stream id: the caller's reference may dangle by the time
+    // the queue runs. The block captures only refcounted or owned objects.
+    const std::string stream_id = remote_id;
+    dispatch_async(render_queue, ^{
+      @autoreleasepool {
+        // Clear before rendering, not after: a frame submitted mid-render
+        // then observes the cleared flag and dispatches its own trailing
+        // pass, so the newest frame is never stranded behind a render that
+        // started before it arrived. The serial queue orders the passes.
+        state->render_queued.store(false, std::memory_order_release);
+        // Re-check inside the queue: detach may have landed while this block
+        // waited behind an in-flight presentation.
+        if (!state->detached->load(std::memory_order_acquire)) {
+          const double width =
+              state->raster_width.load(std::memory_order_acquire);
+          const double height =
+              state->raster_height.load(std::memory_order_acquire);
+          if (width > 0 && height > 0) {
+            RenderFrameCore(state, stream_id, width, height, true, nil, 0);
+          }
+        }
+      }
+    });
   }
 };
 
@@ -993,6 +1170,7 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
                    xf44 ? 32768.0f / 65535.0f : 128.0f / 255.0f};
   if (matrix) CFRelease(matrix);
   target->width = width;
+  target->subsampled_chroma = !yuv444;
   target->height = height;
   target->remote_id.assign(remote_id);
   target->sequence = frames.next_sequence++;
@@ -1003,6 +1181,11 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   if (!impl_->native_path_logged.exchange(true, std::memory_order_acq_rel)) {
     LOG_INFO("macOS VideoToolbox-to-Metal native YUV path enabled");
   }
+  // Present directly from the decode thread: the render queue blocks on
+  // nextDrawable instead of the Slint main thread, and selects this frame
+  // after the drawable arrives. dispatch_async never blocks, so calling it
+  // with the frame mutex held cannot deadlock.
+  impl_->RequestAsyncRender(std::string(remote_id));
   return SubmitResult::submitted;
 }
 
@@ -1096,6 +1279,7 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNv12Internal(
   target->use = SlotUse::pending;
   target->valid = true;
   timing.MarkStage(VideoFrameStage::accepted);
+  impl_->RequestAsyncRender(std::string(remote_id));
   return SubmitResult::submitted;
 }
 
@@ -1141,6 +1325,27 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
     // before it reaches the screen, which is pure added latency for live video.
     impl_->metal_layer.maximumDrawableCount = 2;
     impl_->metal_layer.displaySyncEnabled = YES;
+    // nextDrawable must never spuriously return nil after one second while
+    // the render queue is the only waiter: during heavy WindowServer
+    // pressure a frame could otherwise be dropped silently. The queue
+    // teardown contract does not depend on a timeout — detached is checked
+    // immediately after the wait returns.
+    impl_->metal_layer.allowsNextDrawableTimeout = NO;
+    // Publish a fresh immutable async state for this attachment. The old
+    // state was marked detached by DetachViews; blocks still referencing it
+    // exit on their own.
+    auto fresh_state = std::make_shared<Impl::AsyncRenderState>();
+    fresh_state->command_queue = impl_->command_queue;
+    fresh_state->pipeline = impl_->pipeline;
+    fresh_state->frames = impl_->frames;
+    fresh_state->native_surface_needs_redraw = impl_->native_surface_needs_redraw;
+    fresh_state->metal_layer = impl_->metal_layer;
+    {
+      std::lock_guard lock(impl_->async_state_mutex);
+      impl_->async_state = fresh_state;
+    }
+    impl_->harvested_outcome_count = 0;
+    fresh_state->render_queued.store(false, std::memory_order_release);
 
     [requested_view.superview addSubview:impl_->video_view
                                positioned:NSWindowBelow
@@ -1169,10 +1374,15 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
     title_view.resizeVideoHandler = ^(NSWindow* resized_window) {
       // Native zoom runs a nested AppKit loop. Resize notifications continue
       // while the usual main-queue wakeup for a decoded frame is waiting.
-      if (impl_->rendered_stream.empty() || resized_window.isMiniaturized ||
+      std::string rendered_stream;
+      {
+        std::lock_guard lock(impl_->frames->mutex);
+        rendered_stream = impl_->frames->rendered_stream;
+      }
+      if (rendered_stream.empty() || resized_window.isMiniaturized ||
           !(resized_window.occlusionState & NSWindowOcclusionStateVisible)) return;
       const CGSize size = impl_->metal_layer.drawableSize;
-      DrawFrame(impl_->rendered_stream, size.width, size.height, false);
+      DrawFrame(rendered_stream, size.width, size.height, false);
     };
     impl_->title_accessory_controller.view = title_view;
     [window addTitlebarAccessoryViewController:
@@ -1236,32 +1446,100 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::RenderLatest(
   }
 
   @autoreleasepool {
+    // Geometry and the cached visibility/transition facts are AppKit reads
+    // and stay on the main thread. Publishing them here is what arms the
+    // render queue for direct submission-driven presentation.
     const CGSize raster_limit = impl_->UpdateVideoGeometry(top_inset_points);
+    impl_->PublishAsyncGeometry(raster_limit);
+    if (raster_limit.width <= 0 || raster_limit.height <= 0) {
+      return {RenderResult::idle};
+    }
+    const bool transitioning =
+        impl_->drawable_request ||
+        IsStreamWindowFullscreenTransitioning((__bridge void*)impl_->slint_view);
+    // Fullscreen Space transitions keep the legacy main-thread handoff:
+    // WindowServer can hold both drawables for the whole animation, and the
+    // UI thread must stay free to drive it. Steady-state presentation lives
+    // on the render queue; the sync-present env override forces the legacy
+    // inline path for debugging.
+    if (!transitioning && !EnvSyncPresentEnabled()) {
+      impl_->RequestAsyncRender(std::string(remote_id));
+      // The queue owns presentation now. Harvest the newest outcome it
+      // recorded so the UI bookkeeping (has_frame, resolution label,
+      // new-frame sequence accounting) observes real presentations rather
+      // than the request. Latency statistics never pass through here: the
+      // command-buffer completion and drawable presented handlers record
+      // them exactly once per committed frame.
+      std::lock_guard lock(impl_->async_state->outcome_mutex);
+      if (impl_->async_state->outcome_count !=
+          impl_->harvested_outcome_count) {
+        impl_->harvested_outcome_count = impl_->async_state->outcome_count;
+        return {RenderResult::rendered, impl_->async_state->outcome_width,
+                impl_->async_state->outcome_height,
+                impl_->async_state->outcome_sequence};
+      }
+      return {RenderResult::idle};
+    }
     return DrawFrame(remote_id, raster_limit.width, raster_limit.height, true);
   }
 }
 
+// Main-thread presentation for the fullscreen-transition handoff and the
+// FARLINK_METAL_SYNC_PRESENT=1 debugging fallback. Steady-state frames are
+// presented on the render queue through RequestAsyncRender instead, so a
+// busy WindowServer drawable pool never blocks input or UI delivery here.
 MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
     std::string_view remote_id, double raster_width, double raster_height,
     bool allow_cached_frame) {
   if (raster_width <= 0 || raster_height <= 0) return {RenderResult::idle};
   @autoreleasepool {
-    const bool stream_changed = impl_->rendered_stream != remote_id;
+    id<CAMetalDrawable> drawable = nil;
+    double drawable_wait_ms = 0;
+    if (impl_->drawable_request ||
+        IsStreamWindowFullscreenTransitioning((__bridge void*)impl_->slint_view)) {
+      drawable = impl_->TakeTransitionDrawable(drawable_wait_ms);
+      if (!drawable) return {RenderResult::idle};
+    }
+    return impl_->RenderFrameCore(impl_->async_state, std::string(remote_id),
+                                  raster_width, raster_height,
+                                  allow_cached_frame, drawable, drawable_wait_ms);
+  }
+}
+
+// Thread-agnostic presentation core shared by the render queue and the
+// main-thread fallback paths. Everything it touches is either mutex-guarded
+// or documented thread-safe off the main thread (CAMetalLayer, MTLCommandQueue).
+// When |prebound_drawable| is non-nil the caller already owns a drawable from
+// the fullscreen-transition handoff and no new nextDrawable call is made.
+MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::Impl::RenderFrameCore(
+    const std::shared_ptr<AsyncRenderState>& state,
+    const std::string& remote_id, double raster_width, double raster_height,
+    bool allow_cached_frame, id<CAMetalDrawable> prebound_drawable,
+    double prebound_wait_ms) {
+  using RenderResult = MacMetalVideoRenderer::RenderResult;
+  using RenderOutcome = MacMetalVideoRenderer::RenderOutcome;
+  if (raster_width <= 0 || raster_height <= 0 || state->metal_layer == nil) {
+    return {RenderResult::idle};
+  }
+  @autoreleasepool {
+    CAMetalLayer* layer = state->metal_layer;
+    auto& frames = *state->frames;
     size_t slot_index = kFrameSlotCount;
     uint64_t sequence = 0;
     int source_width = 0;
     int source_height = 0;
+    bool subsampled_chroma = true;
     bool matching_frame_in_flight = false;
     uint64_t content_generation = 0;
     bool redraw_cached_frame = false;
-    // Called only while holding frames->mutex. Select again after nextDrawable:
+    // Called only while holding frames.mutex. Select again after nextDrawable:
     // a decoder callback may replace the pending slot while that call waits.
     const auto select_latest = [&] {
       slot_index = kFrameSlotCount;
       sequence = 0;
       matching_frame_in_flight = false;
-      for (size_t index = 0; index < impl_->frames->slots.size(); ++index) {
-        const auto& slot = impl_->frames->slots[index];
+      for (size_t index = 0; index < frames.slots.size(); ++index) {
+        const auto& slot = frames.slots[index];
         matching_frame_in_flight |= slot.valid &&
             slot.use == SlotUse::in_flight && slot.remote_id == remote_id;
         if (slot.valid && slot.use == SlotUse::pending &&
@@ -1272,8 +1550,8 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
         }
       }
       if (slot_index == kFrameSlotCount && redraw_cached_frame) {
-        for (size_t index = 0; index < impl_->frames->slots.size(); ++index) {
-          const auto& slot = impl_->frames->slots[index];
+        for (size_t index = 0; index < frames.slots.size(); ++index) {
+          const auto& slot = frames.slots[index];
           if (slot.valid && slot.use == SlotUse::available &&
               slot.remote_id == remote_id &&
               (slot_index == kFrameSlotCount || slot.sequence > sequence)) {
@@ -1284,46 +1562,80 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
       }
     };
     {
-      std::lock_guard lock(impl_->frames->mutex);
-      if (impl_->frames->selected_stream != remote_id) {
+      std::lock_guard lock(frames.mutex);
+      if (frames.selected_stream != remote_id) {
         return {RenderResult::idle};
       }
-      content_generation = impl_->frames->content_generation;
+      content_generation = frames.content_generation;
+      const bool stream_changed = frames.rendered_stream != remote_id;
       redraw_cached_frame = allow_cached_frame && (stream_changed ||
-          impl_->native_surface_needs_redraw->load(std::memory_order_acquire) ||
-          impl_->rendered_content_generation != content_generation);
+          state->native_surface_needs_redraw->load(std::memory_order_acquire) ||
+          frames.rendered_content_generation != content_generation);
       select_latest();
       if (slot_index == kFrameSlotCount && !redraw_cached_frame) {
         return {RenderResult::idle};
       }
       if (slot_index != kFrameSlotCount) {
-        source_width = impl_->frames->slots[slot_index].width;
-        source_height = impl_->frames->slots[slot_index].height;
+        source_width = frames.slots[slot_index].width;
+        source_height = frames.slots[slot_index].height;
+        subsampled_chroma = frames.slots[slot_index].subsampled_chroma;
       }
     }
 
-    // Keep letterboxing in the compositor. It can scale the last presented
-    // image with the window even while the remote desktop is idle.
+    // Upscaling sharpening must rasterize at real target pixels: capping the
+    // drawable at the source size would hand WindowServer a small layer to
+    // bilinear-stretch, bypassing the CAS shader entirely. With sharpening
+    // active the layer renders at aspect-preserving Retina resolution
+    // (rounded to even pixels, capped at the viewport raster size); at 1:1
+    // pixel-exact or with sharpening off the historical source-size drawable
+    // keeps letterboxing in the compositor, which can scale the last
+    // presented image with the window even while the remote desktop is idle.
+    float sharpen = 0.0f;
     if (source_width > 0 && source_height > 0) {
-      const CGFloat scale = std::min<CGFloat>({1, raster_width / source_width,
-                                               raster_height / source_height});
-      const CGSize size = CGSizeMake(std::max<CGFloat>(1, std::round(source_width * scale)),
-                                     std::max<CGFloat>(1, std::round(source_height * scale)));
-      if (!CGSizeEqualToSize(impl_->metal_layer.drawableSize, size))
-        impl_->metal_layer.drawableSize = size;
+      sharpen = ResolveSharpenStrength(raster_width, raster_height,
+                                       source_width, source_height,
+                                       subsampled_chroma);
+      double scale;
+      if (sharpen > 0.0f) {
+        scale = std::min(raster_width / source_width,
+                         raster_height / source_height);
+        // Never upscale the backing store beyond 2x the source: past that
+        // point the CAS pass cost grows quadratically for no additional
+        // acutance, and the compositor can cover the remainder.
+        scale = std::min(scale, 2.0);
+      } else {
+        scale = std::min({1.0, raster_width / source_width,
+                          raster_height / source_height});
+      }
+      // Even dimensions keep chroma-subsampled texel centres aligned with
+      // the reconstruction grid.
+      const double even_w = std::max(2.0, 2.0 * std::floor(source_width * scale / 2.0 + 0.5));
+      const double even_h = std::max(2.0, 2.0 * std::floor(source_height * scale / 2.0 + 0.5));
+      const CGSize size = CGSizeMake(even_w, even_h);
+      if (!CGSizeEqualToSize(layer.drawableSize, size))
+        layer.drawableSize = size;
     }
-    double drawable_wait_ms = 0;
-    id<CAMetalDrawable> drawable = nil;
-    if (impl_->drawable_request ||
-        IsStreamWindowFullscreenTransitioning((__bridge void*)impl_->slint_view)) {
-      drawable = impl_->TakeTransitionDrawable(drawable_wait_ms);
-      if (!drawable) return {RenderResult::idle};
-    } else {
+    double drawable_wait_ms = prebound_wait_ms;
+    id<CAMetalDrawable> drawable = prebound_drawable;
+    if (!drawable) {
       const auto start = VideoLatencyFrame::Clock::now();
-      drawable = [impl_->metal_layer nextDrawable];
+      drawable = [layer nextDrawable];
       drawable_wait_ms = std::chrono::duration<double, std::milli>(
           VideoLatencyFrame::Clock::now() - start).count();
-      if (!drawable) return {impl_->MissingDrawableResult()};
+      if (!drawable) {
+        state->native_surface_needs_redraw->store(true, std::memory_order_release);
+        // A hidden or minimized window yields no drawable; that is the idle
+        // condition the legacy path reported, not a failure.
+        if (!state->visible.load(std::memory_order_acquire)) {
+          return {RenderResult::idle};
+        }
+        return {RenderResult::failed};
+      }
+    }
+    // Teardown may have landed while nextDrawable blocked: never commit into
+    // a torn-down surface.
+    if (state->detached->load(std::memory_order_acquire)) {
+      return {RenderResult::idle};
     }
 
     id<MTLTexture> y_texture = nil;
@@ -1331,20 +1643,19 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
     Nv12Color color;
     VideoLatencyFrame timing;
     {
-      std::lock_guard lock(impl_->frames->mutex);
+      std::lock_guard lock(frames.mutex);
       // Discard/reselect can invalidate a stream even if its name is reused.
       // Never carry the old stream's clear or texture into the new generation.
-      if (impl_->frames->selected_stream != remote_id ||
-          impl_->frames->content_generation != content_generation) {
-        impl_->native_surface_needs_redraw->store(true,
-                                                 std::memory_order_release);
+      if (frames.selected_stream != remote_id ||
+          frames.content_generation != content_generation) {
+        state->native_surface_needs_redraw->store(true, std::memory_order_release);
         return {RenderResult::idle};
       }
       select_latest();
       if (slot_index != kFrameSlotCount) {
-        auto& slot = impl_->frames->slots[slot_index];
+        auto& slot = frames.slots[slot_index];
         if (slot.width != source_width || slot.height != source_height) {
-          impl_->native_surface_needs_redraw->store(true, std::memory_order_release);
+          state->native_surface_needs_redraw->store(true, std::memory_order_release);
           return {RenderResult::idle};
         }
         slot.use = SlotUse::in_flight;
@@ -1352,6 +1663,7 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
         uv_texture = slot.uv_texture;
         timing = slot.timing;
         color = slot.color;
+        color.sharpness = sharpen;
       }
     }
     if (slot_index == kFrameSlotCount) {
@@ -1364,20 +1676,22 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
       clear_pass.colorAttachments[0].clearColor =
           MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
       id<MTLCommandBuffer> clear_command =
-          [impl_->command_queue commandBuffer];
+          [state->command_queue commandBuffer];
       id<MTLRenderCommandEncoder> clear_encoder =
           [clear_command renderCommandEncoderWithDescriptor:clear_pass];
       if (clear_command == nil || clear_encoder == nil) {
-        impl_->native_surface_needs_redraw->store(true,
-                                                 std::memory_order_release);
+        state->native_surface_needs_redraw->store(true, std::memory_order_release);
         return {RenderResult::failed};
       }
       [clear_encoder endEncoding];
       [clear_command presentDrawable:drawable];
       [clear_command commit];
-      impl_->rendered_stream.assign(remote_id);
-      impl_->rendered_content_generation = content_generation;
-      impl_->native_surface_needs_redraw->store(
+      {
+        std::lock_guard lock(frames.mutex);
+        frames.rendered_stream.assign(remote_id);
+        frames.rendered_content_generation = content_generation;
+      }
+      state->native_surface_needs_redraw->store(
           matching_frame_in_flight, std::memory_order_release);
       return {RenderResult::empty};
     }
@@ -1388,21 +1702,20 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
     pass.colorAttachments[0].storeAction = MTLStoreActionStore;
     pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
 
-    id<MTLCommandBuffer> command_buffer = [impl_->command_queue commandBuffer];
+    id<MTLCommandBuffer> command_buffer = [state->command_queue commandBuffer];
     id<MTLRenderCommandEncoder> encoder =
         [command_buffer renderCommandEncoderWithDescriptor:pass];
     if (command_buffer == nil || encoder == nil) {
-      std::lock_guard lock(impl_->frames->mutex);
-      auto& slot = impl_->frames->slots[slot_index];
+      std::lock_guard lock(frames.mutex);
+      auto& slot = frames.slots[slot_index];
       if (slot.sequence == sequence && slot.use == SlotUse::in_flight) {
         slot.use = SlotUse::available;
       }
-      impl_->native_surface_needs_redraw->store(true,
-                                                std::memory_order_release);
+      state->native_surface_needs_redraw->store(true, std::memory_order_release);
       return {RenderResult::failed};
     }
 
-    [encoder setRenderPipelineState:impl_->pipeline];
+    [encoder setRenderPipelineState:state->pipeline];
     [encoder setFragmentBytes:&color length:sizeof(color) atIndex:0];
     [encoder setFragmentTexture:y_texture atIndex:0];
     [encoder setFragmentTexture:uv_texture atIndex:1];
@@ -1411,11 +1724,13 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
                 vertexCount:4];
     [encoder endEncoding];
 
-    NSWindow* window = impl_->video_view.window;
-    const bool visible_at_submit = window != nil && window.isVisible &&
-        !window.isMiniaturized && !impl_->video_view.isHiddenOrHasHiddenAncestor &&
-        (window.occlusionState & NSWindowOcclusionStateVisible) != 0;
-    std::shared_ptr<SharedFrameState> completion_frames = impl_->frames;
+    // AppKit window occlusion cannot be read off the main thread, so both
+    // the queue and the synchronous paths share the cached visibility the
+    // main thread publishes on every geometry pass. Latency statistics keep
+    // their exact visible-at-submit semantics.
+    const bool visible_at_submit =
+        state->visible.load(std::memory_order_acquire);
+    std::shared_ptr<SharedFrameState> completion_frames = state->frames;
     [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> completed) {
       {
         std::lock_guard lock(completion_frames->mutex);
@@ -1464,10 +1779,22 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::DrawFrame(
     timing.MarkStage(VideoFrameStage::committed, VideoLatencyFrame::Clock::now(),
                      drawable_wait_ms);
     [command_buffer commit];
-    impl_->rendered_stream.assign(remote_id);
-    impl_->rendered_content_generation = content_generation;
-    impl_->native_surface_needs_redraw->store(false,
-                                              std::memory_order_release);
+    {
+      std::lock_guard lock(frames.mutex);
+      frames.rendered_stream.assign(remote_id);
+      frames.rendered_content_generation = content_generation;
+    }
+    // Feed the UI-thread bookkeeping the presentation it can no longer
+    // observe directly: the resolution label and the new-frame count stay
+    // exact even though presentation runs on the render queue.
+    {
+      std::lock_guard lock(state->outcome_mutex);
+      state->outcome_sequence = sequence;
+      state->outcome_width = source_width;
+      state->outcome_height = source_height;
+      ++state->outcome_count;
+    }
+    state->native_surface_needs_redraw->store(false, std::memory_order_release);
     return {RenderResult::rendered, source_width, source_height, sequence};
   }
 }
