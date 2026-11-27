@@ -209,6 +209,16 @@ struct SharedState {
   // Most recent receive-side playout target delay reported by the receiver
   // peer, in ms; -1 until a non-negative sample arrives (disabled or no video).
   std::atomic<int> video_target_delay_ms{-1};
+  // Peak and time-weighted accumulation of the same target delay across the
+  // session. The wave-4 D4 investigation proved the *final* sample is a
+  // misleading statistic for a live control value — it snapshots whatever
+  // quiet or busy instant the session ended on. The max captures whether
+  // protection ever engaged; the sum/count pair (over non-negative samples)
+  // yields the session-mean target, the honest "what did the estimator hold"
+  // number.
+  std::atomic<int> video_target_delay_max_ms{-1};
+  std::atomic<uint64_t> video_target_delay_sum{0};
+  std::atomic<uint64_t> video_target_delay_samples{0};
 };
 
 SharedState g_state;
@@ -441,9 +451,21 @@ void OnNetStatus(const char*, size_t, MiniRtcTraversalMode,
             stats->video_encode_queue_dropped_in_flight);
   // The playout target delay is reported only by the receiving peer (it is a
   // receive-side mechanism). It is a live value, not a cumulative counter, so
-  // track the most recent non-negative sample rather than a max.
-  if (stats->video_target_delay_ms >= 0)
-    g_state.video_target_delay_ms.store(stats->video_target_delay_ms);
+  // track the most recent non-negative sample — plus the peak and running
+  // sum, because the wave-4 D4 investigation proved the final sample alone is
+  // a misleading snapshot of a live control value: it freezes whatever quiet
+  // or busy instant the session happened to end on.
+  if (stats->video_target_delay_ms >= 0) {
+    const int v = stats->video_target_delay_ms;
+    g_state.video_target_delay_ms.store(v);
+    g_state.video_target_delay_sum.fetch_add(static_cast<uint64_t>(v));
+    g_state.video_target_delay_samples.fetch_add(1);
+    int cur_max = g_state.video_target_delay_max_ms.load();
+    while (v > cur_max &&
+           !g_state.video_target_delay_max_ms.compare_exchange_weak(cur_max,
+                                                                    v)) {
+    }
+  }
 }
 
 
@@ -1025,6 +1047,7 @@ int RunHarness(const Config& config) {
       "\"shape_max_queue_bytes\":%llu,\"shape_loss_dropped_packets\":%llu,"
       "\"wan_delay_ms\":%d,\"wan_jitter_ms\":%d,\"wan_loss_pct\":%.3f,"
       "\"wan_seed\":%llu,\"jitter_buffer\":%s,\"video_target_delay_ms\":%d,"
+      "\"video_target_delay_max_ms\":%d,\"video_target_delay_mean_ms\":%.2f,"
       "\"inter_present\":%s,"
       "\"encoder\":\"%s\",\"decoder\":\"%s\"}\n",
       config.width, config.height, config.fps, codec_name, sent,
@@ -1056,6 +1079,11 @@ int RunHarness(const Config& config) {
       static_cast<unsigned long long>(config.bottleneck_seed),
       config.jitter_buffer ? "true" : "false",
       g_state.video_target_delay_ms.load(),
+      g_state.video_target_delay_max_ms.load(),
+      g_state.video_target_delay_samples.load() > 0
+          ? static_cast<double>(g_state.video_target_delay_sum.load()) /
+                static_cast<double>(g_state.video_target_delay_samples.load())
+          : -1.0,
       ip_json,
       g_state.video_encoder, g_state.video_decoder);
   std::fflush(stdout);
