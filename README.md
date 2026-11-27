@@ -10,10 +10,22 @@ degradation ladder that sacrifices frame rate before resolution, hardware HEVC 4
 branded and black covers, an opt-in macOS headless virtual display
 (`FARLINK_MAC_VIRTUAL_DISPLAY=1`), hardware encoder cold-start priming, a bounded audio
 jitter buffer, 48 kHz stereo Opus
-audio (D11), an adaptive video playout (jitter) buffer (D4), static-screenshare power
+audio (D11), an adaptive video playout (jitter) buffer (D4) with an opt-in
+windowed p95 jitter estimator (`MINIRTC_PLAYOUT_ESTIMATOR=window`, legacy EWMA
+stays default), static-screenshare power
 saving (D5), loss-aware congestion recovery (D3), host screen-lock awareness, a live
 QoE stream-stats overlay with redacted diagnostic export (D8), macOS input ergonomics,
-game/relative-mouse input mode, and machine-readable session observability. Licensed
+game/relative-mouse input mode, machine-readable session observability, zero-cloud
+Wake-on-LAN for saved devices (controller `--wol <mac> [--wol-broadcast <ip>]`,
+MAC learned only from authenticated direct-LAN sessions), consent-gated encrypted
+loopback TCP port forwarding (`--port-forward <local>:<remote>` repeatable on the
+controller, host consent via verified trusted-device proof or the process-lifetime
+`--port-forward-allow <port>[,...]` operator grant; reverse rules
+`--port-forward-reverse` bind only for trusted or one-shot-approved incoming
+sessions; view-only sessions never forward), in-session stream bitrate-cap presets
+(Auto/8M/20M/50M/80M applied live through the subscription bitrate path),
+Ctrl+Alt+←/→ display cycling and Ctrl+Alt+F fullscreen hotkeys, and session-scoped
+macOS host speaker mute with exact RAII state restoration. Licensed
 GPL-3.0-only like
 upstream; the bundled `deps/submodules/minirtc` media library is
 [a Farlink fork](https://github.com/R0smontis/minirtc) of upstream
