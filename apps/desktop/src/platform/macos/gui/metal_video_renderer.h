@@ -66,9 +66,13 @@ class MacMetalVideoRenderer final : public VideoRenderer {
   // scale, stream selection, and retry work without a full session sync.
   bool NeedsSurfaceRedraw() const;
 
-  // Draws the newest queued frame for |remote_id|. top_inset_points reserves
-  // Slint's tab strip above the native video surface. A rendered outcome
-  // carries metadata from the exact slot submitted to the command buffer.
+  // Publishes the AppKit geometry for |remote_id| and, outside fullscreen
+  // transitions, dispatches presentation onto the renderer's dedicated
+  // user-interactive queue instead of drawing inline. The returned outcome
+  // is harvested from the newest frame the queue actually committed, so UI
+  // bookkeeping stays exact even though presentation no longer runs on the
+  // calling thread. top_inset_points reserves Slint's tab strip above the
+  // native video surface.
   RenderOutcome RenderLatest(std::string_view remote_id,
                              double top_inset_points);
 
