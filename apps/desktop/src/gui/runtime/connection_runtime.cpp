@@ -206,6 +206,7 @@ void GuiRuntime::HandlePresenceProbeTimeout() {
 
 void GuiRuntime::HandleServerControllerDisconnected(
     const std::string& remote_id, const char* reason) {
+  ResetPortForwardSession(remote_id);
   if (auto events = ControllerEvents(remote_id))
     transfers_.Cancel(events.get(), remote_id);
   {
@@ -592,6 +593,9 @@ void GuiRuntime::WaitForSessionCleanup() {
 
 void GuiRuntime::ResetRemoteSessionResources(
     std::shared_ptr<RemoteSession> props) {
+  // Tunnel state must not persist past the session: listeners, streams and
+  // buffered bytes all die with the connection that authorized them.
+  ResetPortForwardSession(props->remote_id_);
   // Once per session end, before any reset clears the transport codec report.
   {
     auto codecs = props->net_traffic_stats_.LoadVideoCodecs();
@@ -792,6 +796,7 @@ int GuiRuntime::ConnectTo(const std::string& remote_id, const char* password,
         MiniRtcAddDataStream(props->peer_, props->file_feedback_label_.c_str(), true);
         MiniRtcAddDataStream(props->peer_, props->clipboard_label_.c_str(), true);
         MiniRtcAddDataStream(props->peer_, kClipboardFilesStream, true);
+        MiniRtcAddDataStream(props->peer_, kPortForwardStream, true);
 
         props->connection_status_.store(MiniRtcConnectionStatus::MiniRtcConnectionConnecting);
 

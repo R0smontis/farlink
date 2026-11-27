@@ -178,6 +178,9 @@ struct HostInfo {
   // clipboard messages on the clipboard stream. Senders must never deliver
   // clipboard_image frames to peers that do not advertise it.
   bool supports_clipboard_image;
+  // Optional capability; absent means the peer neither exposes host-side
+  // loopback port forwarding nor understands controller-side forwarding rules.
+  bool supports_port_forward;
 };
 
 struct ServiceStatus {

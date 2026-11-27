@@ -154,6 +154,7 @@ void PeerEventHandler::OnReceiveDataBuffer(
        source_id == runtime->file_feedback_label_ ||
        source_id == runtime->clipboard_label_ ||
        source_id == kClipboardFilesStream ||
+       source_id == kPortForwardStream ||
        source_id == web_clipboard::kStream))
     return;
   // MiniRTC reports the browser's reliable control channel as data-stream.
@@ -166,6 +167,14 @@ void PeerEventHandler::OnReceiveDataBuffer(
   }
   if (source_id == kClipboardFilesStream) {
     runtime->clipboard_.ReceiveFiles(data, size, remote_id, handler);
+    return;
+  }
+  if (source_id == kPortForwardStream) {
+    // Binary framed protocol, never JSON. Admission (capability, interactive
+    // grant, negotiated SRTP, per-direction consent) is enforced by the
+    // controller for every frame; unauthorized or unencrypted sessions are
+    // dropped there with a visible denial.
+    runtime->HandlePortForwardFrame(data, size, handler, remote_id);
     return;
   }
   if (source_id == runtime->file_label_) {
@@ -538,6 +547,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->high_fps_supported_ = remote_action.i.supports_high_fps;
         props->clipboard_image_supported_ =
             remote_action.i.supports_clipboard_image;
+        runtime->NotePortForwardPeerSupport(
+            remote_id, remote_action.i.supports_port_forward);
         props->video_settings_supported_ =
             remote_action.i.supports_video_settings;
         if (first_advertisement && props->video_settings_supported_) {
@@ -597,6 +608,8 @@ void PeerEventHandler::OnReceiveDataBuffer(
             std::move(remote_action.preferred_display_resolutions));
         runtime->SetControllerPrivacySupport(
             remote_id, remote_action.i.supports_privacy_screen);
+        runtime->NotePortForwardPeerSupport(
+            remote_id, remote_action.i.supports_port_forward);
       }
       FreeRemoteAction(remote_action);
     }

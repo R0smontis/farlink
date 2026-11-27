@@ -629,6 +629,8 @@ void PeerEventHandler::OnNetStatusReport(
           status != runtime->connection_status_.end() &&
           status->second == MiniRtcConnectionStatus::MiniRtcConnectionConnected;
     }
+    if (net_traffic_stats)
+      runtime->NoteControllerSrtp(remote_id, net_traffic_stats->srtp_active);
     if (net_traffic_stats && report_codecs) {
       RemoteAction action{};
       action.type = ControlType::video_codec_status;
@@ -725,6 +727,11 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
   // (macOS pasteboard, Windows CF_DIB/WIC, Linux image/png MIME). Legacy
   // peers never advertise this bit and never receive image frames.
   action.i.supports_clipboard_image = UserSessionFeaturesAvailable();
+  // Loopback port forwarding is implemented symmetrically (controller client
+  // + host endpoint) on every desktop platform. The capability advertises
+  // protocol support only — actual forwarding still requires per-connection
+  // admission and explicit destination consent.
+  action.i.supports_port_forward = UserSessionFeaturesAvailable();
 #endif
   for (std::size_t i = 0; i < action.i.display_num; ++i)
     LOG_INFO("Local display [{}:{}]", i + 1, action.i.display_list[i]);

@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <utility>
 #include <string>
 
@@ -99,6 +100,16 @@ class ConfigCenter {
   int SetPortableServicePromptSuppressed(bool suppressed);
   int SetLastPresentedRelease(const std::string& version);
   int SetFileTransferSavePath(const std::string& path);
+  // Host-side consent: the exact destination TCP ports an incoming controller
+  // device may ask this host to connect to on 127.0.0.1. Persisted per
+  // device key; unknown devices default to the empty set (deny all). Only
+  // ports 1-65535 are stored; zero and duplicates never reach the file.
+  int SetPortForwardAllowlist(const std::string& device,
+                              const std::set<std::uint16_t>& ports);
+  // Controller-side rules for one outgoing device: pairs of
+  // loopback local listen port -> remote loopback destination port.
+  int SetPortForwardRules(const std::string& device,
+                          const std::map<std::uint16_t, std::uint16_t>& rules);
 
   // read config
 
@@ -147,6 +158,9 @@ class ConfigCenter {
   bool IsPortableServicePromptSuppressed() const;
   std::string GetLastPresentedRelease() const;
   std::string GetFileTransferSavePath() const;
+  std::set<std::uint16_t> GetPortForwardAllowlist(const std::string& device) const;
+  std::map<std::uint16_t, std::uint16_t> GetPortForwardRules(
+      const std::string& device) const;
 
   int Load();
   int Save();
@@ -206,6 +220,9 @@ class ConfigCenter {
   bool portable_service_prompt_suppressed_ = false;
   std::string last_presented_release_;
   std::string file_transfer_save_path_ = "";
+  std::map<std::string, std::set<std::uint16_t>> device_port_forward_allowlist_;
+  std::map<std::string, std::map<std::uint16_t, std::uint16_t>>
+      device_port_forward_rules_;
 };
 }  // namespace crossdesk
 #endif

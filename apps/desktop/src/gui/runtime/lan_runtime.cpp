@@ -21,6 +21,7 @@ void GuiRuntime::RegisterStreams(MiniRtcPeerPtr* peer, size_t displays) {
         file_feedback_label_, clipboard_label_})
     MiniRtcAddDataStream(peer, label.c_str(), true);
   MiniRtcAddDataStream(peer, kClipboardFilesStream, true);
+  MiniRtcAddDataStream(peer, kPortForwardStream, true);
 }
 void GuiRuntime::InitializeLan() {
   if (unattended_host_ || stopping_ || lan_ ||

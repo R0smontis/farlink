@@ -379,6 +379,17 @@ function setup_targets()
             "apps/desktop/src/gui/runtime")
         add_files("apps/desktop/tests/cursor_position_test.cpp")
 
+    target("port_forward_tunnel_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("crossdesk_wire")
+        add_includedirs("apps/desktop/src/tools")
+        add_files("apps/desktop/tests/port_forward_tunnel_test.cpp",
+            "apps/desktop/src/tools/port_forward_tunnel.cpp")
+        if is_os("windows") then
+            add_syslinks("Ws2_32")
+        end
+
     target("lan_discovery_test")
         set_kind("binary")
         set_default(false)

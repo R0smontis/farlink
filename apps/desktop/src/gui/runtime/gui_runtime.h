@@ -12,13 +12,17 @@
 #include <cstdint>
 #include <deque>
 #include <future>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "desktop_automation.h"
 #include "features/clipboard/clipboard_controller.h"
 #include "features/devices/session_device_manager.h"
 #include "features/file_transfer/file_transfer_manager.h"
+#include "features/port_forward/port_forward_controller.h"
 #include "features/input/keyboard_controller.h"
 #include "features/input/remote_input_dispatcher.h"
 #include "features/settings/settings_manager.h"
@@ -127,6 +131,42 @@ class GuiRuntime : protected gui_detail::GuiState {
   void SyncPrivacyScreenSettings();
   void HandleScreenLock();
   bool IsAuthorizedController(const std::string& remote_id);
+  // Port forwarding (Wave 4B). Admission requires the advertised capability,
+  // an interactive control grant, negotiated SRTP, and direction-specific
+  // consent; see port_forward_runtime.cpp for the exact contract.
+  int SendPortForwardData(const std::string& remote_id, const char* data,
+                          std::size_t size);
+  bool PortForwardSessionSecure(const std::string& remote_id);
+  bool PortForwardClientActive(const std::string& remote_id);
+  std::set<std::uint16_t> HostPortForwardAllowlist(const std::string& remote_id);
+  void NotePortForwardPeerSupport(const std::string& remote_id, bool supported);
+  void HandlePortForwardFrame(const char* data, std::size_t size,
+                              PeerEventHandler* source,
+                              const std::string& remote_id);
+  void PollPortForward();
+  void ResetPortForwardSession(const std::string& remote_id);
+  void NoteControllerSrtp(const std::string& remote_id, bool srtp_active);
+  // Stable per-device key used to scope consent and rules (signal sessions
+  // key by server+id, LAN sessions by device id). Empty for unknown sessions.
+  std::vector<std::string> PortForwardAttachableSessions();
+  bool PortForwardConnectionInitiator(const std::string& remote_id);
+  std::string PortForwardDeviceKey(const std::string& remote_id);
+  std::map<std::uint16_t, std::uint16_t> ConfiguredPortForwardRules(
+      const std::string& device_key);
+  // Operator workflow surface for the UI: manage controller-side rules for
+  // an outgoing session and host-side consent for a controller device. All
+  // validation errors are returned as human-readable text; nothing is ever
+  // widened silently.
+  bool AddPortForwardRule(const std::string& remote_id, std::uint16_t local_port,
+                          std::uint16_t remote_port, bool persist,
+                          std::string* error);
+  bool RemovePortForwardRule(const std::string& remote_id,
+                             std::uint16_t local_port, bool persist);
+  bool SetHostPortForwardConsent(const std::string& device_key,
+                                 const std::set<std::uint16_t>& ports,
+                                 std::string* error);
+  PortForwardController::SessionSnapshot PortForwardSnapshot(
+      const std::string& remote_id) const;
   void InitializeTrustedDevices(const std::filesystem::path& directory);
   bool PublishSharedIdentity(bool include_config = false);
   bool PrepareSharedGuiIdentity(bool import_existing);
@@ -323,6 +363,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   bool privacy_settings_changed_ = false;
   uint32_t last_privacy_revision_ = 0;
   uint64_t last_privacy_status_tick_ = 0;
+  PortForwardController port_forward_;
   ClipboardController clipboard_;
   SessionDeviceManager devices_;
   FileTransferManager transfers_;
@@ -344,6 +385,7 @@ class GuiRuntime : protected gui_detail::GuiState {
   }
 
  private:
+  friend class PortForwardController;
   friend class ClipboardController;
   friend class SessionDeviceManager;
   friend class FileTransferManager;

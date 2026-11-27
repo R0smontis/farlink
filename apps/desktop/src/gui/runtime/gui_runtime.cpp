@@ -29,7 +29,7 @@
 namespace crossdesk {
 
 GuiRuntime::GuiRuntime()
-    : clipboard_(*this), devices_(*this), transfers_(*this), settings_(*this),
+    : port_forward_(*this), clipboard_(*this), devices_(*this), transfers_(*this), settings_(*this),
       keyboard_(*this),
       remote_input_(
           [this](const std::string& id, const RemoteAction& action) {
