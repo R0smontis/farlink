@@ -55,6 +55,7 @@
 #include "filesystem_utf8.h"
 #include "app/launch_options.h"
 #include "localization.h"
+#include "network/lan/wake_on_lan.h"
 #include "platform.h"
 #include "platform/machine_identity.h"
 #ifndef __OHOS__
@@ -2151,6 +2152,40 @@ void GuiApplication::BindMainCallbacks(bool gallery_window) {
       reload_recent_connections_ = true;
     }
   });
+  main->on_wake_device([this, main](slint::SharedString id) {
+    const std::string remote_id(id);
+    const int language = localization::detail::ClampLanguageIndex(
+        localization_language_index_);
+    const auto connection = std::find_if(
+        recent_connections_.begin(), recent_connections_.end(),
+        [&](const auto& entry) { return entry.second.remote_id == remote_id; });
+    const auto fail = [&](const char* key) {
+      main->set_wake_notice(UiText(localization::Literal(key, language)));
+      main->set_wake_notice_error(true);
+    };
+    if (connection == recent_connections_.end() ||
+        connection->second.wake_mac_address.empty()) {
+      fail("唤醒包发送失败");
+      return;
+    }
+    const auto mac =
+        lan::ParseMacAddress(connection->second.wake_mac_address);
+    if (!mac) {
+      fail("MAC 地址无效");
+      return;
+    }
+    std::string error;
+    // A directed broadcast needs the target subnet, which a sleeping host
+    // cannot advertise; the default fan-out reaches every local segment.
+    if (!lan::SendMagicPacket(*mac, {}, 9, &error)) {
+      fail("唤醒包发送失败");
+      return;
+    }
+    // Delivery is link-local: sent means on the wire, never already awake.
+    main->set_wake_notice(UiText(localization::Literal(
+        "唤醒包已发送；设备上线后即可连接", language)));
+    main->set_wake_notice_error(false);
+  });
   main->on_browse_save_path([this, main] {
     const char* folder = tinyfd_selectFolderDialog(
         localization::file_transfer_save_path[localization_language_index_]
@@ -3825,6 +3860,7 @@ void GuiApplication::SyncMainWindow() {
         !item.lan && device_presence_cache_.IsOnline(connection.remote_id);
     item.connected = is_connected(connection.remote_id);
     item.platform = UiText(HostPlatformName(connection.platform));
+    item.wake_mac = UiText(connection.wake_mac_address);
     if (save_previews && !connection.image_path.empty()) {
       const auto path = connection.image_path.string();
       auto cached = ui_->recent_preview_images.find(path);

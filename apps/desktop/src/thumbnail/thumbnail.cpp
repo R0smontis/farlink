@@ -24,6 +24,7 @@
 
 #include "libyuv.h"
 #include "rd_log.h"
+#include "network/lan/wake_on_lan.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -132,7 +133,7 @@ bool Thumbnail::WriteRecord(const RecentConnection& connection) {
   const auto path =
       std::filesystem::path(save_path_) / (connection.remote_id + ".json");
   const auto temporary = path.string() + ".tmp";
-  const nlohmann::json record = {
+  nlohmann::json record = {
       {"version", 2},
       {"kind", connection.lan.device_id.empty() ? "cloud_id" : "lan_direct"},
       {"lan",
@@ -143,6 +144,8 @@ bool Thumbnail::WriteRecord(const RecentConnection& connection) {
       {"host_name", connection.remote_host_name},
       {"password", password},
       {"platform", HostPlatformName(connection.platform)}};
+  if (!connection.wake_mac_address.empty())
+    record["wake_mac_address"] = connection.wake_mac_address;
   std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
   output << record.dump();
   output.close();
@@ -192,6 +195,13 @@ bool Thumbnail::ReadRecord(const std::filesystem::path& path,
     connection->password =
         password.empty() ? "" : AES_decrypt(password, aes128_key_, aes128_iv_);
     connection->remember_password = !connection->password.empty();
+    connection->wake_mac_address.clear();
+    const auto wake_mac = record.value("wake_mac_address", "");
+    if (!wake_mac.empty()) {
+      const auto parsed = lan::ParseMacAddress(wake_mac);
+      if (!parsed) return false;
+      connection->wake_mac_address = lan::FormatMacAddress(*parsed);
+    }
     connection->platform =
         ParseHostPlatform(record.value("platform", "unknown"));
     const auto image = path.parent_path() / (connection->remote_id + ".png");
@@ -218,7 +228,8 @@ int Thumbnail::SaveToThumbnail(const char* nv12, int width, int height,
                                const std::string& remote_id,
                                const std::string& host_name,
                                const std::string& password,
-                               HostPlatform platform, const LanTarget* lan) {
+                               HostPlatform platform, const LanTarget* lan,
+                               std::string_view wake_mac_address) {
   std::lock_guard lock(mutex_);
   // Successful connections are history even without saved credentials.
   if (lan ? (!IsLanRecordId(remote_id) ||
@@ -234,6 +245,11 @@ int Thumbnail::SaveToThumbnail(const char* nv12, int width, int height,
   connection.password = password;
   connection.remember_password = !connection.password.empty();
   if (platform != HostPlatform::Unknown) connection.platform = platform;
+  if (!wake_mac_address.empty()) {
+    const auto wake_mac = lan::ParseMacAddress(wake_mac_address);
+    if (!wake_mac) return -1;
+    connection.wake_mac_address = lan::FormatMacAddress(*wake_mac);
+  }
   if (!WriteRecord(connection)) return -1;
 
   const auto image = std::filesystem::path(save_path_) / (remote_id + ".png");

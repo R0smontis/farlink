@@ -578,6 +578,12 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"音频抖动", {"音频抖动", "Audio jitter", "Джиттер аудио", "音訊抖動", "音声ジッター", "오디오 지터", "Audio-Jitter", "Gigue audio", "Jitter de audio", "Jitter de áudio"}},
   {"键盘快捷键", {"键盘快捷键", "Keyboard shortcuts", "Сочетания клавиш", "鍵盤快速鍵", "キーボードショートカット", "키보드 단축키", "Tastenkürzel", "Raccourcis clavier", "Atajos de teclado", "Atalhos de teclado"}},
   {"优先本机", {"优先本机", "Prefer local", "Локальный приоритет", "優先本機", "ローカル優先", "로컬 우선", "Lokal bevorzugen", "Local d'abord", "Preferir local", "Preferir local"}},
+  {"远程唤醒", {"远程唤醒", "Wake", "Пробудить", "遠端喚醒", "Wake-on-LAN", "원격 깨우기", "Aufwecken", "Réveiller", "Activar", "Despertar"}},
+  {"唤醒包已发送", {"唤醒包已发送", "Wake packet sent", "Пакет пробуждения отправлен", "喚醒封包已傳送", "Wake パケットを送信しました", "Wake 패킷 전송됨", "Wake-Paket gesendet", "Paquet Wake envoyé", "Paquete Wake enviado", "Pacote Wake enviado"}},
+  {"唤醒包发送失败", {"唤醒包发送失败", "Wake packet failed", "Не удалось отправить пакет пробуждения", "喚醒封包傳送失敗", "Wake パケットの送信に失敗しました", "Wake 패킷 전송 실패", "Wake-Paket fehlgeschlagen", "Échec de l’envoi du paquet Wake", "Error al enviar el paquete Wake", "Falha ao enviar pacote Wake"}},
+  {"唤醒包已发送；设备上线后即可连接", {"唤醒包已发送；设备上线后即可连接", "Wake packet sent; connect when the device is online", "Пакет пробуждения отправлен; подключитесь, когда устройство будет в сети", "喚醒封包已傳送；裝置上線後即可連接", "Wake パケットを送信しました。デバイスがオンラインになったら接続できます", "Wake 패킷을 보냈습니다. 기기가 온라인이 되면 연결하세요", "Wake-Paket gesendet; verbinden, sobald das Gerät online ist", "Paquet Wake envoyé ; connectez-vous lorsque l’appareil est en ligne", "Paquete Wake enviado; conéctate cuando el dispositivo esté en línea", "Pacote Wake enviado; conecte quando o dispositivo estiver online"}},
+  {"MAC 地址", {"MAC 地址", "MAC address", "MAC-адрес", "MAC 位址", "MAC アドレス", "MAC 주소", "MAC-Adresse", "Adresse MAC", "Dirección MAC", "Endereço MAC"}},
+  {"MAC 地址无效", {"MAC 地址无效", "Invalid MAC address", "Недопустимый MAC-адрес", "MAC 位址無效", "MAC アドレスが無効です", "잘못된 MAC 주소", "Ungültige MAC-Adresse", "Adresse MAC invalide", "Dirección MAC no válida", "Endereço MAC inválido"}},
 };
 
 struct NamedTranslation { const char* name; const char* literal; };
@@ -897,6 +903,12 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"keyboard_shortcuts", "键盘快捷键"},
   {"shortcut_prefer_local", "优先本机"},
   {"shortcut_send_to_remote", "发送到远端"},
+  {"wake_device", "远程唤醒"},
+  {"wake_packet_sent", "唤醒包已发送"},
+  {"wake_packet_failed", "唤醒包发送失败"},
+  {"wake_packet_sent_online_hint", "唤醒包已发送；设备上线后即可连接"},
+  {"mac_address", "MAC 地址"},
+  {"invalid_mac_address", "MAC 地址无效"},
 };
 inline constexpr const char* kSlintLiterals[] = {
   "此端口已被占用，",
@@ -1115,6 +1127,12 @@ inline constexpr const char* kSlintLiterals[] = {
   "对端地址",
   "低负载编码",
   "从下一次桌面连接起，优先使用编码器支持的低负载设置。已有连接沿用原设置。",
+  "远程唤醒",
+  "唤醒包已发送",
+  "唤醒包发送失败",
+  "唤醒包已发送；设备上线后即可连接",
+  "MAC 地址",
+  "MAC 地址无效",
 };
 }  // namespace detail
 
@@ -1433,7 +1451,13 @@ inline constexpr const char* kSlintLiterals[] = {
   X(stats_audio_jitter) \
   X(keyboard_shortcuts) \
   X(shortcut_prefer_local) \
-  X(shortcut_send_to_remote)
+  X(shortcut_send_to_remote) \
+  X(wake_device) \
+  X(wake_packet_sent) \
+  X(wake_packet_failed) \
+  X(wake_packet_sent_online_hint) \
+  X(mac_address) \
+  X(invalid_mac_address)
 
 }  // namespace localization
 }  // namespace crossdesk

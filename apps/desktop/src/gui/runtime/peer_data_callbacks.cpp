@@ -22,6 +22,7 @@
 #include "device_controller.h"
 #include "file_transfer.h"
 #include "localization.h"
+#include "network/lan/wake_on_lan.h"
 #include "filesystem_utf8.h"
 #include "platform.h"
 #include "rd_log.h"
@@ -521,6 +522,15 @@ void PeerEventHandler::OnReceiveDataBuffer(
         props->recent_platform_ = remote_action.i.platform;
         props->remote_app_version_ = IsValidAppVersion(remote_action.i.app_version)
                                         ? remote_action.i.app_version : "";
+        // Learn the wake target only on authenticated direct LAN sessions;
+        // cloud peers never receive the field and therefore cannot seed one.
+        if (props->lan_session_ && remote_action.i.mac_address[0] != '\0') {
+          if (const auto wake_mac =
+                  lan::ParseMacAddress(remote_action.i.mac_address)) {
+            props->recent_wake_mac_address_ = lan::FormatMacAddress(*wake_mac);
+            props->recent_connection_dirty_ = true;
+          }
+        }
       }
       // Negotiate live settings only on the reliable control stream. Old
       // hosts omit this capability and retain their existing video behavior.

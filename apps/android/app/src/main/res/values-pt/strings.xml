@@ -389,4 +389,10 @@
     <string name="text_53b856ab7ac9d8e2" formatted="false">"Falha na conexão IP direta. Verifique o endereço, a porta e a rede do computador."</string>
     <string name="text_3a940622a8012b31" formatted="false">"Endereço local"</string>
     <string name="text_2c5e32d2c5de5c2b" formatted="false">"Endereço remoto"</string>
+    <string name="text_3b049671f210c746" formatted="false">"Despertar"</string>
+    <string name="text_58d665d873c74b59" formatted="false">"Pacote Wake enviado"</string>
+    <string name="text_8b0702a8d6e6e292" formatted="false">"Falha ao enviar pacote Wake"</string>
+    <string name="text_9e2abc4a845928f1" formatted="false">"Pacote Wake enviado; conecte quando o dispositivo estiver online"</string>
+    <string name="text_dd3fec00b93499b0" formatted="false">"Endereço MAC"</string>
+    <string name="text_c758a91a32da20e2" formatted="false">"Endereço MAC inválido"</string>
 </resources>

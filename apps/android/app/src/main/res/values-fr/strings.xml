@@ -389,4 +389,10 @@
     <string name="text_53b856ab7ac9d8e2" formatted="false">"Échec de la connexion IP directe. Vérifiez l’adresse, le port et le réseau de l’ordinateur."</string>
     <string name="text_3a940622a8012b31" formatted="false">"Adresse locale"</string>
     <string name="text_2c5e32d2c5de5c2b" formatted="false">"Adresse distante"</string>
+    <string name="text_3b049671f210c746" formatted="false">"Réveiller"</string>
+    <string name="text_58d665d873c74b59" formatted="false">"Paquet Wake envoyé"</string>
+    <string name="text_8b0702a8d6e6e292" formatted="false">"Échec de l’envoi du paquet Wake"</string>
+    <string name="text_9e2abc4a845928f1" formatted="false">"Paquet Wake envoyé ; connectez-vous lorsque l’appareil est en ligne"</string>
+    <string name="text_dd3fec00b93499b0" formatted="false">"Adresse MAC"</string>
+    <string name="text_c758a91a32da20e2" formatted="false">"Adresse MAC invalide"</string>
 </resources>

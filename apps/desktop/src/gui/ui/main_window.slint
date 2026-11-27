@@ -34,6 +34,7 @@ export struct RecentConnection {
     thumbnail: image,
     has-thumbnail: bool,
     platform: string,
+    wake-mac: string,
 }
 
 export struct LanDiscoveredPeer {
@@ -781,6 +782,9 @@ export component MainWindow inherits Window {
     callback recent-disconnect(string);
     callback recent-edit-alias(string, string);
     callback recent-delete(string);
+    callback wake-device(string);
+    in-out property <string> wake-notice;
+    in-out property <bool> wake-notice-error: false;
     callback save-settings() -> bool;
     callback cancel-settings;
     callback refresh-autostart-status;
@@ -2004,10 +2008,11 @@ export component MainWindow inherits Window {
                                 items: [
                                     {label: GalleryStrings.texts[35], enabled: true},
                                     {label: GalleryStrings.texts[30], enabled: !connection.lan},
+                                    {label: GalleryStrings.texts[216], enabled: connection.wake-mac != ""},
                                     {label: GalleryStrings.texts[95], enabled: true},
                                 ];
-                                item-icons: [FontAwesomeIcons.pen, FontAwesomeIcons.tags, FontAwesomeIcons.trash-can];
-                                destructive-index: 2;
+                                item-icons: [FontAwesomeIcons.pen, FontAwesomeIcons.tags, FontAwesomeIcons.power-off, FontAwesomeIcons.trash-can];
+                                destructive-index: 3;
                                 opened => { root.recent-tooltip-visible = false; root.copy-feedback = CopyFeedback.idle; }
                                 selected(action) => {
                                     root.copy-feedback = CopyFeedback.idle;
@@ -2018,6 +2023,8 @@ export component MainWindow inherits Window {
                                     } else if action == 1 {
                                         root.open-device-groups(connection.remote-id, connection.display-name);
                                     } else if action == 2 {
+                                        root.wake-device(connection.remote-id);
+                                    } else if action == 3 {
                                         root.delete-remote-id = connection.remote-id;
                                         root.delete-from-gallery = false;
                                         root.delete-open = true;
@@ -2518,6 +2525,23 @@ export component MainWindow inherits Window {
             ? GalleryStrings.texts[102]
             : root.lan-mode ? GalleryStrings.texts[103] : UiStrings.copied;
         z: 30;
+    }
+
+    wake-timer := Timer {
+        interval: 4s;
+        running: root.wake-notice != "";
+        triggered => { root.wake-notice = ""; root.wake-notice-error = false; }
+    }
+    // Sent means the packet reached the wire, not that the device is online;
+    // the localized text states that explicitly.
+    if !root.gallery-mode && root.wake-notice != "": WorkbenchNotice {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 - 24px;
+        width-limit: min(440px, parent.width - 40px);
+        error: root.wake-notice-error;
+        icon: self.error ? FontAwesomeIcons.xmark : FontAwesomeIcons.check;
+        text: root.wake-notice;
+        z: 31;
     }
 
     // Reset password modal.

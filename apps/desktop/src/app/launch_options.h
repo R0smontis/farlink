@@ -35,6 +35,12 @@ struct LaunchOptions {
   // capturing instance's stream startup through replayd, so two instances on
   // one machine must not both initialize capture. Read once at startup.
   bool no_local_capture = false;
+  // --wol <mac> [--wol-broadcast <ip>]: send a Wake-on-LAN magic packet and
+  // exit before any instance acquisition or GUI startup, so scripted power
+  // management never disturbs a running session.
+  bool wol = false;
+  std::string wol_mac;
+  std::string wol_broadcast;
 };
 
 // Storage backing the process-wide launch options. main() must call

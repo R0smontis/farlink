@@ -389,4 +389,10 @@
     <string name="text_53b856ab7ac9d8e2" formatted="false">"IP 直連失敗，請檢查電腦的直連位址、連接埠和網路。"</string>
     <string name="text_3a940622a8012b31" formatted="false">"本端位址"</string>
     <string name="text_2c5e32d2c5de5c2b" formatted="false">"對端位址"</string>
+    <string name="text_3b049671f210c746" formatted="false">"遠端喚醒"</string>
+    <string name="text_58d665d873c74b59" formatted="false">"喚醒封包已傳送"</string>
+    <string name="text_8b0702a8d6e6e292" formatted="false">"喚醒封包傳送失敗"</string>
+    <string name="text_9e2abc4a845928f1" formatted="false">"喚醒封包已傳送；裝置上線後即可連接"</string>
+    <string name="text_dd3fec00b93499b0" formatted="false">"MAC 位址"</string>
+    <string name="text_c758a91a32da20e2" formatted="false">"MAC 位址無效"</string>
 </resources>

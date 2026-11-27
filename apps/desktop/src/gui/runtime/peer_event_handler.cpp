@@ -22,6 +22,7 @@
 #include "platform.h"
 #include "platform/video_renderer.h"
 #include "rd_log.h"
+#include "network/lan/wake_on_lan.h"
 #include "rendering/video_frame_diagnostics.h"
 #include "runtime/gui_runtime.h"
 #if defined(__linux__) && !defined(__OHOS__)
@@ -692,9 +693,16 @@ void PeerEventHandler::OnNetStatusReport(
   }
 }
 std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
-    const std::vector<DisplayResolutionPreference>& preferences) {
+    const std::vector<DisplayResolutionPreference>& preferences,
+    bool include_wake_mac) {
   auto action = MakeHostInformation(GetHostName(), devices_.host_display_list(),
       UserSessionFeaturesAvailable(), CROSSDESK_VERSION, kClientPlatform);
+  if (include_wake_mac) {
+    if (const auto mac = lan::GetPrimaryLocalMacAddress()) {
+      const std::string formatted = lan::FormatMacAddress(*mac);
+      std::memcpy(action.i.mac_address, formatted.c_str(), formatted.size() + 1);
+    }
+  }
   action.display_resolutions = QueryHostDisplayResolutions();
   action.preferred_display_resolutions = preferences;
   action.i.supports_video_settings = true;
@@ -739,7 +747,11 @@ std::string GuiRuntime::BuildHostInformation(bool advertise_trust,
 }
 
 void GuiRuntime::AnnounceHostCapabilities(const std::string& id) {
-  const auto message = BuildHostInformation();
+  // LAN controllers hold key format "lan/<hex>". Only they can use a wake
+  // frame on the host's link; cloud controllers receive the same capabilities
+  // without the station address.
+  const bool direct_controller = id.rfind("lan/", 0) == 0;
+  const auto message = BuildHostInformation(false, {}, direct_controller);
   const int ret = SendControllerData(id, message.data(), message.size(), control_data_label_.c_str());
   if (ret != 0) LOG_WARN("Host information send failed, ret={}", ret);
 }
