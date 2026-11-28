@@ -1217,7 +1217,7 @@ bool CrossDeskServiceHost::LaunchUnattendedHost(DWORD session_id) {
   }
   const auto executable =
       std::filesystem::path(GetCurrentExecutablePathW()).parent_path() /
-      L"CrossDesk.exe";
+      L"Farlink.exe";
   GUID nonce{};
   wchar_t guid[40]{};
   if (FAILED(CoCreateGuid(&nonce)) || !StringFromGUID2(nonce, guid, 40))

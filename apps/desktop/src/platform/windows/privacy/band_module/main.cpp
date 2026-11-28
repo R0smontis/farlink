@@ -20,7 +20,7 @@
 
 namespace {
 using namespace crossdesk;
-constexpr wchar_t kWindowClass[] = L"CrossDesk.HighBandPrivacy";
+constexpr wchar_t kWindowClass[] = L"Farlink.HighBandPrivacy";
 constexpr DWORD kCoverStyles = WS_EX_TOPMOST | WS_EX_NOACTIVATE |
                                WS_EX_TOOLWINDOW | WS_EX_LAYERED |
                                WS_EX_TRANSPARENT;

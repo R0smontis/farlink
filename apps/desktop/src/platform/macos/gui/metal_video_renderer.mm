@@ -383,7 +383,7 @@ static void CrossDeskRunloopWakePerform(void* info) {
 
 - (void)threadMainWithLayer:(CAMetalLayer*)layer {
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
-  pthread_setname_np("CrossDesk.MetalDisplayLink");
+  pthread_setname_np("Farlink.MetalDisplayLink");
   @autoreleasepool {
     CFRunLoopRef runloop = CFRunLoopGetCurrent();
     CFRetain(runloop);
@@ -1030,7 +1030,7 @@ struct MacMetalVideoRenderer::Impl {
 
   Impl() {
     @autoreleasepool {
-      render_queue = dispatch_queue_create("CrossDesk.MetalVideoRender",
+      render_queue = dispatch_queue_create("Farlink.MetalVideoRender",
                                            DISPATCH_QUEUE_SERIAL);
       dispatch_set_target_queue(
           render_queue,

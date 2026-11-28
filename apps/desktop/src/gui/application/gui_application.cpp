@@ -1311,7 +1311,7 @@ int GuiApplication::Run(bool login_launch) {
   StartMacPermissionMigration(false);
 #endif
 
-  LOG_INFO("CrossDesk version: {} (Slint UI)", CROSSDESK_VERSION);
+  LOG_INFO("Farlink version: {} (Slint UI)", CROSSDESK_VERSION);
 
   strncpy(signal_server_ip_self_, config_center_->GetSignalServerHost().c_str(),
           sizeof(signal_server_ip_self_) - 1);

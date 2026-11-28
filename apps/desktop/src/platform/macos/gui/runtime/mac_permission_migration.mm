@@ -99,7 +99,7 @@ MacPermissionMigrationResult Migrate(bool retry) {
     throw std::runtime_error("Run Farlink as the logged-in user to migrate permissions");
   }
 
-  platform::SingleInstanceGuard guard("CrossDeskPermissionMigration");
+  platform::SingleInstanceGuard guard("FarlinkPermissionMigration");
   std::string lock_error;
   if (guard.TryAcquire(platform::InstanceRole::kClient, lock_error) !=
       platform::InstanceResult::kAcquired) {

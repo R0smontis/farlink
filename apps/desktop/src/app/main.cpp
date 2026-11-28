@@ -286,7 +286,7 @@ static int RunApplication(int argc, char* argv[], bool login_launch) {
   path_manager->CreateDirectories(path_manager->GetCachePath());
 #endif
   crossdesk::get_logger()->info(
-      "CrossDesk executable: {}",
+      "Farlink executable: {}",
       std::filesystem::path(crossdesk::platform::CurrentExecutablePath()).u8string());
 #endif
 

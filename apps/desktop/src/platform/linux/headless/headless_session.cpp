@@ -571,7 +571,7 @@ int RunHeadless(const Options& options, const std::function<int()>& run) {
   }
   XSetScreenSaver(probe, 0, 0, DefaultBlanking, DefaultExposures);
   XCloseDisplay(probe);
-  Diagnostic(spdlog::level::info) << "CrossDesk headless display " << display << " (" << options.size
+  Diagnostic(spdlog::level::info) << "Farlink headless display " << display << " (" << options.size
             << "), XAUTHORITY=" << authority.path() << '\n';
   Child desktop;
   if (!session.empty() && !desktop.Start([&] {
@@ -640,7 +640,7 @@ int RunWithLinuxDisplay(int argc, char* argv[],
       const auto& desktop = desktops[*selected];
       SetAuthority(desktop.authority);
       ConfigureHeadlessX11(desktop.display);
-      Diagnostic(spdlog::level::info) << "CrossDesk reusing existing desktop " << desktop.display
+      Diagnostic(spdlog::level::info) << "Farlink reusing existing desktop " << desktop.display
                 << "; Dock, panels and running applications are preserved\n";
       if (desktops.size() > 1) {
         Diagnostic(spdlog::level::info) << "Automatically selected from " << desktops.size()

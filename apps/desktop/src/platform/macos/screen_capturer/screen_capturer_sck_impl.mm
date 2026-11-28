@@ -1285,7 +1285,7 @@ void ScreenCapturerSckImpl::StartOrReconfigureCapturer() {
   self = [super init];
   if (self) {
     _capturer = capturer;
-    _completion_queue = dispatch_queue_create("CrossDesk.ScreenCaptureKit.Completions",
+    _completion_queue = dispatch_queue_create("Farlink.ScreenCaptureKit.Completions",
                                               DISPATCH_QUEUE_SERIAL);
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(privacyCoversChanged:)
         name:@"CrossDeskPrivacyCoversChanged" object:nil];

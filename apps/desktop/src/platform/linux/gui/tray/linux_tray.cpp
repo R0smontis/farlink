@@ -833,7 +833,7 @@ struct LinuxTrayImpl {
 
     XClassHint class_hint{};
     class_hint.res_name = const_cast<char*>("farlink");
-    class_hint.res_class = const_cast<char*>("CrossDesk");
+    class_hint.res_class = const_cast<char*>("Farlink");
     XSetClassHint(display, icon_window, &class_hint);
 
     XStoreName(display, icon_window, tooltip.c_str());

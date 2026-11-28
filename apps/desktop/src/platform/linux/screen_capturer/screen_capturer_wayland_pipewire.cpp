@@ -558,7 +558,7 @@ bool ScreenCapturerWayland::SetupPipeWireStream(bool relaxed_connect,
   }
 
   pw_stream_ =
-      pipewire->stream_new(pw_core_, "CrossDesk Wayland Capture", stream_props);
+      pipewire->stream_new(pw_core_, "Farlink Wayland Capture", stream_props);
   if (!pw_stream_) {
     LOG_ERROR("Failed to create PipeWire stream");
     pipewire->thread_loop_unlock(pw_thread_loop_);

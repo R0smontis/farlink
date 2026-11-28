@@ -4,7 +4,7 @@
 
 namespace crossdesk {
 namespace {
-constexpr wchar_t kSessionWindowClass[] = L"CrossDesk.SessionEndObserver";
+constexpr wchar_t kSessionWindowClass[] = L"Farlink.SessionEndObserver";
 }
 
 SessionEndObserver::~SessionEndObserver() {
