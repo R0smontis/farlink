@@ -13,7 +13,7 @@
 | 内存 | 16 GB（17179869184 B） | `hw.memsize` |
 | GPU | 14 核，Metal 4，统一内存 | `system_profiler SPDisplaysDataType`；`MTLCreateSystemDefaultDevice().hasUnifiedMemory=true`，`maxThreadsPerThreadgroup=1024×1024×1024` |
 | OS | macOS 27.2.1（build 26B131） | `sw_vers`；`ProcessInfo.operatingSystemVersion` |
-| 磁盘占用参考 | 对标商业远控 185 MB、CrossDesk 61 MB | `du -sh` |
+| 磁盘占用参考 | 对标商业远程桌面产品 185 MB、CrossDesk 61 MB | `du -sh` |
 
 ## 2. 显示器
 

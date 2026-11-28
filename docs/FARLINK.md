@@ -11,7 +11,7 @@
 
 Farlink 是 **CrossDesk 1.7.7**（上游基线提交 `0551055`
 "[fix] migrate legacy autostart settings on upgrade, refs #242"；捆绑媒体库 minirtc
-上游基线提交 `c3b26b8`）的改造分支，目标是在体验上对标 对标商业远控。它不是从零写的项目，
+上游基线提交 `c3b26b8`）的改造分支，目标是在体验上对标业界领先的商业远程桌面产品。它不是从零写的项目，
 而是在上游代码上叠加了三条独立的改动线（高帧率、游戏/相对鼠标输入、有界音频抖动缓冲），
 外加品牌、采集可靠性、启动/退出、LAN 直连等一批工程性修改。
 
@@ -32,7 +32,7 @@ Farlink 是 **CrossDesk 1.7.7**（上游基线提交 `0551055`
 | GPU 原生 CVPixelBuffer 缩放、编码吞吐自适应、按原因统计丢帧 | 高帧率下控制编码压力 | — | 见 `docs/FORK_CHANGES.md` 修改文件表 |
 
 **实测帧率（60fps 档，本机回环）**：matrix5 全部 5 次通过，presented fps 56.6–56.9，
-codec H265，首帧约 1–2.9s（`/tmp/farlink-build-e2e/NOTES.md` round-7）；round-9 验收矩阵
+codec H265，首帧约 1–2.9s（`e2e/NOTES.md` round-7）；round-9 验收矩阵
 10/10 通过、全部 0 个 -3805、ice_to_host_sent 0.4–1.5s、fps 55.8–56.8
 （`NOTES.md` round-9 item-5）。
 
@@ -165,7 +165,7 @@ minirtc 侧独立测试全绿：`data_channel_latency_test`、`fec_parity_floor_
 | **W6A 零跳内联解码与零拷贝重组（minirtc）** | 稳态 VideoToolbox 帧从网络线程直接内联提交解码（`CanDecodeInline`/`TryDecodeInline`，try_lock 门控，参数集字节比对；会话创建/恢复仍走 `task_queue_decode_`），精确 `kMaxDecodeBacklog=2` 准入 + 关键帧恢复旁路 + 每流 `on_worker` 排序计数器；H.264/H.265/AV1 单拷贝直接写入式 RTP 重组（一次容量分配，`SetSize` 封口）；解码器原生请求 `420f` 全幅输出、编码器把输入矩阵写到 VTCompressionSession 色彩属性（每会话一次），BT.709 端到端往返 | `inline_decode_and_reassembly_test`：H.264+H.265 两臂 Y=0/2/253/255 极值不削波往返、内联分类矩阵全对；端到端 harness A/B 见下表 | minirtc `268c89fc`、`632b2283`；`MINIRTC_INLINE_DECODE=0` 可同二进制 A/B |
 | **W6B 宽块 RS-FEC 与 FEC 感知 NACK（minirtc）** | NEON GF(256) Reed-Solomon 快路径扩到 `k <= 48, r <= 16`（credit/burst 上限 4800→24000 字节），经 `a=x-minirtc-fec-wide:48-16` SDP 属性协商（应答仅在对方宣告时回显）；系数矩阵与宽度无关，旧 `rs-v1` 块（k≤16/r≤4）修复字节逐位一致——旧端无损失回退；`NackRequester::SetFecActive` 在 FEC 激活时对孤立 1–2 包缺口把首次 NACK 推迟到 clamp(rtt/3,6,12)ms，突发丢失（≥3）完全绕过 | `wide_fec_and_nack_test`：45 包关键帧突发旧 16/4 恢复 **0/10**、宽 48/16 恢复 **10/10 逐位一致**；热缓存编码 ~36µs/解码 ~41µs；k=48 r=16 连丢 16 包 100% 逐位恢复；SDP 回退与 NACK 时序契约全过 | minirtc `1a99c122` |
 | **W6C 全幅 BT.709 采集 + CAMetalDisplayLink 呈现** | ScreenCaptureKit 采集改 `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` + ITU-R BT.709（旧 420v/BT.601 把桌面 256 个亮度码压进 16–235 的 220 码演播室摆幅，暗色 UI 渐变可见色带，sRGB 红绿走错矩阵；`FARLINK_MAC_CAPTURE_LIMITED_601=1` 回退旧行为）；新增 `CrossDeskMetalDisplayLinkDriver`：专用 `QOS_CLASS_USER_INTERACTIVE` runloop 线程跑 CAMetalDisplayLink（preferredFrameLatency 1、60–120Hz、静态桌面两次空闲 tick 后自动暂停零后台唤醒、提交经闭锁 CFRunLoopSource 唤醒不丢），`FARLINK_METAL_PACING=immediate` 保留 W5C 队列模式供 A/B | `macos_color_and_displaylink_test`（编译产线渲染器本体）：420f+BT.709 256 步进斜坡 **256/256 个互不相同的单调输出级、最大往返误差 0 LSB、0..31 与 224..255 零压碎**（420v+BT.601 对照组只有 220 级）；sRGB 三基色最大通道误差 1 LSB；DisplayLink 300ms 活动期 36–37 tick、闲置后零 tick、invalidate+join 0.09–0.14ms、20/20 快速 attach/detach 压力循环零线程泄漏 | `metal_video_renderer.mm`、`screen_capturer_sck_impl.mm` |
-| **W6D 分级延迟归因 HUD/诊断 + 输入快车道** | D8 流统计浮层与脱敏诊断导出新增逐段延迟归因（网络 RTT / 抖动缓冲目标 / 解码 / 呈现四段滚动均值），`ClassifyLatencyBottleneck` 按 参考级交互预算（RTT<25ms、抖动<8ms、解码<6ms、呈现<10ms）选出超预算最多主导段；输入派发快车道；HUD 加高 20px（174→194）容纳新行 | `stage_latency_attribution_test`：分类器契约 + 输入队列 10000 样本 mean 11.7µs/p95 14µs/max 72µs 全过；`slint_stream_render_test` 在 194px 新 HUD 下全过 | `video_latency.h`、`remote_input_dispatcher.cpp`、`stream_window.slint` |
+| **W6D 分级延迟归因 HUD/诊断 + 输入快车道** | D8 流统计浮层与脱敏诊断导出新增逐段延迟归因（网络 RTT / 抖动缓冲目标 / 解码 / 呈现四段滚动均值），`ClassifyLatencyBottleneck` 按参考级交互预算（RTT<25ms、抖动<8ms、解码<6ms、呈现<10ms）选出超预算最多主导段；输入派发快车道；HUD 加高 20px（174→194）容纳新行 | `stage_latency_attribution_test`：分类器契约 + 输入队列 10000 样本 mean 11.7µs/p95 14µs/max 72µs 全过；`slint_stream_render_test` 在 194px 新 HUD 下全过 | `video_latency.h`、`remote_input_dispatcher.cpp`、`stream_window.slint` |
 
 **端到端 harness 复核（合并后最终 HEAD，`frame_rate_harness`，loopback ICE HostOnly）**：
 
@@ -269,7 +269,7 @@ git submodule update --init --recursive
 
 # 2. 隔离工具链环境（XMAKE_GLOBALDIR/CARGO_HOME/RUSTUP_HOME/PATH/TMPDIR，
 #    MACOSX_DEPLOYMENT_TARGET=14.0，含 pkg-config→pkgconf 转发 shim）
-source /tmp/farlink-build-tools/env.sh
+source ~/Projects/farlink/toolchain/env.sh
 
 # 3. 配置。本机 xmake 缓存（.xmake/macosx/arm64/xmake.conf）记录的生效配置为
 #    mode=release、plat=macosx、arch=arm64、CROSSDESK_BUILD_DESKTOP=true、
@@ -289,7 +289,7 @@ xmake b -y -j4 crossdesk
 
 - 主程序：`build/macosx/arm64/release/crossdesk`（约 32 MB，arm64）。
 - 运行期依赖 `build/macosx/arm64/release/libslint_cpp.dylib`（约 30 MB）——xmake 二进制
-  没有 `@rpath` 安装路径，运行时从同目录解析该 dylib（见 `/tmp/farlink-build-e2e/run_host.sh:70-71`），
+  没有 `@rpath` 安装路径，运行时从同目录解析该 dylib（见 `e2e/run_host.sh:70-71`），
   因此直接双击/移动单个 `crossdesk` 文件会起不来，必须连同该 dylib 一起。
 
 xmake 选项（`apps/desktop/xmake/options.lua`）：
@@ -391,7 +391,7 @@ teardown 压力循环，全程约 6 分钟。它是纯进程内仿真，不读�
 **什么不触发它**（round-9 item-3 探针矩阵，探针已确认在会话期间活跃枚举）：
 简单 API 枚举、重签名为 `id=crossdesk` 的探针、模拟本应用 API 调用序列的探针，全部 0 错误；
 两个相同二进制副本（同 cdhash，一个正以 58fps 推流、一个在枚举）也不触发；同机常驻的
-官方 CrossDesk.app 与 BenchmarkRemote 在整个 round-8 验收期间也从未触发。
+官方 CrossDesk.app 与商业对照产品在整机 round-8 验收期间也从未触发。
 
 **机制未查明**：复现了控制器 SCK 使用方式的所有已记录维度（API 形态、签名身份、相同二进制）
 都无法触发该效应。唯一能确定的触发条件是「同应用的第二个完整、已初始化采集的实例」——
@@ -457,11 +457,11 @@ teardown 压力循环，全程约 6 分钟。它是纯进程内仿真，不读�
   各 `macos_relative_mouse_*_tool`），从未由人在真实会话里实操过。
 - **音频路径只经进程内仿真验证**（`audio_receive_e2e_test` 的网络模型），从未真正用耳朵
   听过声音——音质、杂音、音画同步在真实听觉下如何，未验证。
-- **从未对 对标商业远控 本身做过任何测量**：「对标 对标商业远控」是目标，不是结果；没有任何一组
-  数字是与 对标商业远控 并排测出来的。
+- **从未对业界商业产品本身做过任何测量**：「对标商业体验」是目标，不是结果；没有任何一组
+  数字是与商业产品并排测出来的。
 - **工作树已完成搬迁**：仓库、打包产物、端到端脚本与文档已移至 `~/Projects/farlink/`
   （自包含，含两仓库全历史 git bundle 备份；工具链环境为 `~/Projects/farlink/toolchain/env.sh`，
-  xmake 本体需按其中说明另行下载）。`/tmp` 下的原始工作树（`/tmp/farlink-build-audio` 等）
-  保留未动但仍**扛不过一次重启**；`/tmp/farlink-build-dist/Farlink.app` 是**过时**构建
+  xmake 本体需按其中说明另行下载）。`/tmp` 下的原始工作树（实验分支构建目录等）
+  保留未动但仍**扛不过一次重启**；`/tmp` 下的旧分发 `Farlink.app` 是**过时**构建
   （早于更新器移除，仍带更新器），**不要启动它**。
 

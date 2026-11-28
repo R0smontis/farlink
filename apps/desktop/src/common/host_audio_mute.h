@@ -4,7 +4,7 @@
  * Copyright (c) 2026 by Farlink contributors.
  * SPDX-License-Identifier: GPL-3.0-only
  *
- * Host-side local speaker mute (商业远控被控端静音 parity): mutes the host's
+ * Host-side local speaker mute (commercial remote-desktop host-audio-mute parity): mutes the host's
  * physical default output device so people near the controlled machine do
  * not hear the session audio, while the remote controller keeps receiving
  * the audio stream. RAII: the exact original mute state is restored on

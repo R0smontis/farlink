@@ -4,7 +4,7 @@
  * Copyright (c) 2026 by Farlink contributors.
  * SPDX-License-Identifier: GPL-3.0-only
  *
- * reference-grade stream control chords. Pure, deterministic key-state tracker
+ * Reference-grade stream control chords. Pure, deterministic key-state tracker
  * recognizing exactly three controller-local chords while a stream window
  * owns input:
  *

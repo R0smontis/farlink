@@ -1,35 +1,35 @@
-# 对标商业远控 体验基准（Farlink 对标）
+# 商业远程桌面体验基准（Farlink 对标）
 
-> 目的：把"体验像 对标商业远控"拆成可验收的能力项。每条都带来源；官方未公开、只能从第三方或截图推断的，标 `未证实` 或 `评测`，不做猜测性补全。
+> 目的：把"体验像业界领先的商业远程桌面"拆成可验收的能力项。每条都带来源；官方未公开、只能从第三方或截图推断的，标 `未证实` 或 `评测`，不做猜测性补全。
 >
 > **来源缩写**（表内 `来源` 列使用缩写 + 行内位置）：
 >
 > | 缩写 | 含义 | URL / 路径 |
 > | --- | --- | --- |
-> | S1 | 官网首页 | https://benchmark-vendor.invalid/ |
-> | S2 | 官网·远程游戏 | https://benchmark-vendor.invalid/games/ |
-> | S3 | 官网·远程办公 | https://benchmark-vendor.invalid/features/work/ |
-> | S4 | 官网·真彩 4:4:4 | https://benchmark-vendor.invalid/features/color/ |
-> | S5 | 官网·远程协助 | https://benchmark-vendor.invalid/features/support/ |
-> | S6 | 官网·精简协助版 | https://benchmark-vendor.invalid/features/sos/ |
-> | S7 | 官网帮助·电脑控电脑（含官方截图） | https://benchmark-vendor.invalid/help/20241203/40220_1197651.html |
-> | S8 | 官网帮助·控制 Mac | https://benchmark-vendor.invalid/help/macos.html |
-> | S9 | 官网帮助·远程协助他人 | https://benchmark-vendor.invalid/help/20241204/40220_1197664.html |
-> | S10 | 官网帮助·手柄 | https://benchmark-vendor.invalid/help/20241203/40221_1197714.html |
-> | S11 | 官网帮助·文件传输 | https://benchmark-vendor.invalid/help/20241210/40220_1199229.html |
-> | S12 | 官网博客·延迟实测口径 | https://benchmark-vendor.invalid/blog/20260804-nkyxejyxs.html |
-> | S13 | 官网博客·防卡顿（P2P/Relay） | https://benchmark-vendor.invalid/blog/guide-worker-20250711.html |
-> | S14 | 官网博客·功能评测（HDR/账号同步） | https://benchmark-vendor.invalid/blog/20261103-deffg.html |
-> | S15 | 官网博客·画质参数（4K/144/4:4:4/HDR/500Mbps） | https://benchmark-vendor.invalid/blog/20260902-nkyckzrj2.html |
-> | S16 | 官网博客·免密/双重验证 | https://benchmark-vendor.invalid/blog/mianmixiezhu.html |
-> | S17 | 官网下载页（平台/版本/系统要求） | https://benchmark-vendor.invalid/download/ |
-> | S18 | 官网·远程开机 WoL | https://benchmark-vendor.invalid/features/wol/ |
-> | S19 | 官网·游戏页（H.265 编码表述） | https://benchmark-vendor.invalid/games/eldenring |
-> | S20 | 官网帮助·真彩开启条件 | https://benchmark-vendor.invalid/help/20241216/40221_1200122.html |
-> | P1 | 本地包 Info.plist | /Applications/BenchmarkProduct.app/Contents/Info.plist |
-> | P2 | 本地包 streamer 动态库 | /Applications/BenchmarkProduct.app/Contents/Frameworks/libstreamer.dylib |
-> | P3 | 本地包 streamer 配置 | /Applications/BenchmarkProduct.app/Contents/Resources/streamer-config.json |
-> | P4 | 本地包 launchd 模板 | /Applications/BenchmarkProduct.app/Contents/Resources/com.benchmark.redacted.*.plist |
+> | S1 | 官网首页 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S2 | 官网·远程游戏 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S3 | 官网·远程办公 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S4 | 官网·真彩 4:4:4 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S5 | 官网·远程协助 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S6 | 官网·精简协助版 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S7 | 官网帮助·电脑控电脑（含官方截图） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S8 | 官网帮助·控制 Mac | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S9 | 官网帮助·远程协助他人 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S10 | 官网帮助·手柄 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S11 | 官网帮助·文件传输 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S12 | 官网博客·延迟实测口径 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S13 | 官网博客·防卡顿（P2P/Relay） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S14 | 官网博客·功能评测（HDR/账号同步） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S15 | 官网博客·画质参数（4K/144/4:4:4/HDR/500Mbps） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S16 | 官网博客·免密/双重验证 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S17 | 官网下载页（平台/版本/系统要求） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S18 | 官网·远程开机 WoL | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S19 | 官网·游戏页（H.265 编码表述） | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | S20 | 官网帮助·真彩开启条件 | <REDACTED-COMMERCIAL-BENCHMARK-URL> |
+> | P1 | 本地包 Info.plist | <REDACTED-COMMERCIAL-BENCHMARK-BUNDLE> |
+> | P2 | 本地包 streamer 动态库 | <REDACTED-COMMERCIAL-BENCHMARK-BUNDLE> |
+> | P3 | 本地包 streamer 配置 | <REDACTED-COMMERCIAL-BENCHMARK-BUNDLE> |
+> | P4 | 本地包 launchd 模板 | <REDACTED-COMMERCIAL-BENCHMARK-BUNDLE> |
 > | R1 | 评测·CSDN 半年使用（延迟/4:4:4） | https://blog.csdn.net/sinat_41617212/article/details/164154172 |
 > | R2 | 评测·火山引擎 五款横评（码率档位/帧率档） | https://developer.volcengine.com/articles/7664845208652185626 |
 > | R3 | 评测·知乎 无线副屏 | https://zhuanlan.zhihu.com/p/2018004911674128226 |
@@ -46,7 +46,7 @@
 | 验证码刷新 | `自动刷新` 可选：每次远控结束 / 每小时 / 每 12 小时 / 每 24 小时 / 关闭；关闭后可点`立即刷新`。官方截图显示"每 24 小时刷新" | 官网 S9 |
 | 固定密码（自定义验证码） | 支持"仅使用自定义验证码"或"同时使用两种验证码"；长度 **8–16 个字符，必须同时含数字和大写字母** | 官网 S9 |
 | 验证方式（三选一） | `验证码连接`（默认，校验通过直连）/ `免密连接`（只输 ID，被控 60s 内点允许）/ `双重验证`（验证码 + 被控人工同意）。**免密与双重仅 Windows 被控端；macOS 被控只支持验证码连接** | 官网 S9、S16 |
-| 邀请链接 | 复制并分享的内容含 `https://benchmark-vendor.invalid/invite/{邀请码}`，默认 **30 分钟**有效 | 官网 S9 |
+| 邀请链接 | 复制并分享的内容含 `<REDACTED-COMMERCIAL-BENCHMARK-URL>`，默认 **30 分钟**有效 | 官网 S9 |
 | 账号 / 设备列表 | 主界面左栏：`我的设备`（公司电脑/家里电脑/书房电脑…）、`全部设备`、`云设备`、`远程协助`（开始协助/收藏设备）；同账号设备自动同步 | 官网 S7 官方截图 OCR、S14 |
 | 被控免登录（协助） | 被协助方无需登录即可接受协助；`远程开机`、`客户端安全锁` 等账号能力仍需登录 | 官网 S9 |
 | 收藏与最近连接 | 收藏设备支持备注/验证码/删除，**按账号云端同步**；`最近连接` PC 端最多 **8 条**，可一键复连/清空 | 官网 S9 |
@@ -148,17 +148,17 @@
 
 | 项 | 值 | 来源 |
 | --- | --- | --- |
-| Bundle ID / 版本 | `com.benchmark.redacted`，`4.48.3`，build `635` | 本地包 P1 |
+| Bundle ID / 版本 | <REDACTED-COMMERCIAL-BENCHMARK-BUNDLE-ID>，`4.48.3`，build `635` | 本地包 P1 |
 | 最低系统 | `LSMinimumSystemVersion = 11.0` | 本地包 P1 |
 | 架构 / 体积 | universal `x86_64 + arm64`；整包 185 MB | 本地包（`lipo -archs`、`du -sh`） |
 | 签名 | `Developer ID Application: Hangzhou Bobo Technology Co Ltd (PU9BNSBJW7)`，hardened runtime，非沙盒 | 本地包（`codesign -dv --verbose=2`） |
 | Entitlements | 仅 `com.apple.security.device.audio-input`、`...device.bluetooth`；**无 app-sandbox**（故可用 AX/录屏 TCC 直接控制本机） | 本地包（`codesign -d --entitlements -`） |
 | 权限声明 | 只声明 2 条：`NSMicrophoneUsageDescription`（远程通话）、`NSDownloadsFolderUsageDescription`（接收拖拽文件）；录屏/辅助功能走 TCC 无 usage key | 本地包 P1 |
 | URL Scheme | `<REDACTED>` | 本地包 P1 |
-| 主程序依赖 | AppKit、SwiftUI(weak)、Combine、VideoToolbox、AudioToolbox/CoreAudio、AVFoundation、CoreMedia、Metal/MetalKit、Network、GameController、Carbon、IOKit、LocalAuthentication、CryptoKit、Security、SystemConfiguration、Accelerate、AdSupport/AppTrackingTransparency、MetricKit | 本地包（`otool -L Contents/MacOS/BenchmarkRemote`） |
+| 主程序依赖 | AppKit、SwiftUI(weak)、Combine、VideoToolbox、AudioToolbox/CoreAudio、AVFoundation、CoreMedia、Metal/MetalKit、Network、GameController、Carbon、IOKit、LocalAuthentication、CryptoKit、Security、SystemConfiguration、Accelerate、AdSupport/AppTrackingTransparency、MetricKit | 本地包（`otool -L` 主可执行文件） |
 | 自研流媒体库 | `Contents/Frameworks/libstreamer.dylib`（26 MB），依赖 **ScreenCaptureKit(weak)、VideoToolbox、AudioUnit、Network.framework、Metal、IOSurface**；**未链接 libwebrtc / FFmpeg / Qt / Electron** | 本地包 P2 |
-| 辅助进程 | `Contents/MacOS/BenchmarkDaemon`、`BenchmarkService`、`Contents/Helpers/BenchmarkServer`(26MB)、`bench-cli`(2.5MB)、`tmux`、`BenchmarkUpdater.app`、`XPCServices/BenchmarkHelper.xpc` | 本地包（目录列表） |
-| 常驻方式 | launchd：`com.netease.benchmarkremote.daemon`（RunAtLoad+KeepAlive，MachService `com.benchmarkremote.daemon`）；`com.netease.benchmarkremote.agent`（LoginWindow+Aqua，MachServices `com.benchmarkremote.agent.controller` / `.controlled`）；`com.163.benchmarkproduct.Agent` 登录项 | 本地包 P4 |
+| 辅助进程 | <REDACTED-COMMERCIAL-BENCHMARK-PROCESSES>（守护进程/服务/辅助 server 26MB/CLI 2.5MB/tmux/自动更新器/XPC 助手） | 本地包（目录列表） |
+| 常驻方式 | launchd：daemon（RunAtLoad+KeepAlive）+ agent（LoginWindow+Aqua，双 MachService）+ 登录项——三层常驻（具体标识符已脱敏） | 本地包 P4 |
 | 第三方 Swift 包 | SwiftProtobuf、SwiftTerm（终端）、CryptoSwift、Sentry、Lottie、FeedbackSDK | 本地包（Resources 列表） |
 | 服务端下发的编码策略 | `disable_h265_codec`：Windows 主控 + GTX 7/9 系旧卡禁用 H.265；`set_max_decoder_cap`：联想 TB371FC 限制解码上限 | 本地包 P3 |
 

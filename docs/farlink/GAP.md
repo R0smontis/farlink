@@ -1,4 +1,4 @@
-# Farlink 差距分析：CrossDesk → 对标商业远控 体验
+# Farlink 差距分析：CrossDesk → 商业级远程桌面体验
 
 > 分析日期 2026-11-25。所有 CrossDesk/MiniRTC 行为论断均带 `path:line` 证据；商业对标产品侧事实来自 `BENCHMARK.md`（标注来源编号），无法溯源的标 `未证实`。
 > 路径缩写：`CD` = `/tmp/crossdesk`，`MR` = `/tmp/minirtc`。
@@ -89,7 +89,7 @@
 | 手柄 | 最多 4 手柄+震动+虚拟手柄+云键位 400+（S2/S10） | **完全缺失** | 空白项 | 客户端 SDL_GameController 采集+wire 类型+host 虚拟手柄（macOS 无内核态虚拟手柄方案——需用户态驱动或 GameController 框架注入，**macOS 上可行性存疑**） | XL | macOS 无 ViGEm 等价物；**很可能需要 Windows 才有意义** | 暂缓（见 §5） |
 | 光标渲染 | 未证实细节 | 语义形状 overlay+可选内嵌；macOS 默认不内嵌 | 基本对齐，差距小 | 低优先级 | — | — | — |
 | 音频延迟 | 未证实具体值 | Opus 10ms VOIP 无 FEC；接收**零 jitter buffer** + SDL 默认大缓冲排队无界 | 声音滞后画面（无 AV sync、无缓冲上限） | 接收侧加有界 jitter buffer（30-60ms）+SDL 流排队上限+音画同步（`rtp_audio_receiver.cpp`、`audio_decoder.cpp`、`session_device_manager.cpp:692-720`） | M | PLC 简单；改缓冲影响丢包容忍 | 环回拍掌/敲击测试音画差 |
-| 多显示器/虚拟显示器/分辨率匹配 | 5 屏切换+3 虚拟屏+会话内"跟随被控端/跟随当前显示屏/缩放 100-200%"（S3/S7 截图 OCR） | 切屏有（非并发）；客户端可请求改被控分辨率（10s 协商）+断连恢复；macOS **无虚拟屏**；缩放只有窗口内 fit | 虚拟屏缺失；会话内缩放档位不如 商业产品直观；无多屏并发 | macOS 虚拟屏（CGVirtualDisplay，macOS 14.1+ 私有 API 公开化程度存疑）属 L；缩放入口 UI 调整属 S | M/L | CGVirtualDisplay 在 macOS 27 的可用性未证实 | 分辨率匹配已可双实例验证 |
+| 多显示器/虚拟显示器/分辨率匹配 | 5 屏切换+3 虚拟屏+会话内"跟随被控端/跟随当前显示屏/缩放 100-200%"（S3/S7 截图 OCR） | 切屏有（非并发）；客户端可请求改被控分辨率（10s 协商）+断连恢复；macOS **无虚拟屏**；缩放只有窗口内 fit | 虚拟屏缺失；会话内缩放档位不如商业产品直观；无多屏并发 | macOS 虚拟屏（CGVirtualDisplay，macOS 14.1+ 私有 API 公开化程度存疑）属 L；缩放入口 UI 调整属 S | M/L | CGVirtualDisplay 在 macOS 27 的可用性未证实 | 分辨率匹配已可双实例验证 |
 | 会话工具栏+实时统计 | 控制中心 9 项一屏可达；会话计时；ms/loss 排障（S7 截图 OCR、S2 FAQ） | 工具栏 10 项+统计面板（FPS/Res/Video latency/RTT/loss/编解码器/加密/端点），信息其实更全 | UI 信息结构差异>能力差异；Video latency 已是 capture→presented 近似 glass-to-glass | 主界面/工具栏重组属 UI 重塑（§3 不优先） | M | — | 已有面板可直接读数 |
 | 主界面信息结构 | 设备清单优先+大按钮"进入桌面"+快速启动游戏宫格（S7 截图 OCR） | ID 输入框优先+近期连接卡片+桌面墙多设备预览 | 形态差异：CrossDesk 无账号体系，桌面墙是差异化优势 | 不照搬；保留桌面墙，强化"一键进入"路径 | M | — | — |
 | P2P 成功率/中继 | 自研 UDP 私有协议、200-300 节点专网中转（S1/S2/S13） | libnice ICE+TURN+DTLS 后打洞（1.5s 延迟触发、30s relay-upgrade 窗口） | 打洞启动晚、relay 首段必走中转；专网规模无法比 | 打洞提前到 ICE connected 即启动；relay 探测策略调优 | M | NAT 行为不可控，本机难验证真实 NAT 场景 | 本机只能验证 LAN/host-only 路径 |
@@ -216,7 +216,7 @@
 
 #### round-5-4：周期性 fps 跌落根因 + p5/worst-second 指标（已落地）
 
-**根因**：周期性跌到 44-80fps **不是** ALR/码率探测（这些零成本——2× ALR 突发期间 fps 平直）。跌落实为 (a) ceiling 重探（有意为之，退避限界，单次成本 ~5s——容量恢复固有问题）与 (b) 边界阶梯尺寸的边缘可持续振荡。harness 现报 `fps_p5`/`fps_worst_second`（`frame_rate_harness.cpp:575-579,621-633,645,659`）。**注**：生产 BenchmarkRemote 常驻 ~22% CPU 下测量方差大，4K@120 在安静窗稳定 119.5fps@1970×1280 但竞争下会振荡降级（1624×1056 等中间档）——此为边缘可持续性的已知表现，非回归。
+**根因**：周期性跌到 44-80fps **不是** ALR/码率探测（这些零成本——2× ALR 突发期间 fps 平直）。跌落实为 (a) ceiling 重探（有意为之，退避限界，单次成本 ~5s——容量恢复固有问题）与 (b) 边界阶梯尺寸的边缘可持续振荡。harness 现报 `fps_p5`/`fps_worst_second`（`frame_rate_harness.cpp:575-579,621-633,645,659`）。**注**：常驻商业对照进程 ~22% CPU 下测量方差大，4K@120 在安静窗稳定 119.5fps@1970×1280 但竞争下会振荡降级（1624×1056 等中间档）——此为边缘可持续性的已知表现，非回归。
 
 #### round-5-5/5-6：许可证 + 消毒器（已落地）
 
@@ -318,7 +318,7 @@ H   : 1s:3024x1964@91 2s:694x452@102 8s:790x514@109 10s:898x584@114 12s:1022x662
 
 **round-9-3 3.8s 去哪了 + 压缩**：1080p60 时间线（日志时间戳相对首帧）：+0.000s 首帧 892×500；+0.139s 首 keyframe 解码；**+0.249s 码率 ≥9.9M（1080p 原生所需）——带宽确认极快**；**+2.681s 探测启动 ← 带宽确认后空等 2.43s**；+2.751s 探测测量开始（apply_latency 70ms）；+3.759s 探测接受→原生（探测时长 ~1.0s）。空窗构成：探测闸 `ice_transport_controller.cpp:2295-2305` 要求 `encoded_frame_rate_ready`+fps≥min+`healthy_since`≠0+**`healthy_since` 老化 ≥`kFrameRateHealthyDurationMs`（fast=500ms，`:1473`）**+qp≤0.60+退避+冷却。健康窗验证的是**编码器容量**（fps≥55/60，`video_adaptation_policy.h:70-81`）而非带宽。**已压缩项**：带宽已确认的初始快速恢复路径上，在首个健康测量窗之上再要求 500ms 持续老化**不携带信息**——探测本身在新尺寸测编码器帧率满 1s 且失败廉价回滚，乐观试错成本低。故去掉初始快速恢复的 `healthy_since` 老化要求（`need_healthy_age = !initial_fast_recovery`，`:2294`）；稳态探测保留完整持续健康要求。**效果**：time-to-native n=5 交错测量（min/median/max）：1080p60 前 3.72/3.73/3.78s→后 3.22/3.27/3.29s、4K@60 前 3.73/3.78/4.31s→后 3.24/3.27/3.30s——两配置前后区间均不重叠（前 min > 后 max），改进成立。**保留的空窗**：剩余 ~2.2s 是编码器暖机（采集→编码→keyframe 交换→首个 500ms 容量测量窗），**它携带真实信息**（编码器容量验证），删除会导致对已过载编码器盲目探测——4K@120 不可持续配置验证（final HEAD）：初始直跳 t2.8 失败→正确回滚基档→逐档快爬，t≈27.5s 撞上可持续上限 ~1930×1254@120（非饱和区赌博，失败仅此一次初始直跳），无假阳性探测。≤1s 目标在不牺牲容量验证下不可达。子模块 `65942f7`、超级项目 `bca489a`。
 
-**round-9-4 测试二进制 hang 排查**（HEAD 结果全表，从仓库 cwd `/tmp/farlink-build` 跑）：11 个二进制 **10 过 1 败**。`connection_status_protocol_test` 的"hang"**根因=cwd 依赖**：它从 `std::filesystem::current_path()` 向上 `stat` 找 `xmake.lua`+`minirtc.h`（`FindRepoRoot`）；从 `/tmp/r9` 跑找不到仓库就一直 stat 上爬文件系统（采样显示主线程 stat 风暴，无网络）。**从 `/tmp/farlink-build` 跑 exit=0，非回归**——round-8 报告的"hangs in this environment"是从 `/tmp/r9` 跑的假象。`repository_structure_test` exit=1：`legacy root directory still exists: scripts`——`scripts/version.py` 是 git 跟踪文件，`79d9e41` 就在，round-8/9 未碰——**预先存在的仓库状态问题，非回归**。
+**round-9-4 测试二进制 hang 排查**（HEAD 结果全表，从仓库 cwd 跑）：11 个二进制 **10 过 1 败**。`connection_status_protocol_test` 的"hang"**根因=cwd 依赖**：它从 `std::filesystem::current_path()` 向上 `stat` 找 `xmake.lua`+`minirtc.h`（`FindRepoRoot`）；从 `/tmp/r9` 跑找不到仓库就一直 stat 上爬文件系统（采样显示主线程 stat 风暴，无网络）。**从仓库根跑 exit=0，非回归**——round-8 报告的"hangs in this environment"是从 `/tmp/r9` 跑的假象。`repository_structure_test` exit=1：`legacy root directory still exists: scripts`——`scripts/version.py` 是 git 跟踪文件，`79d9e41` 就在，round-8/9 未碰——**预先存在的仓库状态问题，非回归**。
 
 **round-9-5 编码器目标的分辨率上限（事实，无改动）**：`ClampEncoderTargetBitrate(bitrate, max_bitrate)`=`min(bitrate, max_bitrate)`（`src/common/bitrate_limits.h:41`）——**平帽，无分辨率缩放**；`kDefaultMaxEncoderBitrateBps=30'000'000`（`:12`），`max_bitrate_` 初始化 `video_toolbox_encoder.mm:102`，钳制警告 `:937`。1080p 与 4K 同帽 30 Mbps（解释 ~78→30Mbps 钳制警告）。**实测编码器实际产出**（harness 用动画噪声帧=恒定运动）1080p60 target~78Mbps：**peak 5.37 Mbps**；4K@60 target~70Mbps 近原生 2822×1832：**peak 6.45 Mbps**——**远低于 target 也远低于 30Mbps 帽**。编码器是**内容约束**不是 target/帽约束（HEVC 对此内容产不出 78Mbps）；静态内容产出**更少**（HEVC 跳过未变宏块——harness 无静态旗标，噪声帧刻意避免塌缩成静态桌面，`frame_rate_harness.cpp:416`）。**relay 不适用同帽**：钳制是编码器**输入**帽（各编码器实现内 `ClampEncoderTargetBitrate`），relay 只转发已编码字节不再编码——`src/relay/` 无 bitrate clamp。
 
@@ -330,7 +330,7 @@ H   : 1s:3024x1964@91 2s:694x452@102 8s:790x514@109 10s:898x584@114 12s:1022x662
 2. **单一编码器：VideoToolbox HEVC，M1 Pro**。未测 H.264、未测其他 Apple silicon（M2/M3/M4 编码吞吐不同）、未测任何硬件/软件编码器组合。ceiling 基准、可持续档、恢复时序全都是这一颗芯片的实测。
 3. **loopback 单机和用户态 shaper，非真实网络**。所有"带宽已确认"跑在 `192.168.1.107` loopback；受限链路行（round-9-2 的 4/10 Mbps）是 harness 侧 `UdpShaper`（用户态 token-bucket 重写候选端口），不是真实 WAN——无真实丢包、抖动、RTT、跨设备时钟。带宽估计与 ceiling 的交互在真实拥塞下未测。
 4. **所有 4K 行跑在 loadavg 5-13，无空闲机 baseline**。测量期本机（笔记本）并发负载高（其他 worker + 冒烟工程师），热节流可能压低了编码器可持续上限；空闲机上可持续档、爬升速度、低帧秒数都可能更好。所有 4K 数值是负载指示性，不是干净基准。
-5. **测试覆盖：本分支 11 个二进制 vs 集成分支 26 个**。本分支build 只产出 11 个测试二进制，跑了 10/11 过（`repository_structure_test` 预先存在 fail）；集成分支合并后有 26 个，其中 15 个本分支根本没有，从未在这套改动上跑过。
+5. **测试覆盖：本分支 11 个二进制 vs 集成分支 26 个**。本分支 build 只产出 11 个测试二进制，跑了 10/11 过（`repository_structure_test` 预先存在 fail）；集成分支合并后有 26 个，其中 15 个本分支根本没有，从未在这套改动上跑过。
 6. **30s 快节奏窗过期后的行为未测**。`fast_cadence` keyed off `now - source_resolution_initialized_ms <= 30000`（`ice_transport_controller.cpp:1467-1471`）；初始窗过期后的稳态探测节奏、以及会话中途源分辨率变化（窗重设）后的行为，都没有专门测量。矩阵的 60s 运行只有前 30s 在快窗内。
 7. **ceiling 重探测的成功路径未测**。所有重探测都失败（2092×1358 在 4K@144 不可持续）；编码器条件改善后重探测成功→ceiling 清除的路径（`ice_transport_controller.cpp:2100`/`Clear()`）只在策略级测试覆盖，未在真实编码器上观察。
 8. **MaintainResolution 之外的偏好未在矩阵覆盖**。矩阵只测 MaintainFrameRate；Balanced/MaintainResolution 在 4K 不可持续配置下的 ceiling 交互未测。

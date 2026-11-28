@@ -327,7 +327,7 @@ int PlatformMouseController::SendMouseCommand(RemoteAction remote_action,
     case MouseFlag::wheel_horizontal: {
       // Pixel-precise continuous scrolling (binary ScrollPixel wire): the
       // dx/dy fields carry exact physical pixels, injected through the
-      // continuous-event variant commercial remote desktop uses — CGEventCreateScrollWheelEvent2
+      // continuous-event variant commercial remote desktops use — CGEventCreateScrollWheelEvent2
       // with pixel units, the continuous bit set, and the double-precision
       // point deltas so sub-pixel fractions survive in the event stream.
       const bool pixel_precise =
