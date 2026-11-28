@@ -175,22 +175,8 @@ inline int ApplyMainWindowStrings(
       Text(localization::signal_reconnect[language]));
   strings.set_signal_reconnecting(
       Text(localization::signal_reconnecting[language]));
-  strings.set_update_available(
-      Text(localization::new_version_available[language]));
-  strings.set_new_version(Text(localization::new_version[language]));
-  strings.set_check_for_updates(Text(localization::check_for_updates[language]));
-  strings.set_checking_for_updates(
-      Text(localization::checking_for_updates[language]));
-  strings.set_up_to_date(Text(localization::up_to_date[language]));
-  strings.set_update_check_failed(
-      Text(localization::update_check_failed[language]));
   strings.set_release_notes(Text(localization::release_notes[language]));
   strings.set_view_release_notes(Text(localization::view_release_notes[language]));
-  strings.set_download(Text(localization::manual_download[language]));
-  strings.set_install_update(Text(localization::install_update[language]));
-  strings.set_retry_update(Text(localization::retry_update[language]));
-  strings.set_install_update_confirm(
-      Text(localization::install_update_confirm[language]));
   strings.set_input_password(Text(localization::input_password[language]));
   strings.set_reinput_password(Text(localization::reinput_password[language]));
   strings.set_remember_password(
@@ -246,7 +232,6 @@ inline int ApplyMainWindowStrings(
       Text(localization::self_hosted_server_settings[language]));
   strings.set_access_website(Text(localization::access_website[language]));
   strings.set_release_date_label(Text(localization::release_date[language]));
-  strings.set_later(Text(localization::cancel[language]));
   return language;
 }
 
