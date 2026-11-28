@@ -9,35 +9,35 @@
 先克隆源码；已有仓库从根目录执行依赖准备和构建命令：
 
 ```sh
-git clone --recurse-submodules https://github.com/kunkundi/crossdesk.git
+git clone --recurse-submodules https://github.com/R0smontis/farlink.git
 cd crossdesk
 ./apps/cli/scripts/prepare-deps.sh
 xmake f -y --CROSSDESK_BUILD_DESKTOP=n --CROSSDESK_BUILD_CLI=y --USE_CUDA=n -m release
-xmake build crossdesk-cli
-xmake run crossdesk-cli doctor --json
+xmake build farlink-cli
+xmake run farlink-cli doctor --json
 ```
 
 `prepare-deps.sh` 按主仓库记录的提交初始化 MiniRTC 子模块，可重复执行。凭据日志脱敏已合入 MiniRTC，无需额外应用补丁；升级 MiniRTC 时只需更新子模块提交。仓库默认开启桌面构建、关闭 CLI。上述参数只构建 CLI；需要同时构建桌面和 CLI 时，将 `CROSSDESK_BUILD_DESKTOP` 设为 `y`。恢复默认桌面配置使用 `xmake f -y --CROSSDESK_BUILD_DESKTOP=y --CROSSDESK_BUILD_CLI=n`。所有命令均从仓库根目录执行。
 
-构建产物在 `build/<platform>/<arch>/<mode>/crossdesk-cli`。可把对应目录加入 PATH 或复制可执行文件到自己的 bin 目录。Pi 需要直接启动该可执行文件，不能使用会输出构建日志的 `xmake run` 作为桥接程序。
+构建产物在 `build/<platform>/<arch>/<mode>/farlink-cli`。可把对应目录加入 PATH 或复制可执行文件到自己的 bin 目录。Pi 需要直接启动该可执行文件，不能使用会输出构建日志的 `xmake run` 作为桥接程序。
 
 macOS 的 MiniRTC 依赖仍链接 VideoToolbox/CoreMedia 和 GLib 声明的 AppKit 等系统框架；CLI 不创建 GUI、采集器或音频设备。硬件解码参数显式关闭。Linux 无需 DISPLAY/WAYLAND_DISPLAY；本轮尚未在 Linux 主机实际构建验证。
 
-Windows 仅支持 x64，产物为 `build/windows/x64/release/crossdesk-cli.exe`；先在 Git Bash 中执行 `sh apps/cli/scripts/prepare-deps.sh`，然后在开发者 PowerShell 中执行上述 Xmake 命令，配置时额外指定 `-p windows -a x64`。在 Git Bash 中构建时同样必须指定 `-p windows`，避免被识别为 MSYS 平台。Windows 使用 Console / ConPTY 的原生键盘、鼠标事件和 VT 输出，保存并恢复控制台模式与代码页；无需 WSL。Windows Terminal、现代 PowerShell / CMD 和 VS Code 的 ConPTY 终端属于目标运行环境，仍需实机验收。Git Bash 的独立 mintty 窗口没有原生控制台时，应从 Windows Terminal 的 Git Bash 配置启动。
+Windows 仅支持 x64，产物为 `build/windows/x64/release/farlink-cli.exe`；先在 Git Bash 中执行 `sh apps/cli/scripts/prepare-deps.sh`，然后在开发者 PowerShell 中执行上述 Xmake 命令，配置时额外指定 `-p windows -a x64`。在 Git Bash 中构建时同样必须指定 `-p windows`，避免被识别为 MSYS 平台。Windows 使用 Console / ConPTY 的原生键盘、鼠标事件和 VT 输出，保存并恢复控制台模式与代码页；无需 WSL。Windows Terminal、现代 PowerShell / CMD 和 VS Code 的 ConPTY 终端属于目标运行环境，仍需实机验收。Git Bash 的独立 mintty 窗口没有原生控制台时，应从 Windows Terminal 的 Git Bash 配置启动。
 
 预编译 npm 包的用户无需构建工具，见 [npm 分发](npm-distribution.md)。
 
 ## 连接与身份
 
 ```sh
-crossdesk-cli 123456789
-crossdesk-cli 123456789 --renderer ansi --fps 8 --quality high --zoom native
-crossdesk-cli 123456789 --renderer kitty --quality ultra --zoom native --display 0
-crossdesk-cli 123456789 --control
-crossdesk-cli 123456789 --server your-server.example --port 9099
+farlink-cli 123456789
+farlink-cli 123456789 --renderer ansi --fps 8 --quality high --zoom native
+farlink-cli 123456789 --renderer kitty --quality ultra --zoom native --display 0
+farlink-cli 123456789 --control
+farlink-cli 123456789 --server your-server.example --port 9099
 ```
 
-直接将设备 ID 作为第一个参数即可连接；`crossdesk-cli view <设备ID> [选项]` 保留为兼容别名，支持相同选项。设备 ID 必须是 9 位数字，保留前导零，以上数字仅示例。默认信令地址沿用当前 CrossDesk：`api.crossdesk.cn:9099`。密码从本地终端隐藏输入（POSIX `/dev/tty`、Windows `CONIN$` / `CONOUT$`），不提供密码命令行参数。CLI 不读取、不修改桌面配置。每次连接直接用 `cli` 请求服务端分配临时 `cli-xxxxxxxxx` ID（后缀为 9 位数字），注册、Join 和媒体使用同一个 Peer。CLI 仅作为控制端，不申请普通数字身份或 `C-` 身份，也不保存本机密码或重连凭据。每次启动或重新连接都会申请新的 ID；断开后服务端按 Web 临时身份的规则清理注册记录。
+直接将设备 ID 作为第一个参数即可连接；`farlink-cli view <设备ID> [选项]` 保留为兼容别名，支持相同选项。设备 ID 必须是 9 位数字，保留前导零，以上数字仅示例。信令地址无默认值（fork 不运营服务器）：必须用 `--server` / `--port` 指向自托管服务器。密码从本地终端隐藏输入（POSIX `/dev/tty`、Windows `CONIN$` / `CONOUT$`），不提供密码命令行参数。CLI 不读取、不修改桌面配置。每次连接直接用 `cli` 请求服务端分配临时 `cli-xxxxxxxxx` ID（后缀为 9 位数字），注册、Join 和媒体使用同一个 Peer。CLI 仅作为控制端，不申请普通数字身份或 `C-` 身份，也不保存本机密码或重连凭据。每次启动或重新连接都会申请新的 ID；断开后服务端按 Web 临时身份的规则清理注册记录。
 
 需先部署支持 `cli` 注册的新版 crossdesk-server；旧服务端会登录失败，本客户端不会回退为普通设备身份。桥接 `status.client_id` 返回服务端分配的 ID。
 
@@ -80,14 +80,14 @@ auto 模式发送 Kitty 查询与主设备属性查询（DA1），等待最多 2
 Sixel 使用终端字节流传图，无需额外图像库或临时图片文件：每六行像素按颜色平面编码，使用重复压缩。每帧最多 248 色（RGB 色立方体加灰阶），复杂画面超过约 1.9MB 时逐级降低到 43 色、16 色，必要时降到 4 级灰阶，以保留原有 2MiB 单消息上限。Sixel 有调色板量化损失；它没有 Kitty 的图像缩放 placement，因此依据字符像素尺寸限制画面行列，使图像保持在 1920×1080 内，缩放、细节模式和鼠标映射使用相同视口。每帧覆盖整个图像区域（包括黑边），最后不足六行的部分不会绘制到状态栏；通过保存／恢复 DECSDM 模式使图像从视频区光标位置开始，退出时恢复。未收到像素尺寸时按 10×20 字符估算，实际对齐仍取决于终端尺寸报告。高熵画面或慢速 SSH 建议先用 `--fps 8`。
 
 ```sh
-crossdesk-cli 123456789 --renderer sixel --fps 8
+farlink-cli 123456789 --renderer sixel --fps 8
 ```
 
 CLI 支持 Sixel 不等于 Xshell 必然支持。查阅的 [Xshell 官方完整功能列表](https://www.netsarang.com/en/xshell-all-features/) 与 [更新记录](https://www.netsarang.com/en/xshell-update-history/) 尚未提供 Sixel 支持说明；以终端实际能力回应及显示测试为准，不能仅修改 `TERM` 就获得像素图像支持。无能力回应时可继续使用 `--renderer ansi --zoom native`。Sixel 协议与 DA1 能力位依据 [XTerm 控制序列文档](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Sixel-Graphics)。
 
 ```sh
 ssh -t your-server
-crossdesk-cli 123456789 --renderer ansi --fps 8
+farlink-cli 123456789 --renderer ansi --fps 8
 ```
 
 用户本地终端负责显示 SSH 字节流。ANSI、Kitty / Sixel over SSH 和 SSH+tmux 的实机互通尚未验证。无 GUI 指主控客户端；被控端仍需要可捕获的图形会话。
@@ -158,7 +158,7 @@ macOS 自带 Terminal 还需要在当前窗口勾选“显示 → 允许鼠标�
 依据已下载的 `@earendil-works/pi-coding-agent` 与 `pi-tui` **1.4.0** SDK 实现和类型检查。旧的 `@mariozechner` 包未验证，缺少 ctx.mode 的宿主会降级。
 
 ```sh
-export CROSSDESK_CLI="$PWD/build/macosx/arm64/release/crossdesk-cli"
+export CROSSDESK_CLI="$PWD/build/macosx/arm64/release/farlink-cli"
 pi -e ./apps/cli/plugins/pi/index.ts
 ```
 
@@ -183,7 +183,7 @@ Pi 扩展读取宿主的字符尺寸，并通过宿主终端写入／输入监�
 - `display_not_available`：换成远端声明的索引；单会话一次只显示一个屏幕。
 - `media_initialization_failed`：检查编译依赖和本地媒体运行环境。
 - 只读下按键不会发送到远端；远端未声明文本协议时文本输入不可用。
-- 日志在进程创建的私有临时目录（POSIX `/tmp/crossdesk-cli-*`、Windows `%TEMP%\crossdesk-cli-*`）。交互连接的摘要在 client.log，包含收到的终端鼠标报告数 `mouse_reports`、其中的传统报告数 `mouse_legacy_reports`、成功交给传输层的鼠标事件数 `mouse_forwarded`、发送失败数 `mouse_send_failures`。一次点击报告可能生成定位和按键两条事件，所以发送数可能大于报告数；发送成功不表示被控端已执行。transport.log 只记录白名单中的 ICE/DTLS 状态及本地控制开关，不记录密码、SDP 或原始信令。使用完可删除。错误退出信息在恢复终端后显示，并给出本次日志目录。
+- 日志在进程创建的私有临时目录（POSIX `/tmp/farlink-cli-*`、Windows `%TEMP%\farlink-cli-*`）。交互连接的摘要在 client.log，包含收到的终端鼠标报告数 `mouse_reports`、其中的传统报告数 `mouse_legacy_reports`、成功交给传输层的鼠标事件数 `mouse_forwarded`、发送失败数 `mouse_send_failures`。一次点击报告可能生成定位和按键两条事件，所以发送数可能大于报告数；发送成功不表示被控端已执行。transport.log 只记录白名单中的 ICE/DTLS 状态及本地控制开关，不记录密码、SDP 或原始信令。使用完可删除。错误退出信息在恢复终端后显示，并给出本次日志目录。
 - `connection_failed` 表示连接建立失败；`connection_lost` 表示连接成功后传输失效。xmake 随后的 `execv ... failed(1)` 表示程序以错误码 1 退出，本身不代表进程崩溃。遇到控制失效时，对照 transport.log 中的控制开关和连接状态；`mouse_reports` 为 0 表示终端没有向 CLI 提供可识别的鼠标事件。报告数增长但 `mouse_forwarded` 为 0 时，检查是否仍为只读／本地命令模式、是否已有画面，以及点击是否落在视频区域；`mouse_send_failures` 增长时检查连接状态。
 - 如果整个 macOS Terminal 窗口退出且 CLI 记录 `output closed`，还应检查系统 DiagnosticReports 中的 Terminal 报告。已观察到 Terminal 2.15 在创建标签页并调整窗口尺寸时发生 `TTLogicalScreen expandUnicharOffsetCacheToLine:` 行缓存越界；这与 CLI 的 `connection_failed` 不同。临时可在独立窗口运行，避开该标签页操作，不能据此认为 Terminal 缺陷已修复。
 - `doctor --json` 是环境报告，不会联网登录、主动探测 Kitty / Sixel 或证明远端可连接。 `input_shortcuts=local_commands_v2` 表示支持本文的持续本地命令模式；启动日志同时记录实际执行路径，以便区分不同工程的构建产物。

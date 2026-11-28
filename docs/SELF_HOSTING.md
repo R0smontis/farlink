@@ -64,18 +64,18 @@ sudo docker compose ps
 
 默认的证书生成脚本只将 `EXTERNAL_IP` 写入证书的地址范围，客户端应填写该 IP。改用域名需要配置包含该域名的证书。升级镜像或修改 `.env` 中的 IP 后，启动脚本仍会复用已有证书。如果 iOS 拒绝旧版脚本签发的 3650 天服务器证书，请按服务端指南换证并在设备上信任新根证书。[服务端换证步骤](https://github.com/kunkundi/crossdesk-server/blob/HEAD/docs/DEPLOYMENT.md#certificate-rotation)
 
-默认证书文件位于服务端数据目录下的 `certs/`。将自己服务器的 `api.crossdesk.cn_root.crt` 下载到客户端机器，再执行对应平台命令；不要导入来源不明的根证书。
+默认证书文件位于服务端数据目录下的 `certs/`。将自己服务器的 `<your-server-hostname>_root.crt` 下载到客户端机器，再执行对应平台命令；不要导入来源不明的根证书。
 
 **Windows（管理员 PowerShell）：**
 
 ```powershell
-certutil -addstore "Root" "C:\path\to\api.crossdesk.cn_root.crt"
+certutil -addstore "Root" "C:\path\to\your-server_root.crt"
 ```
 
 **Ubuntu / Debian：**
 
 ```bash
-sudo cp /path/to/api.crossdesk.cn_root.crt /usr/local/share/ca-certificates/
+sudo cp /path/to/your-server_root.crt /usr/local/share/ca-certificates/
 sudo update-ca-certificates
 ```
 
@@ -83,7 +83,7 @@ sudo update-ca-certificates
 
 ```bash
 sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain /path/to/api.crossdesk.cn_root.crt
+  -k /Library/Keychains/System.keychain /path/to/your-server_root.crt
 ```
 
 完成后重新打开客户端。自签证书并不等于没有加密，但根证书信任和主机名校验必须正确配置。

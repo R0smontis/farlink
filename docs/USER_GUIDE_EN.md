@@ -245,7 +245,7 @@ Devices supporting preview subscriptions can pause video while their views are h
 
 ### Check for updates
 
-CrossDesk checks for new versions on startup. You can also open **Menu → About → Check for updates** and read the release notes. Follow the available install or download option. Save work and finish file transfers before installing; connections will be interrupted. See the [update guide](UPDATER.md) (Chinese) for recovery steps.
+**This fork has no automatic update feature** — the upstream update channel is removed. New versions are published as full packages on the fork repository's Releases page; install over the existing copy. Settings and recent connections are preserved in the user configuration directory.
 
 <a id="feedback"></a>
 

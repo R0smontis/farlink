@@ -23,7 +23,7 @@
 git clone --recurse-submodules https://github.com/kunkundi/crossdesk.git
 cd crossdesk
 xmake f -c -p windows -a x64 -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 xmake r crossdesk
 ```
 
@@ -45,7 +45,7 @@ xmake r crossdesk
 git clone --recurse-submodules https://github.com/kunkundi/crossdesk.git
 cd crossdesk
 xmake f -c -m release --target_minver=14.0 --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 xmake r crossdesk
 ```
 
@@ -159,7 +159,7 @@ cd crossdesk
 git submodule update --init --recursive
 
 xmake f -c -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false --toolchain=gcc-10 -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 这里应使用 `--toolchain=gcc-10`，以确保 CrossDesk 及 xmake 在配置阶段构建的
@@ -177,7 +177,7 @@ sudo ./docker/linux-build/install-pipewire-sdk.sh
 
 xmake f -c -m release --USE_WAYLAND=true --USE_DRM=true --USE_CUDA=false \
   --CROSSDESK_VERSION=1.4.3 --toolchain=gcc-10 -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 生成 Debian 安装包（必须在对应架构上先完成 Release 编译）：
@@ -227,12 +227,12 @@ xmake r crossdesk
 
 ```sh
 xmake f --CROSSDESK_UPDATE_PUBLIC_KEY="<64位小写十六进制公钥>"
-xmake b crossdesk
+xmake b farlink
 ```
 
 也可以在构建前设置同名环境变量；Xmake 配置值优先于环境变量。公钥必须是 32 字节 Ed25519 公钥的十六进制表示，共 64 个小写字符；非空但格式不正确时，构建配置会报错。发布清单必须由对应私钥签名，并满足安装位置等升级条件；便携版始终使用手动下载。
 
-GitHub Actions 从仓库变量 `CROSSDESK_UPDATE_PUBLIC_KEY` 读取公钥；对应私钥仅用于签署发布清单。密钥生成、清单签名和安装条件见 [升级器构建与发布](UPDATER.md#升级器构建与发布)。
+~~GitHub Actions 从仓库变量 `CROSSDESK_UPDATE_PUBLIC_KEY` 读取公钥~~：上游更新签名流程已随更新器一并移除，本 fork 不再使用该变量。
 
 ## 不使用 CUDA 构建
 
@@ -245,7 +245,7 @@ export CUDA_PATH=/usr/local/cuda
 export XMAKE_GLOBALDIR=/data
 
 xmake f --root -c -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=true --toolchain=gcc-10 -y
-xmake b --root -vy crossdesk
+xmake b --root -vy farlink
 ```
 
 对于**未安装 CUDA 环境的 Windows 开发者**，执行下面的命令安装 CUDA 编译环境：
@@ -272,7 +272,7 @@ $env:CUDA_PATH = "C:\path\to\cuda_installdir"
 
 ```powershell
 xmake f --USE_CUDA=true
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 ### 运行时连接问题
@@ -313,7 +313,7 @@ xmake f -m debug
 -y ：自动确认提示
 
 # 示例
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 ### 运行选项

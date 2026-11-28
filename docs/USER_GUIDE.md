@@ -244,7 +244,7 @@ Windows 已配置后台主机时，以 `%ProgramData%\CrossDeskUnattended\shared
 
 ### 检查更新
 
-客户端启动后会检查版本，有新版本时显示提示。也可打开 **☰ → 关于 → 检查更新** 手动检查，点击 **更新日志** 查看说明。按界面提示选择安装更新或下载；安装前保存工作并等待文件传输完成。具体步骤与失败处理见 [更新指南](UPDATER.md)。
+**本 fork 没有自动更新功能**（上游更新通道已移除）。新版本以完整安装包形式发布在 fork 仓库的 Releases 页面，下载后覆盖安装即可；配置与最近的连接记录保留在用户配置目录中。
 
 <p align="center">
   <img src="images/desktop-about-zh.png" width="720" alt="关于窗口与检查更新按钮，development 为演示版本，未执行在线版本检查" />

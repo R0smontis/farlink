@@ -62,18 +62,18 @@ The signaling certificate must cover the configured hostname/IP and be trusted b
 
 The default certificate generator includes only `EXTERNAL_IP` in the certificate's subject alternative name. Use that IP in the client, or supply a certificate covering your custom domain. The startup script reuses existing certificates across image upgrades and IP changes in `.env`. If iOS rejects a 3650-day server certificate from the old generator, replace it and trust the new root on each device. [Server certificate replacement steps](https://github.com/kunkundi/crossdesk-server/blob/HEAD/docs/DEPLOYMENT_EN.md#certificate-rotation)
 
-Default certificates are stored in the data directory's `certs/` folder. Copy your server's `api.crossdesk.cn_root.crt` to the client and run the relevant command. Do not trust a root certificate from an unknown source.
+Default certificates are stored in the data directory's `certs/` folder. Copy your server's `<your-server-hostname>_root.crt` to the client and run the relevant command. Do not trust a root certificate from an unknown source.
 
 **Windows — administrator PowerShell:**
 
 ```powershell
-certutil -addstore "Root" "C:\path\to\api.crossdesk.cn_root.crt"
+certutil -addstore "Root" "C:\path\to\your-server_root.crt"
 ```
 
 **Ubuntu / Debian:**
 
 ```bash
-sudo cp /path/to/api.crossdesk.cn_root.crt /usr/local/share/ca-certificates/
+sudo cp /path/to/your-server_root.crt /usr/local/share/ca-certificates/
 sudo update-ca-certificates
 ```
 
@@ -81,7 +81,7 @@ sudo update-ca-certificates
 
 ```bash
 sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain /path/to/api.crossdesk.cn_root.crt
+  -k /Library/Keychains/System.keychain /path/to/your-server_root.crt
 ```
 
 Reopen the client afterwards. Self-signed certificates still support encryption; correct root trust and hostname verification are required.

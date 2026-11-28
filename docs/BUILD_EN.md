@@ -23,7 +23,7 @@ Install Visual Studio 2022 with the **Desktop development with C++** workload, W
 git clone --recurse-submodules https://github.com/kunkundi/crossdesk.git
 cd crossdesk
 xmake f -c -p windows -a x64 -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 xmake r crossdesk
 ```
 
@@ -45,7 +45,7 @@ Install Xcode and its command-line tools, plus Xmake, then run:
 git clone --recurse-submodules https://github.com/kunkundi/crossdesk.git
 cd crossdesk
 xmake f -c -m release --target_minver=14.0 --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 xmake r crossdesk
 ```
 
@@ -163,7 +163,7 @@ cd crossdesk
 git submodule update --init --recursive
 
 xmake f -c -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=false --toolchain=gcc-10 -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 Use `--toolchain=gcc-10` so that both CrossDesk and third-party packages such
@@ -185,7 +185,7 @@ sudo ./docker/linux-build/install-pipewire-sdk.sh
 
 xmake f -c -m release --USE_WAYLAND=true --USE_DRM=true --USE_CUDA=false \
   --CROSSDESK_VERSION=1.4.3 --toolchain=gcc-10 -y
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 Build a Debian package after compiling a release binary on the matching architecture:
@@ -235,12 +235,12 @@ For in-app update installation, add this option to your platform's `xmake f` con
 
 ```sh
 xmake f --CROSSDESK_UPDATE_PUBLIC_KEY="<64 lowercase hex characters>"
-xmake b crossdesk
+xmake b farlink
 ```
 
 You can also set the environment variable with the same name before building; the Xmake configuration value takes precedence. The value must encode a 32-byte Ed25519 public key as 64 lowercase hexadecimal characters. A nonempty value with an invalid format fails build configuration. Update manifests must be signed with the matching private key, and the installation must meet the other updater requirements, including a supported installation location. Portable builds always use manual downloads.
 
-GitHub Actions reads `CROSSDESK_UPDATE_PUBLIC_KEY` from repository variables. The matching private key is needed only when signing release manifests. See [updater build and release](UPDATER.md#升级器构建与发布) for key generation, manifest signing, and installation requirements.
+~~GitHub Actions reads `CROSSDESK_UPDATE_PUBLIC_KEY` from repository variables~~: the upstream update-signing pipeline is removed in this fork along with the updater itself; the variable is no longer used anywhere.
 
 ## Build without CUDA
 
@@ -254,7 +254,7 @@ export CUDA_PATH=/usr/local/cuda
 export XMAKE_GLOBALDIR=/data
 
 xmake f --root -c -m release --CROSSDESK_VERSION=1.4.3 --USE_CUDA=true --toolchain=gcc-10 -y
-xmake b --root -vy crossdesk
+xmake b --root -vy farlink
 ```
 
 For **Windows developers without a CUDA environment** installed, run the following command to install the CUDA build environment:
@@ -282,7 +282,7 @@ Then re-run:
 
 ```powershell
 xmake f --USE_CUDA=true
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 ### Connection issues at runtime
@@ -325,7 +325,7 @@ xmake f -m debug
 -y : Automatically confirm prompts
 
 # Example
-xmake b -vy crossdesk
+xmake b -vy farlink
 ```
 
 ### Run Options

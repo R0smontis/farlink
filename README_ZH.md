@@ -1,4 +1,8 @@
-> **Farlink 是 [CrossDesk](https://github.com/kunkundi/crossdesk) 的修改版，修改起始日期 2026-11-25。修改说明见 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md)，本 fork 的技术文档见 [docs/FARLINK.md](docs/FARLINK.md)。下文的官方网站、下载、应用商店与 Web 客户端链接均为上游 CrossDesk 所有，指向上游未修改的发布版本，并不分发本 fork。**
+> **Farlink 是 [CrossDesk](https://github.com/kunkundi/crossdesk) 的修改版，修改起始日期 2026-11-25。修改说明见 [docs/FORK_CHANGES.md](docs/FORK_CHANGES.md)，本 fork 的技术文档见 [docs/FARLINK.md](docs/FARLINK.md)。下文的官方网站、下载、应用商店与 Web 客户端链接均为上游 CrossDesk 所有，指向上游未修改的发布版本，并不分发本 fork；其中描述的更新与服务器行为在 fork 中已不存在。**
+>
+> ## 下载与安装（本 fork）
+>
+> Farlink 安装包发布在 [fork 的 GitHub Releases](https://github.com/R0smontis/farlink/releases) 页面；从源码构建（见 [docs/FARLINK.md](docs/FARLINK.md)）是参考路径，本 fork 尚处于预发布阶段。fork 不运营任何更新服务、默认信令服务器和 Web 客户端：安装后请在 **设置 → 服务器** 中配置自托管信令服务器（部署见 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)），或使用免服务器的 LAN 直连（`--lan-connect` 或主界面的局域网发现条目）。
 >
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk 标志：图标在左，双色文字在右" />
@@ -340,7 +344,6 @@ PC 端可控制和被控制，复用桌面界面与桌面墙；手机和平板�
 - [使用指南](docs/USER_GUIDE.md)：安装、连接、会话操作、设置和无人值守。
 - [常见问题](docs/FAQ.md)：连接失败、黑屏、系统权限及文件位置。
 - [连接与可信设备](docs/CONNECTIONS.md)：选择连接方式、配对及迁移身份。
-- [更新客户端](docs/UPDATER.md)：检查更新、安装与失败后的处理。
 - [源码构建](docs/BUILD.md)：依赖、编译、打包和签名。
 - [架构与集成](docs/README.md#构建与集成)：GUI 和连接架构、CLI / MCP 接口、各平台适配。
 - [版本与发布](docs/VERSIONING.md)：组件版本同步、发布编号及更新清单。

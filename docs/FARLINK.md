@@ -271,32 +271,27 @@ git submodule update --init --recursive
 #    MACOSX_DEPLOYMENT_TARGET=14.0，含 pkg-config→pkgconf 转发 shim）
 source ~/Projects/farlink/toolchain/env.sh
 
-# 3. 配置。本机 xmake 缓存（.xmake/macosx/arm64/xmake.conf）记录的生效配置为
-#    mode=release、plat=macosx、arch=arm64、CROSSDESK_BUILD_DESKTOP=true、
-#    CROSSDESK_ENABLE_UPDATER=false、CROSSDESK_PORTABLE=false——即全部默认值
-#    （release 是 xmake 未指定 -m 时的默认模式；另外两个开关默认即 false），
-#    因此 `xmake b` 在无缓存时会以这套默认自动配置。history 中仅有的两条显式
-#    配置行都是便携实验：`xmake f -c -y --CROSSDESK_PORTABLE=y`，及事后还原用的
-#    `xmake f -y --CROSSDESK_PORTABLE=n --CROSSDESK_ENABLE_UPDATER=n`。
-#    干净检出下要显式固化这套默认配置：
+# 3. 配置。release 是 xmake 未指定 -m 时需要显式给出的模式；其余开关全部默认。
+#    历史上缓存里还有 CROSSDESK_ENABLE_UPDATER 开关——该选项已随更新器一并删除，
+#    传入会报未知选项。
 xmake f -y -m release
 
-# 4. 构建主程序（history 中反复出现的实际命令）
-xmake b -y -j4 crossdesk
+# 4. 构建主程序（2026-11-28 起目标名从 crossdesk 改为 farlink）
+xmake b -y -j4 farlink
 ```
 
 产物是裸 Mach-O 可执行文件（非 .app 包）：
 
-- 主程序：`build/macosx/arm64/release/crossdesk`（约 32 MB，arm64）。
+- 主程序：`build/macosx/arm64/release/farlink`（约 32 MB，arm64）。
 - 运行期依赖 `build/macosx/arm64/release/libslint_cpp.dylib`（约 30 MB）——xmake 二进制
   没有 `@rpath` 安装路径，运行时从同目录解析该 dylib（见 `e2e/run_host.sh:70-71`），
-  因此直接双击/移动单个 `crossdesk` 文件会起不来，必须连同该 dylib 一起。
+  因此直接双击/移动单个 `farlink` 文件会起不来，必须连同该 dylib 一起。
 
 xmake 选项（`apps/desktop/xmake/options.lua`）：
 
 - `CROSSDESK_PORTABLE`（默认 `false`，`options.lua:31-35`）：便携包，数据存到可执行文件旁。
-- `CROSSDESK_ENABLE_UPDATER`（默认 `false`，`options.lua:37-41`）：自动更新。本 fork 关闭；
-  便携构建无论此项如何都不带更新器。
+- ~~`CROSSDESK_ENABLE_UPDATER`~~：已删除——自动更新功能整体移除（2026-11-28），
+  任何配置下都不会访问上游更新端点。
 
 ### 4.1 测试
 
@@ -406,19 +401,23 @@ teardown 压力循环，全程约 6 分钟。它是纯进程内仿真，不读�
 
 以下为明确陈述，不作淡化：
 
-- **默认信令服务器是上游的**。全新 profile 会登录 `wss://api.crossdesk.cn:9099`
-  （`config_center.h`、`runtime_state.h`），自托管默认关闭，本 fork **未改动**这一默认。
-- **TURN/中继凭证由信令服务器按连接下发**，不硬编码；全新 profile 用的是上游 Coturn。
-- 线上的版本标识仍是 `1.7.7`，协议标识符未改（见第 3 节）——上游服务器看到的与
-  原版 CrossDesk 无异。
+- **本 fork 不运营、也不默认指向任何信令服务器**。全新 profile 的服务器字段为空
+  （`config_center.h`、`runtime_state.h`，2026-11-28 解耦 wave 修改），不做任何
+  信令登录；用户在「设置 → 服务器」配置自托管服务器后才上线。上游的
+  `api.crossdesk.cn:9099` 从所有默认值中移除（桌面、CLI controller 库、MCP、
+  Android/iOS/Harmony 移动端一致）。
+- **上游自动更新通道整体移除**：`updater/`、`version_checker/` 源码与
+  `crossdesk_updater` 构建目标已删除，`version.crossdesk.cn` /
+  `downloads.crossdesk.cn` 在任何配置下都不会被访问（此前只要使用上游公共服务器
+  就会周期检查更新）。移动端（Android/iOS/Harmony）的版本检查同样不再发起网络请求。
+- **TURN/中继凭证由信令服务器按连接下发**，不硬编码；使用哪台服务器，中继就是
+  哪台服务器下发的——完全取决于用户自己的自托管部署。
+- 线上的版本标识仍是 `1.7.7`，协议标识符未改（见第 3 节）——协议层面与原版
+  CrossDesk 兼容。
 - 中继带宽策略与原版一致，唯一新增的需求维度是可选的高帧率档（默认 60，需对端
   `supports_high_fps` 且面板刷新率够），且不超过既有的带宽上限。
 - **自托管**：上游提供 `docs/SELF_HOSTING.md`，设置里有相应字段可指向自建服务器。
 - **LAN 直连**（`--lan-connect`）不需要任何服务器。
-
-**需要明确的决定**：在默认仍指向**上游服务器**的状态下分发本构建，是一个
-**负责人尚未做出的决定**。换句话说：当前构建默认会把本机注册进上游的基础设施；
-要不要这样分发、以及是否先切到自托管，需要负责人拍板。
 
 ## 7. 已知限制与未验证项
 

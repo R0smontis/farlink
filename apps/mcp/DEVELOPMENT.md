@@ -248,12 +248,12 @@ crossdesk-mcp setup
 {
   "version": 1,
   "panel": "off",
-  "server": "api.crossdesk.cn",
+  "server": "signal.example.com",
   "port": 9099,
   "devices": [{
     "alias": "work-pc",
     "device_id": "123456789",
-    "server": "api.crossdesk.cn",
+    "server": "signal.example.com",
     "port": 9099,
     "authorization": "control",
     "credential": "environment",

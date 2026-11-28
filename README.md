@@ -57,7 +57,7 @@ upstream; the bundled `deps/submodules/minirtc` media library is
 ```bash
 git clone --recursive https://github.com/R0smontis/farlink.git
 cd farlink
-xmake f -y -m release && xmake b -y crossdesk     # requires xmake; see docs/FARLINK.md
+xmake f -y -m release && xmake b -y farlink      # requires xmake; see docs/FARLINK.md
 ```
 
 If you cloned without `--recursive`: `git submodule update --init --recursive`.
@@ -67,9 +67,20 @@ notice of modifications.
 
 ---
 
-> **Note:** the remainder of this README is upstream CrossDesk's own document. Website,
-> download, app-store, and web-client links below point to upstream's unmodified releases —
-> they do not distribute this fork.
+## Download and install (this fork)
+
+Farlink packages are published on the [fork's GitHub Releases](https://github.com/R0smontis/farlink/releases)
+page. Building from source (above) is the reference path — this fork is pre-release.
+There is no update service, no default signalling server and no web client operated
+by the fork: after installing, either configure your own self-hosted signalling
+server in **Settings → Server**, or use serverless LAN direct connect
+(`--lan-connect`, or the LAN discovery entries in the main window).
+Self-hosting guides: [docs/SELF_HOSTING_EN.md](docs/SELF_HOSTING_EN.md).
+
+> **Note:** the remainder of this README is upstream CrossDesk's own document, kept
+> as upstream reference. Website, download, app-store, and web-client links below
+> point to upstream's unmodified releases — they do **not** distribute this fork,
+> and the update/server behavior they describe no longer exists in the fork.
 
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk logo with the icon on the left and a two-tone wordmark on the right" />
@@ -412,7 +423,6 @@ Host your own signaling and TURN services, then enable them under **Settings →
 - [User guide](docs/USER_GUIDE_EN.md): installation, connections, session controls, settings, and unattended access.
 - [FAQ](docs/FAQ.md#english): connection failures, blank video, permissions, and received files.
 - [Connections and trusted devices](docs/CONNECTIONS.md) (Chinese): connection modes, pairing, and identity migration.
-- [Client updates](docs/UPDATER.md) (Chinese): check, install, and recover from update failures.
 - [Build from source](docs/BUILD_EN.md): dependencies, compilation, packaging, and signing.
 - [Architecture and integration](docs/README.md#构建与集成) (Chinese): GUI and connection architecture, CLI / MCP interfaces, and platform support.
 - [Versions and releases](docs/VERSIONING.md) (Chinese): component version synchronization, release numbering, and update manifests.
