@@ -39,7 +39,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"Wayland 会话提示", {"Wayland 会话提示", "Wayland Session Notice", "Уведомление о сеансе Wayland", "Wayland 會話提示", "Waylandセッションのお知らせ", "Wayland 세션 공지", "Wayland-Sitzungsmitteilung", "Avis de session Wayland", "Aviso de sesión de Wayland", "Aviso de Sessão Wayland"}},
   {"© 2026 JUNKUN DI。保留所有权利。", {"© 2026 JUNKUN DI。保留所有权利。", "© 2026 by JUNKUN DI. All rights reserved.", "© 2026 JUNKUN DI. Все права защищены.", "© 2026 JUNKUN DI。保留所有權利。", "© 2026 by JUNKUN DI.無断転載を禁じます。", "© 2026 by JUNKUN DI. 모든 권리 보유.", "© 2026 von JUNKUN DI. Alle Rechte vorbehalten.", "© 2026 par JUNKUN DI. Tous droits réservés.", "© 2026 por JUNKUN DI. Reservados todos los derechos.", "© 2026 por JUNKUN DI. Todos os direitos reservados."}},
   {"上下拖动，调整缩略图与主画面大小", {"上下拖动，调整缩略图与主画面大小", "Drag up or down to resize the thumbnails and main preview", "Потяните вверх или вниз, чтобы изменить размер миниатюр и основного экрана", "上下拖動，調整縮圖與主畫面大小", "上下にドラッグしてサムネイルとメイン プレビューのサイズを変更します", "썸네일과 메인 미리보기의 크기를 조정하려면 위나 아래로 드래그하세요.", "Ziehen Sie nach oben oder unten, um die Größe der Miniaturansichten und der Hauptvorschau zu ändern", "Faites glisser vers le haut ou vers le bas pour redimensionner les vignettes et l'aperçu principal", "Arrastre hacia arriba o hacia abajo para cambiar el tamaño de las miniaturas y la vista previa principal", "Arraste para cima ou para baixo para redimensionar as miniaturas e a visualização principal"}},
-  {"下载完成后将关闭 Farlink 并安装更新，当前连接和文件传输会中断。安装需要系统授权，完成后重新启动。是否继续？", {"下载完成后将关闭 Farlink 并安装更新，当前连接和文件传输会中断。安装需要系统授权，完成后重新启动。是否继续？", "Farlink will close after downloading the update. Connections and file transfers will be interrupted. Installation requires system authorization, then Farlink will restart. Continue?", "После загрузки Farlink закроется для обновления. Соединения и передача файлов будут прерваны. Потребуется разрешение системы, затем приложение перезапустится. Продолжить?", "下載完成後將關閉 Farlink 並安裝更新，當前連線和檔案傳輸會中斷。安裝需要系統授權，完成後重新啟動。是否繼續？", "アップデートをダウンロードした後、Farlinkは閉じます。接続とファイル転送は中断されます。インストールにはシステム認証が必要です。その後、Farlinkが再起動します。続く？", "업데이트를 다운로드한 후Farlink가 종료됩니다. 연결 및 파일 전송이 중단됩니다. 설치하려면 시스템 인증이 필요하며, 그런 다음Farlink가 다시 시작됩니다. 계속하다?", "Farlink wird nach dem Herunterladen des Updates geschlossen. Verbindungen und Dateiübertragungen werden unterbrochen. Für die Installation ist eine Systemautorisierung erforderlich. Anschließend wird Farlink neu gestartet. Weitermachen?", "Farlink se fermera après le téléchargement de la mise à jour. Les connexions et les transferts de fichiers seront interrompus. L'installation nécessite une autorisation du système, puis Farlink redémarrera. Continuer?", "Farlink se cerrará después de descargar la actualización. Se interrumpirán las conexiones y transferencias de archivos. La instalación requiere autorización del sistema, luego Farlink se reiniciará. ¿Continuar?", "Farlink será fechado após o download da atualização. As conexões e transferências de arquivos serão interrompidas. A instalação requer autorização do sistema e o Farlink será reiniciado. Continuar?"}},
   {"不再提醒", {"不再提醒", "Do not remind again", "Больше не напоминать", "不再提醒", "二度と思い出さないでください", "다시 알림 안 함", "Nicht noch einmal erinnern", "Ne plus rappeler", "No volver a recordar", "Não lembre novamente"}},
   {"不填端口时，默认使用 52888", {"不填端口时，默认使用 52888", "Port defaults to 52888 if omitted", "Без порта используется 52888", "不填埠時，預設使用 52888", "省略した場合、ポートはデフォルトで 52888 になります。", "생략할 경우 포트 기본값은 52888입니다.", "Der Port ist standardmäßig 52888, wenn er weggelassen wird", "Le port par défaut est 52888 s'il est omis", "El puerto predeterminado es 52888 si se omite", "A porta padrão é 52888 se omitida"}},
   {"丢包  ", {"丢包  ", "Loss  ", "Потери  ", "丟包  ", "損失 ", "손실 ", "Verlust ", "Perte ", "Pérdida ", "Perda "}},
@@ -136,7 +135,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"守护进程（无头控制台中不生效）", {"守护进程（无头控制台中不生效）", "Daemon (inactive in headless console)", "Фоновый режим (не действует в консоли)", "守護程序（無頭控制檯中不生效）", "デーモン (ヘッドレス コンソールでは非アクティブ)", "데몬(헤드리스 콘솔에서는 비활성)", "Daemon (in der Headless-Konsole inaktiv)", "Démon (inactif dans la console sans tête)", "Daemon (inactivo en consola sin cabeza)", "Daemon (inativo no console headless)"}},
   {"安装", {"安装", "Install", "Установить", "安裝", "インストール", "설치", "Installieren", "Installer", "Instalar", "Instalar"}},
   {"安装 Farlink Service", {"安装 Farlink Service", "Install Farlink Service", "Установить Farlink Service", "安裝 Farlink Service", "Farlinkサービスのインストール", "Farlink서비스 설치", "Installieren Sie den Farlink-Dienst", "Installer le service Farlink", "Instalar el servicio Farlink", "Instale o serviço Farlink"}},
-  {"安装更新", {"安装更新", "Install update", "Установить обновление", "安裝更新", "アップデートのインストール", "업데이트 설치", "Update installieren", "Installer la mise à jour", "Instalar actualización", "Instalar atualização"}},
   {"完成", {"完成", "Done", "Готово", "完成", "完了", "완료", "Fertig", "Terminé", "Hecho", "Feito"}},
   {"密码", {"密码", "Password", "Пароль", "密碼", "パスワード", "비밀번호", "Passwort", "Mot de passe", "Contraseña", "Senha"}},
   {"密码不正确，或对方密码已更新。请查看对方的局域网访问密码后重试。", {"密码不正确，或对方密码已更新。请查看对方的局域网访问密码后重试。", "The password is incorrect or has changed. Check the other desktop's current LAN password and try again.", "Пароль неверен или изменён. Проверьте текущий пароль LAN другого компьютера и повторите попытку.", "密碼不正確，或對方密碼已更新。請檢視對方的區域網訪問密碼後重試。", "パスワードが間違っているか、変更されています。他のデスクトップの現在の LAN パスワードを確認し、再試行してください。", "비밀번호가 틀리거나 변경되었습니다. 다른 데스크톱의 현재 LAN 비밀번호를 확인하고 다시 시도하세요.", "Das Passwort ist falsch oder wurde geändert. Überprüfen Sie das aktuelle LAN-Passwort des anderen Desktops und versuchen Sie es erneut.", "Le mot de passe est incorrect ou a changé. Vérifiez le mot de passe LAN actuel de l'autre ordinateur de bureau et réessayez.", "La contraseña es incorrecta o ha cambiado. Verifique la contraseña LAN actual del otro escritorio e inténtelo nuevamente.", "A senha está incorreta ou foi alterada. Verifique a senha LAN atual da outra área de trabalho e tente novamente."}},
@@ -174,7 +172,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"已开启", {"已开启", "Enabled", "Включён", "已開啟", "有効", "활성화됨", "Aktiviert", "Activé", "Habilitado", "Habilitado"}},
   {"已授权", {"已授权", "Granted", "Разрешено", "已授權", "認められる", "승인됨", "Zugegeben", "Accordé", "Concedido", "Concedido"}},
   {"已提交密码修改，正在等待服务器确认……", {"已提交密码修改，正在等待服务器确认……", "Password change submitted; waiting for server confirmation...", "Запрос смены пароля отправлен. Ожидание подтверждения...", "已提交密碼修改，正在等待伺服器確認……", "パスワード変更が送信されました。サーバーの確認を待っています...", "비밀번호 변경이 제출되었습니다. 서버 확인을 기다리는 중...", "Passwortänderung übermittelt; warte auf Serverbestätigung...", "Modification du mot de passe soumise ; en attente de confirmation du serveur...", "Cambio de contraseña enviado; esperando confirmación del servidor...", "Alteração de senha enviada; aguardando confirmação do servidor..."}},
-  {"已是最新版本", {"已是最新版本", "You're up to date", "Установлена последняя версия", "已是最新版本", "最新情報を入手しました", "최신 상태입니다", "Du bist auf dem Laufenden", "Vous êtes à jour", "Estás al día", "Você está atualizado"}},
   {"已添加", {"已添加", "Added", "Добавлено", "已新增", "追加", "추가됨", "Hinzugefügt", "Ajouté", "Añadido", "Adicionado"}},
   {"已读", {"已读", "Read", "Прочитано", "已讀", "読む", "읽기", "Lesen", "Lire", "Leer", "Leia"}},
   {"已连接", {"已连接", "Connected", "Подключено", "已連線", "接続されました", "연결됨", "Verbunden", "Connecté", "Conectado", "Conectado"}},
@@ -202,7 +199,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"总计", {"总计", "Total", "Итого", "總計", "合計", "합계", "Insgesamt", "Total", "Total", "Total"}},
   {"我知道了", {"我知道了", "Got it", "Понятно", "我知道了", "分かりました", "알겠습니다", "Verstanden", "Compris", "Entendido", "Entendi"}},
   {"或在主界面选择本机 IP。", {"或在主界面选择本机 IP。", "or select a local IP on the main screen.", "или выберите локальный IP в главном окне.", "或在主介面選擇本機 IP。", "またはメイン画面でローカル IP を選択します。", "또는 메인 화면에서 로컬 IP를 선택하세요.", "oder wählen Sie im Hauptbildschirm eine lokale IP aus.", "ou sélectionnez une adresse IP locale sur l'écran principal.", "o seleccione una IP local en la pantalla principal.", "ou selecione um IP local na tela principal."}},
-  {"手动下载", {"手动下载", "Download manually", "Скачать вручную", "手動下載", "手動ダウンロード", "수동으로 다운로드", "Manuell herunterladen", "Télécharger manuellement", "Descargar manualmente", "Baixe manualmente"}},
   {"拖到另一台设备上", {"拖到另一台设备上", "Drag onto another device", "Перетащите на другое устройство", "拖到另一臺裝置上", "別のデバイス上にドラッグします", "다른 장치로 드래그", "Auf ein anderes Gerät ziehen", "Faire glisser sur un autre appareil", "Arrastrar a otro dispositivo", "Arraste para outro dispositivo"}},
   {"拖动表格分隔线，同步调整所有设备大小", {"拖动表格分隔线，同步调整所有设备大小", "Drag a table divider to resize all devices", "Потяните за разделитель таблицы, чтобы изменить размер всех устройств", "拖動表格分隔線，同步調整所有裝置大小", "テーブルの分割線をドラッグして、すべてのデバイスのサイズを変更します", "모든 장치의 크기를 조정하려면 표 구분선을 드래그하세요.", "Ziehen Sie einen Tabellenteiler, um die Größe aller Geräte zu ändern", "Faites glisser un séparateur de tableau pour redimensionner tous les appareils", "Arrastre un divisor de tabla para cambiar el tamaño de todos los dispositivos", "Arraste um divisor de mesa para redimensionar todos os dispositivos"}},
   {"按下快捷键，解除隐私屏", {"按下快捷键，解除隐私屏", "To turn off the privacy screen, press", "Чтобы отключить приватный экран, нажмите", "按下快捷鍵，解除隱私屏", "プライバシー画面をオフにするには、 を押します。", "개인정보 보호 화면을 끄려면 다음을 누르세요.", "Um den Datenschutzbildschirm auszuschalten, drücken Sie", "Pour désactiver l'écran de confidentialité, appuyez sur", "Para desactivar la pantalla de privacidad, presione", "Para desligar a tela de privacidade, pressione"}},
@@ -227,9 +223,7 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"断开所有控制端的连接？", {"断开所有控制端的连接？", "Disconnect all controllers?", "Отключить все контроллеры?", "斷開所有控制端的連線？", "すべてのコントローラーを切断しますか?", "모든 컨트롤러를 연결 해제하시겠습니까?", "Alle Controller abklemmen?", "Déconnecter tous les contrôleurs ?", "¿Desconectar todos los controladores?", "Desconectar todos os controladores?"}},
   {"断开连接", {"断开连接", "Disconnect", "Отключить", "中斷連線", "切断", "연결 해제", "Trennen", "Déconnecter", "Desconectar", "Desconectar"}},
   {"新建分组（可选）", {"新建分组（可选）", "New group (optional)", "Новая группа (необязательно)", "新建分組（可選）", "新しいグループ (オプション)", "새 그룹(선택 사항)", "Neue Gruppe (optional)", "Nouveau groupe (facultatif)", "Nuevo grupo (opcional)", "Novo grupo (opcional)"}},
-  {"新版本", {"新版本", "New version", "Новая версия", "新版本", "新しいバージョン", "새 버전", "Neue Version", "Nouvelle version", "Nueva versión", "Nova versão"}},
   {"新版本包含功能改进和性能优化，建议将被控端升级至最新版本。", {"新版本包含功能改进和性能优化，建议将被控端升级至最新版本。", "Update the remote device to the latest version for improved features and performance.", "В новой версии улучшены функции и производительность. Рекомендуем обновить Farlink на удалённом устройстве до последней версии.", "新版本包含功能改進和效能最佳化，建議將被控端升級至最新版本。", "機能とパフォーマンスを向上させるために、リモート デバイスを最新バージョンに更新します。", "향상된 기능과 성능을 위해 원격 장치를 최신 버전으로 업데이트하세요.", "Aktualisieren Sie das Remote-Gerät auf die neueste Version, um verbesserte Funktionen und Leistung zu erhalten.", "Mettez à jour le périphérique distant vers la dernière version pour des fonctionnalités et des performances améliorées.", "Actualice el dispositivo remoto a la última versión para mejorar las funciones y el rendimiento.", "Atualize o dispositivo remoto para a versão mais recente para obter recursos e desempenho aprimorados."}},
-  {"新版本可用", {"新版本可用", "New Version Available", "Доступна новая версия", "新版本可用", "新しいバージョンが利用可能になりました", "새 버전 출시", "Neue Version verfügbar", "Nouvelle version disponible", "Nueva versión disponible", "Nova versão disponível"}},
   {"无效的选项或值，未保存。请按菜单列出的格式输入。", {"无效的选项或值，未保存。请按菜单列出的格式输入。", "Invalid setting or value; not saved. Use the format shown in the menu.", "Неверный параметр или значение. Ничего не сохранено. Используйте указанный формат.", "無效的選項或值，未儲存。請按選單列出的格式輸入。", "無効な設定または値です。保存されていません。メニューに表示される形式を使用します。", "잘못된 설정 또는 값입니다. 저장되지 않았습니다. 메뉴에 표시된 형식을 사용하십시오.", "Ungültige Einstellung oder ungültiger Wert; nicht gespeichert. Verwenden Sie das im Menü angezeigte Format.", "Paramètre ou valeur invalide ; pas sauvegardé. Utilisez le format indiqué dans le menu.", "Configuración o valor no válido; no salvo. Utilice el formato que se muestra en el menú.", "Configuração ou valor inválido; não salvo. Use o formato mostrado no menu."}},
   {"无此 ID", {"无此 ID", "No such ID", "ID не найден", "無此 ID", "そのようなIDはありません", "해당 아이디가 없습니다.", "Kein solcher Ausweis", "Aucune pièce d'identité de ce type", "No existe tal identificación", "Não existe tal ID"}},
   {"无法使用此端口，", {"无法使用此端口，", "Cannot use this port.", "Порт недоступен.", "無法使用此埠，", "このポートは使用できません。", "이 포트를 사용할 수 없습니다.", "Dieser Port kann nicht verwendet werden.", "Impossible d'utiliser ce port.", "No se puede utilizar este puerto.", "Não é possível usar esta porta."}},
@@ -262,7 +256,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"更新", {"更新", "Update", "Обновить", "更新", "アップデート", "업데이트", "Aktualisieren", "Mise à jour", "Actualización", "Atualização"}},
   {"更新内容", {"更新内容", "Release Notes", "Содержание обновления", "更新內容", "リリースノート", "릴리스 노트", "Versionshinweise", "Notes de version", "Notas de la versión", "Notas de versão"}},
   {"更新日志", {"更新日志", "Release notes", "История изменений", "更新日誌", "リリースノート", "릴리스 노트", "Versionshinweise", "Notes de version", "Notas de la versión", "Notas de lançamento"}},
-  {"更新未完成，可重试或手动安装。", {"更新未完成，可重试或手动安装。", "Update did not complete. Retry or install manually.", "Обновление не завершено. Повторите или установите вручную.", "更新未完成，可重試或手動安裝。", "アップデートが完了しませんでした。再試行するか、手動でインストールしてください。", "업데이트가 완료되지 않았습니다. 다시 시도하거나 수동으로 설치하세요.", "Das Update wurde nicht abgeschlossen. Versuchen Sie es erneut oder installieren Sie es manuell.", "La mise à jour n'a pas été effectuée. Réessayez ou installez manuellement.", "La actualización no se completó. Vuelva a intentarlo o instálelo manualmente.", "A atualização não foi concluída. Tente novamente ou instale manualmente."}},
   {"最后一个远程控制端断开后，自动锁定本机。", {"最后一个远程控制端断开后，自动锁定本机。", "Lock this device when the last remote controller disconnects.", "Блокировать это устройство после отключения последнего управляющего клиента.", "最後一個遠端控制端斷開後，自動鎖定本機。", "最後の送信機が切断されたときに、このデバイスをロックします。", "마지막 리모컨의 연결이 끊어지면 이 장치를 잠급니다.", "Sperren Sie dieses Gerät, wenn die letzte Fernbedienung getrennt wird.", "Verrouillez cet appareil lorsque la dernière télécommande se déconnecte.", "Bloquee este dispositivo cuando se desconecte el último control remoto.", "Bloqueie este dispositivo quando o último controle remoto for desconectado."}},
   {"最大化", {"最大化", "Maximize", "Развернуть", "最大化", "最大化", "최대화", "Maximieren", "Maximiser", "Maximizar", "Maximizar"}},
   {"最小化", {"最小化", "Minimize", "Свернуть", "最小化", "最小化", "최소화", "Minimieren", "Réduire", "Minimizar", "Minimizar"}},
@@ -295,11 +288,8 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"查看源码", {"查看源码", "View source code", "Открыть исходный код", "檢視原始碼", "ソースコードを表示する", "소스코드 보기", "Quellcode anzeigen", "Afficher le code source", "Ver código fuente", "Ver código-fonte"}},
   {"桌面", {"桌面", "Desktop", "Рабочий стол", "桌面", "デスクトップ", "데스크탑", "Desktop", "Bureau", "Escritorio", "Área de Trabalho"}},
   {"桌面墙", {"桌面墙", "DeskHub", "DeskHub", "桌面牆", "DeskHub", "DeskHub", "DeskHub", "DeskHub", "DeskHub", "DeskHub"}},
-  {"检查失败，请稍后重试", {"检查失败，请稍后重试", "Check failed. Please try again later.", "Не удалось проверить обновления. Повторите позже.", "檢查失敗，請稍後重試", "チェックに失敗しました。後でもう一度試してください。", "확인에 실패했습니다. 나중에 다시 시도해 주세요.", "Prüfung fehlgeschlagen. Bitte versuchen Sie es später noch einmal.", "La vérification a échoué. Veuillez réessayer plus tard.", "La verificación falló. Inténtelo de nuevo más tarde.", "Falha na verificação. Por favor, tente novamente mais tarde."}},
-  {"检查更新", {"检查更新", "Check for updates", "Проверить обновления", "檢查更新", "アップデートを確認する", "업데이트 확인", "Suchen Sie nach Updates", "Rechercher des mises à jour", "Buscar actualizaciones", "Verifique se há atualizações"}},
   {"检测到当前桌面会话使用 Wayland。", {"检测到当前桌面会话使用 Wayland。", "The current desktop session uses Wayland.", "Текущий сеанс рабочего стола использует Wayland.", "檢測到當前桌面會話使用 Wayland。", "現在のデスクトップ セッションは Wayland を使用しています。", "현재 데스크톱 세션은 Wayland를 사용합니다.", "Die aktuelle Desktop-Sitzung verwendet Wayland.", "La session de bureau actuelle utilise Wayland.", "La sesión de escritorio actual utiliza Wayland.", "A sessão atual da área de trabalho usa Wayland."}},
   {"正在传输", {"正在传输", "Sending", "Передача", "正在傳輸", "送信", "보내는 중", "Senden", "Envoi", "Envío", "Envio"}},
-  {"正在准备更新…", {"正在准备更新…", "Preparing update…", "Подготовка обновления…", "正在準備更新…", "アップデートを準備しています…", "업데이트 준비 중…", "Update wird vorbereitet…", "Préparation de la mise à jour…", "Preparando actualización…", "Preparando atualização…"}},
   {"正在加载…", {"正在加载…", "Loading…", "Загрузка…", "正在載入…", "読み込み中…", "로드 중…", "Laden…", "Chargement…", "Cargando…", "Carregando…"}},
   {"正在取消", {"正在取消", "Cancelling", "Отмена…", "正在取消", "キャンセルする", "취소 중", "Abbrechen", "Annulation", "Cancelando", "Cancelando"}},
   {"正在安装服务...", {"正在安装服务...", "Installing service...", "Установка службы...", "正在安裝服務...", "サービスをインストール中…", "서비스 설치 중...", "Dienst wird installiert...", "Installation du service...", "Instalando servicio...", "Instalando serviço..."}},
@@ -308,7 +298,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"正在接收", {"正在接收", "Receiving", "Получение", "正在接收", "受信中", "수신", "Empfangen", "Réception", "Recepción", "Recebendo"}},
   {"正在操控", {"正在操控", "Controlling", "Управление", "正在操控", "制御する", "제어", "Kontrollieren", "Contrôler", "Controlar", "Controle"}},
   {"正在收集候选地址...", {"正在收集候选地址...", "Gathering candidates ...", "Сбор кандидатов...", "正在收集候選地址...", "候補者を集めて…", "후보자를 모으는 중...", "Kandidaten sammeln ...", "Rassembler les candidats...", "Reuniendo candidatos...", "Reunindo candidatos..."}},
-  {"正在检查更新…", {"正在检查更新…", "Checking for updates…", "Проверка обновлений…", "正在檢查更新…", "アップデートを確認しています…", "업데이트 확인 중…", "Suche nach Updates…", "Vérification des mises à jour…", "Buscando actualizaciones...", "Verificando atualizações…"}},
   {"正在读取…", {"正在读取…", "Checking…", "Проверка…", "正在讀取…", "確認中…", "확인 중…", "Überprüfen…", "Vérification…", "Comprobando…", "Verificando…"}},
   {"正在连接…", {"正在连接…", "Connecting…", "Подключение…", "正在連線…", "接続中…", "연결 중…", "Verbinden…", "Connexion…", "Conectando...", "Conectando…"}},
   {"正在退出 Farlink……", {"正在退出 Farlink……", "Exiting Farlink...", "Выход из Farlink...", "正在退出 Farlink……", "Farlinkを終了します ...", "Farlink종료 중...", "Farlink wird beendet ...", "Sortie de Farlink...", "Saliendo de Farlink...", "Saindo de Farlink..."}},
@@ -525,8 +514,6 @@ inline constexpr TranslationRow kTranslationRows[] = {
   {"请核对控制端指纹。", {"请核对控制端指纹。", "Check the fingerprint on the controller.", "Сверьте отпечаток с управляющим устройством.", "請核對控制端指紋。", "操作側のフィンガープリントと照合してください。", "제어 장치의 지문과 대조하세요.", "Mit dem Fingerabdruck des steuernden Geräts vergleichen.", "Vérifiez l’empreinte sur l’appareil de contrôle.", "Verifique la huella en el dispositivo de control.", "Confira a impressão digital no dispositivo controlador."}},
   {"配对信息已复制。", {"配对信息已复制。", "Pairing information copied.", "Данные сопряжения скопированы.", "配對資訊已複製。", "ペアリング情報をコピーしました。", "페어링 정보를 복사했습니다.", "Kopplungsdaten kopiert.", "Informations d’association copiées.", "Información de emparejamiento copiada.", "Informações de pareamento copiadas."}},
   {"无法复制配对信息，请重试。", {"无法复制配对信息，请重试。", "Unable to copy pairing information. Please try again.", "Не удалось скопировать данные сопряжения. Повторите попытку.", "無法複製配對資訊，請重試。", "ペアリング情報をコピーできません。もう一度お試しください。", "페어링 정보를 복사할 수 없습니다. 다시 시도하세요.", "Kopplungsdaten konnten nicht kopiert werden. Bitte erneut versuchen.", "Impossible de copier les informations d’association. Réessayez.", "No se pudo copiar la información de emparejamiento. Inténtelo de nuevo.", "Não foi possível copiar as informações de pareamento. Tente novamente."}},
-  {"重试更新", {"重试更新", "Retry update", "Повторить", "重試更新", "再試行", "다시 시도", "Erneut versuchen", "Réessayer", "Reintentar", "Tentar novamente"}},
-  {"更新未完成，请手动下载安装。", {"更新未完成，请手动下载安装。", "Update did not complete. Download and install manually.", "Обновление не завершено. Скачайте и установите вручную.", "更新未完成，請手動下載安裝。", "アップデートが完了しませんでした。手動でダウンロードしてインストールしてください。", "업데이트가 완료되지 않았습니다. 수동으로 다운로드하여 설치하세요.", "Das Update wurde nicht abgeschlossen. Laden Sie es herunter und installieren Sie es manuell.", "La mise à jour n'a pas été effectuée. Téléchargez-la et installez-la manuellement.", "La actualización no se completó. Descárguela e instálela manualmente.", "A atualização não foi concluída. Baixe e instale manualmente."}},
   {"发送到远端", {"发送到远端", "Send to remote", "Отправить на удалённый ПК", "傳送到遠端", "リモートへ送信", "원격으로 보내기", "An Remote-PC senden", "Envoyer au PC distant", "Enviar al equipo remoto", "Enviar ao computador remoto"}},
   {"发送到本机", {"发送到本机", "Send to local", "Отправить на этот ПК", "傳送到本機", "この端末へ送信", "이 기기로 보내기", "An diesen PC senden", "Envoyer à ce PC", "Enviar a este equipo", "Enviar a este computador"}},
   {"清除已完成", {"清除已完成", "Clear completed", "Убрать завершённые", "清除已完成", "完了済みをクリア", "완료 항목 지우기", "Abgeschlossene entfernen", "Effacer les tâches terminées", "Limpiar completadas", "Limpar concluídas"}},
@@ -790,25 +777,12 @@ inline constexpr NamedTranslation kNamedTranslations[] = {
   {"no_such_id", "无此 ID"},
   {"about", "关于"},
   {"notification", "通知"},
-  {"new_version", "新版本"},
-  {"new_version_available", "新版本可用"},
-  {"check_for_updates", "检查更新"},
-  {"checking_for_updates", "正在检查更新…"},
-  {"up_to_date", "已是最新版本"},
-  {"update_check_failed", "检查失败，请稍后重试"},
   {"release_notes", "更新内容"},
   {"view_release_notes", "更新日志"},
   {"version", "版本"},
   {"release_date", "发布日期: "},
   {"access_website", "访问官网: "},
   {"update", "更新"},
-  {"install_update", "安装更新"},
-  {"retry_update", "重试更新"},
-  {"manual_download", "手动下载"},
-  {"install_update_confirm", "下载完成后将关闭 Farlink 并安装更新，当前连接和文件传输会中断。安装需要系统授权，完成后重新启动。是否继续？"},
-  {"update_preparing", "正在准备更新…"},
-  {"update_install_failed", "更新未完成，可重试或手动安装。"},
-  {"update_install_failed_manual", "更新未完成，请手动下载安装。"},
   {"connection_alias", "修改名称"},
   {"delete_connection", "删除连接"},
   {"connect_to_this_connection", "发起连接"},
@@ -1343,25 +1317,12 @@ inline constexpr const char* kSlintLiterals[] = {
   X(no_such_id) \
   X(about) \
   X(notification) \
-  X(new_version) \
-  X(new_version_available) \
-  X(check_for_updates) \
-  X(checking_for_updates) \
-  X(up_to_date) \
-  X(update_check_failed) \
   X(release_notes) \
   X(view_release_notes) \
   X(version) \
   X(release_date) \
   X(access_website) \
   X(update) \
-  X(install_update) \
-  X(retry_update) \
-  X(manual_download) \
-  X(install_update_confirm) \
-  X(update_preparing) \
-  X(update_install_failed) \
-  X(update_install_failed_manual) \
   X(connection_alias) \
   X(delete_connection) \
   X(connect_to_this_connection) \
