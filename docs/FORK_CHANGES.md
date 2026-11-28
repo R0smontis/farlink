@@ -14,6 +14,11 @@ repository (fork commits are prefixed `[feat]` / `[fix]` / `[chore]` / `[test]`)
 The bundled media library `deps/submodules/minirtc` is itself a modified version of
 <https://github.com/kunkundi/minirtc>; see `deps/submodules/minirtc/docs/FORK_CHANGES.md`.
 
+## Stream scheduling and statistics
+
+- HUD RTT uses a median of three valid reports and expires after three seconds without a new sample. Raw RTT and frame-gap diagnostics are unchanged.
+- The bundled MiniRTC applies bitrate changes with the next encoded frame rather than competing with frame admission. Receive bitrate counts each video RTP arrival once.
+
 ## Operational decoupling from upstream (2026-11-28)
 
 A dedicated wave on 2026-11-28 removed all upstream operational wiring:

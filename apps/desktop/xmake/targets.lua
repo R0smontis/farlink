@@ -299,6 +299,17 @@ function setup_targets()
         add_includedirs("apps/desktop/src", "apps/desktop/src/gui")
         add_files("apps/desktop/tests/inter_present_gap_test.cpp")
 
+    target("stream_scheduling_test")
+        set_kind("binary")
+        set_default(false)
+        add_deps("minirtc")
+        add_packages("spdlog")
+        add_includedirs("apps/desktop/src/gui",
+            "deps/submodules/minirtc/src/common",
+            "deps/submodules/minirtc/src/qos",
+            "deps/submodules/minirtc/src/transport")
+        add_files("apps/desktop/tests/stream_scheduling_test.cpp")
+
     -- Wave 6D: per-stage latency attribution. Deterministic rolling-window
     -- decode/render statistics, the five-regime bottleneck classifier, and
     -- the 10k-event dispatcher FIFO + queue-latency microbenchmark for the
