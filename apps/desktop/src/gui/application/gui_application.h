@@ -69,7 +69,6 @@ private:
 #ifdef _WIN32
   void TickLocalHost();
 #endif
-  void PollUpdateCheck();
   void ExportDiagnosticLogs();
   void PollDiagnosticExport();
   void ShareLocalCursorState();
@@ -213,8 +212,6 @@ private:
   bool OpenUrl(const std::string &url);
 
   std::unique_ptr<SlintUi> ui_;
-#if CROSSDESK_HAS_UPDATER
-#endif
   CursorStateProvider cursor_state_provider_;
   std::unordered_map<std::string, CursorDeliveryState>
       cursor_delivery_states_;

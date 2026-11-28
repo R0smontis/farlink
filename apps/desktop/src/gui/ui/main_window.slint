@@ -43,11 +43,6 @@ export struct LanDiscoveredPeer {
     endpoint: string,
 }
 
-export struct ReleaseNoteBlock {
-    content: styled-text,
-    section-gap: bool,
-}
-
 export enum AutostartStatus { checking, enabled, disabled, unsupported, failed }
 enum CopyFeedback { idle, success, failed }
 
@@ -661,7 +656,6 @@ export component MainWindow inherits Window {
     in property <string> current-version: "";
     in property <string> latest-version: "";
     in property <string> release-name: "";
-    in property <[ReleaseNoteBlock]> release-note-blocks;
     in property <[string]> installed-release-notes;
     in property <string> release-date: "";
     in-out property <string> offline-warning: "";

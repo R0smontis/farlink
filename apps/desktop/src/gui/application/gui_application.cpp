@@ -1187,9 +1187,6 @@ struct GuiApplication::SlintUi {
   slint::ComponentHandle<ui::MainWindow> main = ui::MainWindow::create();
   slint::ComponentHandle<ui::MainWindow> wall = ui::MainWindow::create();
   auto& Window(bool gallery) { return gallery ? wall : main; }
-  std::shared_ptr<slint::VectorModel<ui::ReleaseNoteBlock>>
-      release_note_blocks_model =
-          std::make_shared<slint::VectorModel<ui::ReleaseNoteBlock>>();
   std::map<std::string, StreamView> streams;
   bool releasing_input = false;
   bool gallery_previous_mouse_control = false;
@@ -1547,7 +1544,6 @@ void GuiApplication::InitializeUi() {
   // Set this only at startup so dismissing the notice lasts until exit.
   ui_->main->set_wayland_notice_open(is_wayland_session);
 #endif
-  ui_->main->set_release_note_blocks(ui_->release_note_blocks_model);
   RegisterFontAwesome(ui_->main->window());
   ui_->main->set_recent_connections(ui_->recent_model);
   ui_->main->set_lan_discovered_peers(ui_->lan_peer_model);
@@ -1560,7 +1556,6 @@ void GuiApplication::InitializeUi() {
   ui_->wall->set_gallery_mode(true);
   ui_->wall->set_custom_titlebar(ui_->main->get_custom_titlebar());
   ui_->wall->set_wayland_titlebar(ui_->main->get_wayland_titlebar());
-  ui_->wall->set_release_note_blocks(ui_->release_note_blocks_model);
   RegisterFontAwesome(ui_->wall->window());
   // The first DeskHub window is 960 x 720 logical pixels including its titlebar.
   // Custom titlebars are part of the Slint client; AppKit's titlebar is not.
@@ -2884,7 +2879,6 @@ void GuiApplication::Tick() {
                                ? std::string("ConnectionFailed")
                                : lan_error_;
   ui_->main->set_lan_message(UiText(lan_message));
-  PollUpdateCheck();
   HandleSessionCleanup();
   HandlePasswordChangeResult();
   HandleCredentialRecovery();
@@ -3038,12 +3032,6 @@ void GuiApplication::Tick() {
   // session windows have been synchronized, including the last session close.
   if (ui_->tray) ui_->tray->SyncDockVisibility();
 #endif
-}
-
-void GuiApplication::PollUpdateCheck() {
-  // The upstream self-update channel (version.crossdesk.cn phone-home plus the
-  // signed package installer) is removed in this fork. Release notes for the
-  // installed build are embedded at compile time instead.
 }
 
 void GuiApplication::ShareLocalCursorState() {

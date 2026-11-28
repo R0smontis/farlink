@@ -40,17 +40,6 @@ RequestExecutionLevel admin
 ; Include LogicLib for process handling
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
-Var UpdateMode
-
-Function .onInit
-    ${GetParameters} $0
-    ClearErrors
-    ${GetOptions} $0 "/FARLINK_UPDATE" $1
-    StrCpy $UpdateMode 0
-    ${IfNot} ${Errors}
-        StrCpy $UpdateMode 1
-    ${EndIf}
-FunctionEnd
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 OutFile "farlink-win-x64-${PRODUCT_VERSION}.exe"
@@ -67,11 +56,6 @@ InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" "InstallDir"
 ShowInstDetails show
 
 Section "MainSection"
-    ; The updater has already coordinated shutdown. Never kill unrelated
-    ; instances by name during an unattended upgrade.
-    ${If} $UpdateMode = 1
-        Goto installApp
-    ${EndIf}
     ; Check if Farlink is running
     StrCpy $1 "Farlink.exe"
     
@@ -217,9 +201,6 @@ SectionEnd
 
 ; ------ Functions ------
 Function LaunchApp
-    ${If} $UpdateMode = 1
-        Return
-    ${EndIf}
     Exec "$INSTDIR\Farlink.exe"
 FunctionEnd
 
