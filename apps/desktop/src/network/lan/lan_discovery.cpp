@@ -467,10 +467,15 @@ std::vector<DiscoveredPeer> Discovery::Peers() const {
   std::vector<DiscoveredPeer> result;
   result.reserve(impl_->peers.size());
   for (const auto& [_, peer] : impl_->peers) result.push_back(peer);
+  // Presentation order must not follow freshness: every broadcast refreshes
+  // last_seen, so ordering by it makes two equally live peers trade places
+  // on every poll and the discovery chips visibly jump. Sort by stable
+  // identity instead; last_seen still drives expiry.
   std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
-    if (a.last_seen != b.last_seen) return a.last_seen > b.last_seen;
     if (a.hostname != b.hostname) return a.hostname < b.hostname;
-    return a.device_id < b.device_id;
+    if (a.device_id != b.device_id) return a.device_id < b.device_id;
+    if (a.address != b.address) return a.address < b.address;
+    return a.port < b.port;
   });
   return result;
 }

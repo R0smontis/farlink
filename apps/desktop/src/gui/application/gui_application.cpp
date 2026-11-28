@@ -2386,6 +2386,33 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
   stream->set_mouse_sensitivity_percent(config_center_->GetMouseSensitivityPercent());
   stream->set_wheel_sensitivity_percent(
       config_center_->GetWheelSensitivityPercent(view.session->device_preference_key_));
+  stream->on_copy_stats([&view] {
+    auto& window = view.window;
+    const auto text_of = [](const slint::SharedString& value) {
+      return std::string(value);
+    };
+    std::string text = "Farlink 网络状态\n";
+    text += "模式: " + text_of(window->get_stats_connection_mode()) + "\n";
+    text += "连接 RTT: " + text_of(window->get_stats_connection_latency()) + "\n";
+    text += "视频延时: " + text_of(window->get_stats_video_latency()) + "\n";
+    text += "分辨率: " + text_of(window->get_stats_resolution()) + "\n";
+    text += "帧率: " + text_of(window->get_stats_fps()) + "\n";
+    text += "编码器: " + text_of(window->get_stats_encoder()) +
+            " / 解码器: " + text_of(window->get_stats_decoder()) + "\n";
+    text += std::string("加密: ") +
+            (window->get_stats_encryption_enabled() ? "已启用" : "未启用") + "\n";
+    text += "本端地址: " + text_of(window->get_stats_local_endpoint()) + "\n";
+    text += "对端地址: " + text_of(window->get_stats_remote_endpoint()) + "\n";
+    text += "卡顿次数: " + text_of(window->get_stats_freeze_count()) +
+            " / 每分钟: " + text_of(window->get_stats_freezes_per_min()) + "\n";
+    text += "最大间隔: " + text_of(window->get_stats_freeze_max()) +
+            " / p95: " + text_of(window->get_stats_interval_p95()) + "\n";
+    text += "视频抖动: " + text_of(window->get_stats_video_jitter()) +
+            " / 音频抖动: " + text_of(window->get_stats_audio_jitter()) + "\n";
+    text += "解码: " + text_of(window->get_stats_decode_ms()) +
+            " / 渲染: " + text_of(window->get_stats_render_ms()) + "\n";
+    SDL_SetClipboardText(text.c_str());
+  });
   stream->on_save_input_sensitivity([this, &view](int mouse, int wheel) {
     auto& window = view.window;
     const int old_mouse = config_center_->GetMouseSensitivityPercent();
@@ -2545,6 +2572,11 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
     SetStreamKeyboardFocus(view, true);
   });
 #ifdef __APPLE__
+  stream->on_release_pointer([this] {
+#ifdef __APPLE__
+    RequestGameModeExit();
+#endif
+  });
   stream->on_toggle_game_mouse([this, &view] {
     if (game_mode_active_) {
       ExitGameMode();
@@ -4443,10 +4475,12 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
   const auto mode = props->traversal_mode_.load();
   const bool direct = mode == MiniRtcTraversalP2P &&
                       status == MiniRtcConnectionConnected;
-  stream->set_stats_connection_mode(UiText(mode == MiniRtcTraversalP2P
-      ? localization::connection_mode_direct[localization_language_index_]
-      : mode == MiniRtcTraversalRelay
-          ? localization::connection_mode_relay[localization_language_index_] : "—"));
+  const std::string connection_mode_text =
+      mode == MiniRtcTraversalP2P
+          ? localization::connection_mode_direct[localization_language_index_]
+          : mode == MiniRtcTraversalRelay
+              ? localization::connection_mode_relay[localization_language_index_] : "—";
+  stream->set_stats_connection_mode(UiText(connection_mode_text));
   stream->set_stats_local_endpoint(UiText(direct ? net.local_endpoint : ""));
   stream->set_stats_remote_endpoint(UiText(direct ? net.remote_endpoint : ""));
 
@@ -4501,6 +4535,25 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
             : std::to_string(static_cast<int>(std::lround(*display_rtt))) + " ms";
   }
   stream->set_stats_connection_latency(UiText(connection_latency));
+  // Compact health summary for the control center row and the pill over the
+  // video. Quality drives only the indicator colour; the numbers stay the
+  // same values the full panel renders.
+  const float total_loss = net.total_inbound_stats.loss_rate;
+  if (rtt_available) {
+    stream->set_network_summary(UiText(
+        connection_latency + " · " + FormatLossRate(total_loss) + " · " +
+        connection_mode_text));
+    int quality = 1;
+    if (*display_rtt > 150.0 || total_loss > 0.05f) {
+      quality = 3;
+    } else if (*display_rtt > 80.0 || total_loss > 0.01f) {
+      quality = 2;
+    }
+    stream->set_network_quality(quality);
+  } else {
+    stream->set_network_summary(UiText(""));
+    stream->set_network_quality(0);
+  }
   // D8 inter-presentation freeze metrics. All four render as unavailable
   // until the first two presentations exist: zero intervals means no
   // measured cadence at all, and reporting zeros there would read as a

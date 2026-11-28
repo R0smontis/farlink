@@ -98,6 +98,17 @@ export global StreamStrings {
     in-out property <string> stats-video-jitter: "Video jitter";
     in-out property <string> stats-audio-jitter: "Audio jitter";
     in-out property <string> stats-decode: "Decode";
+    in-out property <string> control-center: "控制中心";
+    in-out property <string> section-video: "画面";
+    in-out property <string> section-input: "输入";
+    in-out property <string> section-sound: "声音";
+    in-out property <string> section-status: "状态";
+    in-out property <string> section-diagnostics: "诊断";
+    in-out property <string> network-status: "网络状态";
+    in-out property <string> copy-info: "复制信息";
+    in-out property <string> release-pointer: "鼠标脱离";
+    in-out property <string> release-pointer-hint: "退出鼠标捕获并恢复本机指针";
+    in-out property <string> escape-chord: "⌃⌥G";
     in-out property <string> stats-render: "Render";
     in-out property <string> keyboard-shortcuts: "Keyboard shortcuts";
     in-out property <string> shortcut-prefer-local: "Prefer local";
@@ -257,6 +268,14 @@ component ControlBarButton inherits Rectangle {
         // Keep disabled controls hit-testable so clicks cannot reach the peer.
         clicked => { if root.action-enabled { root.clicked(); } }
     }
+}
+
+component ControlCenterSection inherits Text {
+    height: 22px;
+    vertical-alignment: bottom;
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7785;
 }
 
 component StreamSettingRow inherits VerticalLayout {
@@ -441,6 +460,9 @@ export component StreamWindow inherits Window {
     in property <bool> game-mouse-available: false;
     in property <bool> game-mouse-active: false;
     callback toggle-game-mouse;
+    // Release mouse capture / stream control without hunting for the
+    // toolbar. Also surfaced as the escape chord shown in the notice.
+    callback release-pointer;
     // Entry notice for game-mode capture: while captured the hardware cursor
     // is frozen, so the control bar and its tooltips are unreachable. The
     // escape chord is therefore shown once, as a transient surface, at the
@@ -545,6 +567,10 @@ export component StreamWindow inherits Window {
         triggered => { root.fullscreen-transitioning = false; }
     }
     in property <bool> stats-visible: false;
+    // Connection health summary rendered as a compact pill over the video
+    // while the network panel is open. 0 unknown, 1 good, 2 fair, 3 poor.
+    in property <int> network-quality: 0;
+    in property <string> network-summary: "";
     in property <[NetworkStatsRow]> stats-rows;
     in property <string> stats-fps: "0";
     in property <string> stats-resolution: "";
@@ -580,6 +606,7 @@ export component StreamWindow inherits Window {
     pure callback can-drop-file(data-transfer) -> bool;
     callback file-dropped(data-transfer);
     callback toggle-stats;
+    callback copy-stats;
     callback toggle-fullscreen;
     callback disconnect;
     callback stream-title-drag(int, length, length);
@@ -1359,6 +1386,31 @@ export component StreamWindow inherits Window {
                 z: 16; shape: root.remote-cursor-active ? root.remote-cursor-shape : 0;
             }
 
+            if root.stats-visible: Rectangle {
+                x: 12px; y: 12px;
+                width: network-chip-text.preferred-width + 30px;
+                height: 24px;
+                background: #0f1b2acc;
+                border-radius: 12px;
+                z: 9;
+                Rectangle {
+                    x: 9px; y: 9px; width: 7px; height: 7px; border-radius: 4px;
+                    background: root.network-quality == 1 ? #34c759
+                        : root.network-quality == 2 ? #ff9f0a
+                        : root.network-quality == 3 ? #ff453a : #8e8e93;
+                }
+                network-chip-text := Text {
+                    x: 22px; width: parent.width - 30px; height: parent.height;
+                    text: root.network-summary;
+                    color: white; font-size: 10px;
+                    vertical-alignment: center; overflow: elide;
+                }
+                TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.toggle-stats(); }
+                }
+            }
+
             // Keep the toolbar anchor and hit area stable while the visual
             // capsule grows from the logo's docked edge.
             control := Rectangle {
@@ -1966,6 +2018,13 @@ export component StreamWindow inherits Window {
                         height: root.settings-content-height;
                         padding: 10px; spacing: 8px;
                         padding-right: root.settings-content-height > root.video-menu-height ? 24px : 10px;
+                        Text {
+                            text: StreamStrings.control-center;
+                            height: 22px;
+                            font-size: 13px; font-weight: 600; color: #293746;
+                            vertical-alignment: center;
+                        }
+                        ControlCenterSection { text: StreamStrings.section-video; }
                         if root.remote-resolution-visible: VerticalLayout {
                             spacing: 4px;
                             Text { text: StreamStrings.remote-resolution; color: #5c626c; font-size: 11px; height: 18px; }
@@ -2019,6 +2078,7 @@ export component StreamWindow inherits Window {
                             selected: root.bitrate-cap-index; enabled: root.bitrate-cap-enabled;
                             choose(index) => { root.choose-bitrate-cap(index); }
                         }
+                        if root.host-mute-supported: ControlCenterSection { text: StreamStrings.section-sound; }
                         if root.host-mute-supported: SettingsToggleRow {
                             label: StreamStrings.host-mute; divider: false;
                             checked: root.host-mute-enabled; toggle-on-click: false;
@@ -2027,6 +2087,33 @@ export component StreamWindow inherits Window {
                         if !root.video-settings-enabled || root.video-settings-feedback != "": Text {
                             text: root.video-settings-enabled ? root.video-settings-feedback : StreamStrings.video-settings-unavailable; wrap: word-wrap;
                             color: #8b8f95; font-size: 11px;
+                        }
+                        ControlCenterSection { text: StreamStrings.section-input; }
+                        StreamSettingRow {
+                            label: StreamStrings.release-pointer;
+                            FlatSurface {
+                                height: 27px;
+                                background: ButtonStyle.surface;
+                                border-radius: UiRadius.control;
+                                outline-color: ButtonStyle.border;
+                                Text {
+                                    x: 8px; width: parent.width - 64px; height: parent.height;
+                                    text: StreamStrings.release-pointer-hint;
+                                    color: #59636d; font-size: 10px;
+                                    vertical-alignment: center; overflow: elide;
+                                }
+                                Text {
+                                    x: parent.width - 60px; width: 52px; height: parent.height;
+                                    text: StreamStrings.escape-chord;
+                                    color: #275188; font-size: 11px;
+                                    horizontal-alignment: right; vertical-alignment: center;
+                                }
+                                TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.release-pointer(); }
+                                    scroll-event(event) => { accept }
+                                }
+                            }
                         }
                         SensitivityRow {
                             label: StreamStrings.mouse-sensitivity;
@@ -2048,6 +2135,53 @@ export component StreamWindow inherits Window {
                             enabled: true;
                             choose(index) => { root.choose-keyboard-shortcut(index); }
                         }
+                        ControlCenterSection { text: StreamStrings.section-status; }
+                        StreamSettingRow {
+                            label: StreamStrings.network-status;
+                            FlatSurface {
+                                height: 27px;
+                                background: ButtonStyle.surface;
+                                border-radius: UiRadius.control;
+                                outline-color: ButtonStyle.border;
+                                Text {
+                                    x: 8px; width: parent.width - 60px; height: parent.height;
+                                    text: root.network-summary == "" ? "—" : root.network-summary;
+                                    color: #30343b; font-size: 10px;
+                                    vertical-alignment: center; overflow: elide;
+                                }
+                                Text {
+                                    x: parent.width - 52px; width: 44px; height: parent.height;
+                                    text: root.stats-visible ? StreamStrings.hide-stats : StreamStrings.show-stats;
+                                    color: #275188; font-size: 10px;
+                                    horizontal-alignment: right; vertical-alignment: center;
+                                }
+                                TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.toggle-stats(); }
+                                    scroll-event(event) => { accept }
+                                }
+                            }
+                        }
+                        StreamSettingRow {
+                            label: StreamStrings.copy-info;
+                            FlatSurface {
+                                height: 27px;
+                                background: ButtonStyle.surface;
+                                border-radius: UiRadius.control;
+                                outline-color: ButtonStyle.border;
+                                Text {
+                                    text: StreamStrings.copy-info;
+                                    color: #30343b; font-size: 11px;
+                                    horizontal-alignment: center; vertical-alignment: center;
+                                }
+                                TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => { root.copy-stats(); }
+                                    scroll-event(event) => { accept }
+                                }
+                            }
+                        }
+                        ControlCenterSection { text: StreamStrings.section-diagnostics; }
                         StreamSettingRow {
                             label: StreamStrings.diagnostics;
                             FlatSurface {
@@ -2225,7 +2359,7 @@ export component StreamWindow inherits Window {
                 }
                 game-mouse-notice-text := Text {
                     x: 12px; y: 10px; width: parent.width - 24px;
-                    text: StreamStrings.release-game-mouse; color: #805b12;
+                    text: StreamStrings.release-game-mouse + " · " + StreamStrings.escape-chord; color: #805b12;
                     font-size: 12px; wrap: word-wrap;
                 }
             }

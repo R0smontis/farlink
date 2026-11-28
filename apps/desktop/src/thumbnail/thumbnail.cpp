@@ -341,17 +341,38 @@ int Thumbnail::LoadThumbnailLocked(
     std::filesystem::remove(path, error);
     if (error) result = -1;
   }
-  // Sort by metadata timestamps, unaffected by preview deletion or migration.
-  for (const auto& path : FindThumbnailPath(save_path_)) {
-    if (path.extension() == ".json") {
-      const auto it = records.find(path.stem().string());
-      if (it != records.end()) {
-        recent_connections.emplace_back(ConnectionKey(it->second), it->second);
+  // Assemble the list in a deterministic order: newest metadata first, ties
+  // broken by record id. Relying on directory iteration order here made
+  // entries with equal timestamps swap places between reloads, which the
+  // recent-connections strip showed as names jumping back and forth.
+  std::vector<std::pair<std::filesystem::file_time_type, std::string>> ordered;
+  ordered.reserve(records.size());
+  for (const auto& [remote_id, connection] : records) {
+    std::error_code error;
+    const auto metadata =
+        std::filesystem::path(save_path_) / (remote_id + ".json");
+    auto stamp = std::filesystem::last_write_time(metadata, error);
+    if (error) stamp = std::filesystem::file_time_type::min();
+    ordered.emplace_back(stamp, remote_id);
+  }
+  std::sort(ordered.begin(), ordered.end(),
+            [](const auto& a, const auto& b) {
+              if (a.first != b.first) return a.first > b.first;
+              return a.second < b.second;
+            });
+  for (const auto& [stamp, remote_id] : ordered) {
+    (void)stamp;
+    const auto it = records.find(remote_id);
+    if (it != records.end())
+      recent_connections.emplace_back(ConnectionKey(it->second), it->second);
+  }
+  if (!save_previews_) {
+    for (const auto& path : FindThumbnailPath(save_path_)) {
+      if (path.extension() == ".png") {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        if (error) result = -1;
       }
-    } else if (!save_previews_ && path.extension() == ".png") {
-      std::error_code error;
-      std::filesystem::remove(path, error);
-      if (error) result = -1;
     }
   }
   return result;
@@ -460,10 +481,15 @@ std::vector<std::filesystem::path> Thumbnail::FindThumbnailPath(
     }
   }
 
-  std::sort(thumbnails_path.begin(), thumbnails_path.end(),
+  std::stable_sort(thumbnails_path.begin(), thumbnails_path.end(),
             [](const std::filesystem::path& a, const std::filesystem::path& b) {
-              return std::filesystem::last_write_time(a) >
-                     std::filesystem::last_write_time(b);
+              const auto a_time = std::filesystem::last_write_time(a);
+              const auto b_time = std::filesystem::last_write_time(b);
+              if (a_time != b_time) return a_time > b_time;
+              // Equal timestamps must not depend on directory iteration order:
+              // migration and record assembly both consume this list, and an
+              // unstable order there shows up as entries swapping places.
+              return a.filename() < b.filename();
             });
 
   return thumbnails_path;
