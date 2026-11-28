@@ -410,6 +410,88 @@ component VideoSettingRow inherits StreamSettingRow {
     }
 }
 
+
+// --- Control center (menu + flyout) primitives -------------------------
+// A single-row menu entry in the control-center list: glyph, label, optional
+// shortcut hint and a chevron for rows that open a flyout.
+component CcRow inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <string> hint: "";
+    in property <bool> chevron: true;
+    in property <bool> danger: false;
+    in property <bool> highlighted: false;
+    callback activated;
+    height: 40px;
+    background: touch.has-hover || root.highlighted ? #e7e7e7 : transparent;
+    Text {
+        x: 14px; width: 18px; height: parent.height;
+        text: root.glyph;
+        font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 14px;
+        color: root.danger ? #d92d20 : #2b2b2b;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    Text {
+        x: 42px;
+        width: parent.width - 42px - (root.hint == "" ? 26px : 120px);
+        height: parent.height;
+        text: root.label; font-size: 13px;
+        color: root.danger ? #d92d20 : #1f1f1f;
+        vertical-alignment: center; overflow: elide;
+    }
+    if root.hint != "": Text {
+        x: parent.width - 132px; width: 102px; height: parent.height;
+        text: root.hint; font-size: 11px; color: #8a8a8a;
+        horizontal-alignment: right; vertical-alignment: center;
+    }
+    if root.chevron: Text {
+        x: parent.width - 22px; width: 14px; height: parent.height;
+        text: "›"; font-size: 16px; color: #8a8a8a;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.activated(); } }
+}
+
+// Checkable action row inside a flyout. The description line mirrors the
+// reference menu's explanatory subtext; it stays visible when disabled so a
+// missing capability explains itself instead of disappearing.
+component CcAction inherits Rectangle {
+    in property <string> label;
+    in property <string> detail: "";
+    in property <bool> checked: false;
+    in property <bool> enabled: true;
+    callback activated;
+    height: root.detail == "" ? 38px : 58px;
+    background: touch.has-hover && root.enabled ? #e7e7e7 : transparent;
+    Text {
+        x: root.checked ? 34px : 12px; y: root.detail == "" ? 10px : 8px;
+        width: parent.width - (root.checked ? 62px : 40px); height: 18px;
+        text: root.label; font-size: 13px;
+        color: root.enabled ? #1f1f1f : #9a9a9a;
+        vertical-alignment: center; overflow: elide;
+    }
+    if root.checked: Text {
+        x: 12px; y: root.detail == "" ? 10px : 8px; width: 16px; height: 18px;
+        text: "✓"; font-size: 14px; color: #1f1f1f;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    if root.detail != "": Text {
+        x: 12px; y: 28px; width: parent.width - 24px; height: parent.height - 32px;
+        text: root.detail; font-size: 10px; color: #8a8a8a; wrap: word-wrap;
+    }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.activated(); } }
+}
+
+component CcHeader inherits Rectangle {
+    in property <string> label;
+    height: 24px;
+    Text {
+        x: 12px; width: parent.width - 24px; height: parent.height;
+        text: root.label; font-size: 11px; font-weight: 600; color: #6f6f6f;
+        vertical-alignment: bottom;
+    }
+}
+
 export component StreamWindow inherits Window {
     in property <string> session-title: "Farlink";
     title: root.session-title;
@@ -567,6 +649,13 @@ export component StreamWindow inherits Window {
         triggered => { root.fullscreen-transitioning = false; }
     }
     in property <bool> stats-visible: false;
+    // Control-center menu state. The flyout index is local UI state; the
+    // value shown in each flyout always comes from the live session.
+    in-out property <bool> control-center-open: false;
+    private property <int> cc-submenu: -1;
+    // Monospace multi-line network overlay (time, transport, fps, rate,
+    // RTT, frame latency, loss, resolution/quality), composed in C++.
+    in property <string> network-overlay-text: "";
     // Connection health summary rendered as a compact pill over the video
     // while the network panel is open. 0 unknown, 1 good, 2 fair, 3 poor.
     in property <int> network-quality: 0;
@@ -1386,28 +1475,363 @@ export component StreamWindow inherits Window {
                 z: 16; shape: root.remote-cursor-active ? root.remote-cursor-shape : 0;
             }
 
+            // Monospace network overlay, styled after the reference client:
+            // fixed-width lines over a translucent grey card.
             if root.stats-visible: Rectangle {
                 x: 12px; y: 12px;
-                width: network-chip-text.preferred-width + 30px;
-                height: 24px;
-                background: #0f1b2acc;
-                border-radius: 12px;
+                width: 190px;
+                height: network-overlay-text-lines.preferred-height + 16px;
+                background: #9a9a9acc;
+                border-radius: 8px;
                 z: 9;
-                Rectangle {
-                    x: 9px; y: 9px; width: 7px; height: 7px; border-radius: 4px;
-                    background: root.network-quality == 1 ? #34c759
-                        : root.network-quality == 2 ? #ff9f0a
-                        : root.network-quality == 3 ? #ff453a : #8e8e93;
-                }
-                network-chip-text := Text {
-                    x: 22px; width: parent.width - 30px; height: parent.height;
-                    text: root.network-summary;
-                    color: white; font-size: 10px;
-                    vertical-alignment: center; overflow: elide;
+                network-overlay-text-lines := Text {
+                    x: 10px; y: 8px; width: parent.width - 20px;
+                    text: root.network-overlay-text;
+                    font-family: "Menlo";
+                    font-size: 11px;
+                    color: white;
                 }
                 TouchArea {
                     mouse-cursor: MouseCursor.pointer;
                     clicked => { root.toggle-stats(); }
+                }
+            }
+
+            // Top-center control-center entry.
+            cc-pill := Rectangle {
+                x: (parent.width - self.width) / 2; y: 10px;
+                width: 116px; height: 30px;
+                background: cc-pill-touch.has-hover ? #e8e8e8 : #f2f2f2;
+                border-radius: 15px;
+                border-width: 1px; border-color: #d0d0d0;
+                z: 12;
+                Text {
+                    x: 12px; width: 14px; height: parent.height;
+                    text: "\u{f0c9}";
+                    font-family: "Font Awesome 6 Free"; font-weight: 900; font-size: 12px;
+                    color: #2b2b2b; horizontal-alignment: center; vertical-alignment: center;
+                }
+                Text {
+                    x: 30px; width: parent.width - 40px; height: parent.height;
+                    text: "控制中心"; font-size: 13px; color: #1f1f1f;
+                    vertical-alignment: center;
+                }
+                cc-pill-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => {
+                        root.control-center-open = !root.control-center-open;
+                        root.cc-submenu = -1;
+                    }
+                }
+            }
+
+            // Click-away scrim. Kept below the pill and menu.
+            if root.control-center-open: TouchArea {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                z: 11;
+                clicked => { root.control-center-open = false; root.cc-submenu = -1; }
+            }
+
+            if root.control-center-open: Rectangle {
+                x: (parent.width - 320px) / 2; y: 46px;
+                width: 320px; height: 452px;
+                background: #f4f4f4;
+                border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 13;
+                VerticalLayout {
+                    padding-top: 6px; padding-bottom: 6px;
+                    spacing: 0px;
+                    CcRow {
+                        glyph: "\u{f108}";
+                        label: "显示屏 " + (root.selected-display + 1);
+                        highlighted: root.cc-submenu == 0;
+                        activated => { root.cc-submenu = root.cc-submenu == 0 ? -1 : 0; }
+                    }
+                    CcRow {
+                        glyph: "\u{f337}";
+                        label: "切换下一个屏幕";
+                        hint: "Ctrl+Alt+→";
+                        chevron: false;
+                        activated => {
+                            root.switch-display(root.displays.length > 0
+                                ? (root.selected-display + 1 >= root.displays.length
+                                    ? 0 : root.selected-display + 1) : 0);
+                            root.control-center-open = false;
+                        }
+                    }
+                    CcRow {
+                        glyph: "\u{f03e}";
+                        label: "画质";
+                        highlighted: root.cc-submenu == 1;
+                        activated => { root.cc-submenu = root.cc-submenu == 1 ? -1 : 1; }
+                    }
+                    CcRow {
+                        glyph: "\u{f2d0}";
+                        label: "窗口";
+                        highlighted: root.cc-submenu == 2;
+                        activated => { root.cc-submenu = root.cc-submenu == 2 ? -1 : 2; }
+                    }
+                    CcRow {
+                        glyph: "\u{f028}";
+                        label: "声音";
+                        highlighted: root.cc-submenu == 3;
+                        activated => { root.cc-submenu = root.cc-submenu == 3 ? -1 : 3; }
+                    }
+                    CcRow {
+                        glyph: "\u{f3ed}";
+                        label: "安全";
+                        highlighted: root.cc-submenu == 4;
+                        activated => { root.cc-submenu = root.cc-submenu == 4 ? -1 : 4; }
+                    }
+                    CcRow {
+                        glyph: "\u{f8cc}";
+                        label: "外设";
+                        highlighted: root.cc-submenu == 5;
+                        activated => { root.cc-submenu = root.cc-submenu == 5 ? -1 : 5; }
+                    }
+                    CcRow {
+                        glyph: "\u{f1b2}";
+                        label: "工具";
+                        highlighted: root.cc-submenu == 6;
+                        activated => { root.cc-submenu = root.cc-submenu == 6 ? -1 : 6; }
+                    }
+                    CcRow {
+                        glyph: "\u{f009}";
+                        label: "更多";
+                        highlighted: root.cc-submenu == 7;
+                        activated => { root.cc-submenu = root.cc-submenu == 7 ? -1 : 7; }
+                    }
+                    CcRow {
+                        glyph: "\u{f065}";
+                        label: "全屏";
+                        hint: "Ctrl+Alt+F";
+                        chevron: false;
+                        activated => { root.toggle-fullscreen(); root.control-center-open = false; }
+                    }
+                    CcRow {
+                        glyph: "\u{f2f5}";
+                        label: "退出远控";
+                        chevron: false;
+                        danger: true;
+                        activated => { root.disconnect(); root.control-center-open = false; }
+                    }
+                }
+            }
+
+            // Flyout submenus. Each opens to the right of the menu and is
+            // aligned with its parent row, flipping left near the edge.
+            if root.cc-submenu == 0: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 52px; width: 300px; height: 224px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcHeader { label: "分辨率"; }
+                    for resolution[index] in root.remote-resolutions: CcAction {
+                        label: resolution;
+                        checked: index == root.remote-resolution-index;
+                        activated => { root.change-remote-resolution(index); }
+                    }
+                    if root.remote-resolutions.length == 0: CcAction {
+                        label: "跟随被控端"; checked: true; enabled: false;
+                    }
+                }
+            }
+            if root.cc-submenu == 1: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 132px; width: 300px; height: 330px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 4px;
+                    CcHeader { label: "画质"; }
+                    VideoSettingRow {
+                        label: StreamStrings.video-quality;
+                        options: [StreamStrings.quality-low, StreamStrings.quality-medium, StreamStrings.quality-high];
+                        selected: root.video-quality-index; enabled: root.video-settings-enabled;
+                        choose(index) => { root.change-video-settings(index, root.frame-rate-index, root.adaptation-policy-index); }
+                    }
+                    VideoSettingRow {
+                        label: StreamStrings.frame-rate;
+                        options: ["30", "60", "90", "120", "144"];
+                        selected: root.frame-rate-index; enabled: root.video-settings-enabled;
+                        options-enabled: [true, true,
+                            root.high-fps-supported && root.display-max-frame-rate >= 90,
+                            root.high-fps-supported && root.display-max-frame-rate >= 120,
+                            root.high-fps-supported && root.display-max-frame-rate >= 144];
+                        choose(index) => { root.change-video-settings(root.video-quality-index, index, root.adaptation-policy-index); }
+                    }
+                    CcAction {
+                        label: "优先保证帧率";
+                        checked: root.adaptation-policy-index == 0;
+                        enabled: root.video-settings-enabled;
+                        activated => { root.change-video-settings(root.video-quality-index, root.frame-rate-index, 0); }
+                    }
+                    CcAction {
+                        label: "优先保证画质";
+                        checked: root.adaptation-policy-index == 1;
+                        enabled: root.video-settings-enabled;
+                        activated => { root.change-video-settings(root.video-quality-index, root.frame-rate-index, 1); }
+                    }
+                    VideoSettingRow {
+                        label: StreamStrings.bitrate;
+                        options: [StreamStrings.bitrate-auto, "8M", "20M", "50M", "80M"];
+                        selected: root.bitrate-cap-index; enabled: root.bitrate-cap-enabled;
+                        choose(index) => { root.choose-bitrate-cap(index); }
+                    }
+                    SettingsToggleRow {
+                        label: StreamStrings.true-color + " 4:4:4"; divider: false;
+                        checked: root.true-color-enabled; toggle-on-click: false;
+                        clicked => { root.toggle-true-color(!root.true-color-enabled); }
+                    }
+                }
+            }
+            if root.cc-submenu == 2: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 172px; width: 300px; height: 132px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcAction {
+                        label: root.fullscreen-enabled ? "退出全屏" : "全屏";
+                        activated => { root.toggle-fullscreen(); root.control-center-open = false; }
+                    }
+                    CcAction {
+                        label: "最小化窗口";
+                        enabled: root.fullscreen-enabled;
+                        activated => { root.minimize-stream-window(); root.control-center-open = false; }
+                    }
+                }
+            }
+            if root.cc-submenu == 3: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 212px; width: 300px; height: 140px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcAction {
+                        label: "播放被控端声音";
+                        checked: root.audio-enabled;
+                        activated => { root.toggle-audio(); }
+                    }
+                    if root.host-mute-supported: CcAction {
+                        label: "被控端静音运行";
+                        detail: "开启后将被控端设为静音，控制端仍可播放声音";
+                        checked: root.host-mute-enabled;
+                        activated => { root.toggle-host-mute(!root.host-mute-enabled); }
+                    }
+                }
+            }
+            if root.cc-submenu == 4: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 252px; width: 300px; height: 148px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcAction {
+                        label: "被控端防窥模式";
+                        detail: root.privacy-status-text;
+                        checked: root.privacy-active;
+                        enabled: root.privacy-can-toggle;
+                        activated => { root.toggle-privacy(); }
+                    }
+                    CcAction {
+                        label: "隐私状态";
+                        detail: root.privacy-off ? "被控端已关闭防窥"
+                            : root.privacy-active ? "防窥已开启" : "防窥未启用";
+                        enabled: false;
+                    }
+                }
+            }
+            if root.cc-submenu == 5: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 292px; width: 300px; height: 342px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 4px;
+                    CcHeader { label: "鼠标"; }
+                    CcAction {
+                        label: "控制鼠标";
+                        checked: root.mouse-control-enabled;
+                        activated => { root.toggle-mouse-control(); }
+                    }
+                    if root.game-mouse-available: CcAction {
+                        label: "游戏鼠标（相对模式）";
+                        detail: "相对移动，不受本机屏幕边界限制；按 ⌃⌥G 释放";
+                        checked: root.game-mouse-active;
+                        activated => { root.toggle-game-mouse(); }
+                    }
+                    SensitivityRow {
+                        label: StreamStrings.mouse-sensitivity;
+                        percent <=> root.mouse-sensitivity-percent;
+                        commit => { root.commit-input-sensitivity(); }
+                    }
+                    SensitivityRow {
+                        label: StreamStrings.wheel-sensitivity;
+                        percent <=> root.wheel-sensitivity-percent;
+                        commit => { root.commit-input-sensitivity(); }
+                    }
+                    if root.keyboard-shortcut-row-visible: VideoSettingRow {
+                        label: StreamStrings.keyboard-shortcuts;
+                        options: [StreamStrings.shortcut-prefer-local, StreamStrings.shortcut-send-to-remote];
+                        selected: root.keyboard-shortcut-index;
+                        enabled: true;
+                        choose(index) => { root.choose-keyboard-shortcut(index); }
+                    }
+                }
+            }
+            if root.cc-submenu == 6: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 332px; width: 300px; height: 176px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcAction {
+                        label: "网络状态";
+                        checked: root.stats-visible;
+                        activated => { root.toggle-stats(); }
+                    }
+                    CcAction {
+                        label: "复制网络信息";
+                        activated => { root.copy-stats(); }
+                    }
+                    CcAction {
+                        label: "导出诊断信息";
+                        activated => { root.export-diagnostics(); }
+                    }
+                }
+            }
+            if root.cc-submenu == 7: Rectangle {
+                x: min((parent.width - 320px) / 2 + 326px, parent.width - 306px);
+                y: 372px; width: 300px; height: 148px;
+                background: #f4f4f4; border-radius: 10px;
+                border-width: 1px; border-color: #d9d9d9;
+                z: 14; clip: true;
+                VerticalLayout {
+                    padding: 8px; spacing: 2px;
+                    CcAction {
+                        label: "复制网络信息";
+                        activated => { root.copy-stats(); }
+                    }
+                    CcAction {
+                        label: "导出诊断信息";
+                        activated => { root.export-diagnostics(); }
+                    }
+                    CcHeader { label: "版本 1.7.7"; }
                 }
             }
 

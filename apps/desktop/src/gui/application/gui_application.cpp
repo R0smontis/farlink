@@ -4554,6 +4554,51 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     stream->set_network_summary(UiText(""));
     stream->set_network_quality(0);
   }
+  // Monospace overlay, one fact per line, matching the reference client's
+  // network card: time, transport, fps, inbound rate, RTT, frame latency,
+  // loss, resolution + quality tier.
+  {
+    char clock_text[16] = "--:--:--";
+    const std::time_t now_wall = std::time(nullptr);
+    std::tm local_tm{};
+    if (localtime_r(&now_wall, &local_tm) != nullptr) {
+      std::strftime(clock_text, sizeof(clock_text), "%H:%M:%S", &local_tm);
+    }
+    const char* transport = "UDP RELAY";
+    if (mode == MiniRtcTraversalP2P &&
+        status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
+      transport = "UDP LAN";
+    }
+    const char* quality_names[] = {"省流", "高清", "超清", "原画"};
+    int quality_index = props->video_settings_.quality;
+    if (quality_index < 0 || quality_index > 3) quality_index = 1;
+    std::string resolution_short;
+    {
+      std::lock_guard lock(props->video_frame_mutex_);
+      const int vw = props->video_width_;
+      const int vh = props->video_height_;
+      if (vw >= 3840) resolution_short = "4K";
+      else if (vw >= 2560) resolution_short = "2K";
+      else if (vw >= 1920) resolution_short = "1080P";
+      else if (vw > 0) resolution_short = std::to_string(vw) + "x" + std::to_string(vh);
+      else resolution_short = "—";
+    }
+    char loss_text[16];
+    std::snprintf(loss_text, sizeof(loss_text), "%.1f%%", total_loss * 100.0f);
+    std::string overlay = clock_text;
+    overlay += "\n";
+    overlay += transport;
+    overlay += "\n";
+    overlay += std::to_string(props->fps_) + " fps\n";
+    overlay += FormatBitrate(net.total_inbound_stats.bitrate) + "\n";
+    overlay += connection_latency + "\n";
+    overlay += (latency ? std::to_string(static_cast<int>(std::lround(latency->average_ms))) : std::string("—")) +
+               " ms frm.\n";
+    overlay += loss_text;
+    overlay += " loss\n";
+    overlay += resolution_short + " " + quality_names[quality_index];
+    stream->set_network_overlay_text(UiText(overlay));
+  }
   // D8 inter-presentation freeze metrics. All four render as unavailable
   // until the first two presentations exist: zero intervals means no
   // measured cadence at all, and reporting zeros there would read as a
