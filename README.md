@@ -77,15 +77,24 @@ server in **Settings → Server**, or use serverless LAN direct connect
 (`--lan-connect`, or the LAN discovery entries in the main window).
 Self-hosting guides: [docs/SELF_HOSTING_EN.md](docs/SELF_HOSTING_EN.md).
 
-> **Note:** the remainder of this README is upstream CrossDesk's own document, kept
-> as upstream reference. Website, download, app-store, and web-client links below
-> point to upstream's unmodified releases — they do **not** distribute this fork,
-> and the update/server behavior they describe no longer exists in the fork.
+---
+
+# Appendix: upstream CrossDesk's original README
+
+Everything below this point is **upstream CrossDesk's own document, reproduced verbatim
+for attribution and historical reference only**. It is **not** install or usage
+documentation for Farlink:
+
+- its website/download/App Store/Web Client links distribute **upstream's** unmodified
+  product, not this fork;
+- its update and default-server behavior does not exist in the fork;
+- build instructions for this fork are in [docs/FARLINK.md](docs/FARLINK.md), not below.
+
 
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk logo with the icon on the left and a two-tone wordmark on the right" />
   <p>A lightweight, cross-platform remote desktop for computers, browsers, mobile devices, and terminals, with DeskHub for viewing and controlling multiple desktops.</p>
-  <p><a href="https://www.crossdesk.cn/">Website</a> · <a href="https://github.com/kunkundi/crossdesk/releases">Download</a> · <a href="#build">Build guide</a> · <a href="https://web.crossdesk.cn/">Open Web Client</a> · <a href="README_ZH.md">中文</a></p>
+  <p>Upstream project: <a href="https://github.com/kunkundi/crossdesk">github.com/kunkundi/crossdesk</a> · <a href="README_ZH.md">中文</a></p>
 </div>
 
 <div align="center">
@@ -94,23 +103,11 @@ Self-hosting guides: [docs/SELF_HOSTING_EN.md](docs/SELF_HOSTING_EN.md).
 
 [![Clients](https://img.shields.io/badge/client-Desktop%20%7C%20Mobile%20%7C%20Web%20%7C%20CLI-2ea44f?style=flat)](#download)
 
-[![Release](https://img.shields.io/github/v/release/kunkundi/crossdesk?style=flat)](https://github.com/kunkundi/crossdesk/releases)
-[![npm](https://img.shields.io/npm/v/%40chunkdash%2Fcrossdesk-cli?style=flat)](https://www.npmjs.com/package/@chunkdash/crossdesk-cli)
-[![Build](https://img.shields.io/github/actions/workflow/status/kunkundi/crossdesk/build.yml?style=flat&label=build)](https://github.com/kunkundi/crossdesk/actions/workflows/build.yml)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/kunkundi/crossdesk?style=flat&label=stars)](https://github.com/kunkundi/crossdesk/stargazers)
 
 </div>
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/17514?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/17514" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-</p>
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/daily?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/weekly?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/monthly?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-</p>
 
 ## Special Sponsors
 
@@ -152,14 +149,14 @@ CrossDesk connects your computers from desktop, browser, mobile, and terminal cl
 
 ## Download and platform support
 
-Get a package matching your OS and CPU architecture from the [website](https://www.crossdesk.cn/) or [GitHub Releases](https://github.com/kunkundi/crossdesk/releases), or open the [Web Client](https://web.crossdesk.cn/) directly.
+Get a package matching your OS and CPU architecture from the `website` (https://www.crossdesk.cn/) or `GitHub Releases` (https://github.com/kunkundi/crossdesk/releases), or open the `Web Client` (https://web.crossdesk.cn/) directly.
 
 | Platform | Support and installation |
 | --- | --- |
 | Windows | **Control + host**. Windows 10+, x64; `.exe` installer, with portable builds also supported |
 | macOS | **Control + host**. macOS 14.0+; x64 / arm64 `.pkg` for Intel / Apple Silicon |
 | Linux | **Control + host**. Ubuntu 20.04+, glibc 2.31 baseline; amd64 / arm64 `.deb` |
-| iOS / iPadOS | **Control only**. Install from the [App Store](https://apps.apple.com/app/id6828859211); check the listing for its OS requirements. Current source targets iOS 16.0+ and can also be built and signed locally |
+| iOS / iPadOS | **Control only**. Install from the `App Store` (https://apps.apple.com/app/id6828859211); check the listing for its OS requirements. Current source targets iOS 16.0+ and can also be built and signed locally |
 | Android | **Control only**. Android 8.0+, arm64; install the signed APK or build from source |
 | HarmonyOS PC (development) | **Control + host**. API 26, arm64; build and sign a HAP with DevEco; physical-device validation is ongoing |
 | HarmonyOS phones / tablets (development) | **Control only**. API 20+, arm64; build and sign a HAP with DevEco; physical-device validation is ongoing |
@@ -171,7 +168,7 @@ Choose the package for your operating system and processor. Some development fea
 
 - **Linux:** use `crossdesk-linux-…deb` for an existing desktop, or `crossdesk-virtual-desktop-xfce-…deb` for a server needing a separate Xfce desktop. Choose one. See [installation details](docs/USER_GUIDE_EN.md#installation) and [headless operation](docs/HEADLESS_EN.md).
 - **macOS:** grant Screen Recording and Accessibility when prompted on first launch. These enable desktop capture and remote keyboard/mouse input. See [permissions](docs/USER_GUIDE_EN.md#installation).
-- **iOS:** install from the [App Store](https://apps.apple.com/app/id6828859211). Unsigned GitHub artifacts still require signing; see the [iOS build guide](apps/ios/README.md). HarmonyOS requires a signed DevEco build; see the [HarmonyOS guide](apps/harmony/README.md) (Chinese).
+- **iOS:** install from the `App Store` (https://apps.apple.com/app/id6828859211). Unsigned GitHub artifacts still require signing; see the [iOS build guide](apps/ios/README.md). HarmonyOS requires a signed DevEco build; see the [HarmonyOS guide](apps/harmony/README.md) (Chinese).
 
 <a id="build"></a>
 
@@ -195,7 +192,7 @@ cd crossdesk
 ### Connect by device ID
 
 1. **Prepare the host.** Install and run CrossDesk on the computer to control, select ID mode, and wait for the server-connected status, then find its ID and password under **Local Desktop**.
-2. **Connect.** On another computer, enter the host's 9-digit ID and click **Connect**. Native mobile clients and the [Web Client](https://web.crossdesk.cn/) can also connect.
+2. **Connect.** On another computer, enter the host's 9-digit ID and click **Connect**. Native mobile clients and the `Web Client` (https://web.crossdesk.cn/) can also connect.
 3. **Verify the password.** Enter the host's current connection password and wait for the desktop to appear. On desktop, select **Remember password** to reconnect later from **Recent Connections**.
 
 For self-hosting, connect both ends to the same service and update the server before upgrading clients. See the [user guide](docs/USER_GUIDE_EN.md#quick-start) for connection steps and the [FAQ](docs/FAQ.md#english) for connection, video, and input problems.
@@ -380,7 +377,7 @@ The service supports up to 8 concurrent device sessions, multi-display observati
 
 ### iOS / iPadOS
 
-Install the native controller from the [App Store](https://apps.apple.com/app/id6828859211). It supports touch and a virtual mouse, multiple monitors, remote audio, file transfers, and text clipboard. Tap **Clipboard** in the floating menu to send local text, up to 128 KiB per transfer. Video settings can change supported remote display resolutions and remember confirmed choices. iPhone and iPad cannot currently act as remote hosts; in-app update checks point to the App Store.
+Install the native controller from the `App Store` (https://apps.apple.com/app/id6828859211). It supports touch and a virtual mouse, multiple monitors, remote audio, file transfers, and text clipboard. Tap **Clipboard** in the floating menu to send local text, up to 128 KiB per transfer. Video settings can change supported remote display resolutions and remember confirmed choices. iPhone and iPad cannot currently act as remote hosts; 
 
 [User guide](docs/USER_GUIDE_EN.md#ios) · [Build and signing](apps/ios/README.md)
 

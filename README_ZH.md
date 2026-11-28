@@ -4,10 +4,20 @@
 >
 > Farlink 安装包发布在 [fork 的 GitHub Releases](https://github.com/R0smontis/farlink/releases) 页面；从源码构建（见 [docs/FARLINK.md](docs/FARLINK.md)）是参考路径，本 fork 尚处于预发布阶段。fork 不运营任何更新服务、默认信令服务器和 Web 客户端：安装后请在 **设置 → 服务器** 中配置自托管信令服务器（部署见 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)），或使用免服务器的 LAN 直连（`--lan-connect` 或主界面的局域网发现条目）。
 >
+---
+
+# 附录：上游 CrossDesk 原始 README
+
+以下内容**仅为上游 CrossDesk 自己的文档，出于署名与历史原因原样保留**，**不是** Farlink 的安装或使用文档：
+
+- 其中的官方网站 / 下载 / App Store / Web 客户端链接分发的是**上游**未修改的产品，不是本 fork；
+- 其中描述的更新与默认服务器行为在 fork 中已不存在；
+- 本 fork 的构建说明见 [docs/FARLINK.md](docs/FARLINK.md)，而非下文。
+
 <div align="center">
   <img src="docs/images/crossdesk-banner.svg" width="420" alt="CrossDesk 标志：图标在左，双色文字在右" />
   <p>轻量、跨平台的远程桌面，支持电脑、浏览器、移动端和终端连接，用桌面墙集中查看与操控多台设备。</p>
-  <p><a href="https://www.crossdesk.cn/">官方网站</a> · <a href="https://github.com/kunkundi/crossdesk/releases">下载客户端</a> · <a href="#build">构建指南</a> · <a href="https://web.crossdesk.cn/">打开 Web 客户端</a> · <a href="README.md">English</a></p>
+  <p>上游项目：<a href="https://github.com/kunkundi/crossdesk">github.com/kunkundi/crossdesk</a> · <a href="README.md">English</a></p>
 </div>
 
 <div align="center">
@@ -16,23 +26,11 @@
 
 [![Clients](https://img.shields.io/badge/client-Desktop%20%7C%20Mobile%20%7C%20Web%20%7C%20CLI-2ea44f?style=flat)](#download)
 
-[![Release](https://img.shields.io/github/v/release/kunkundi/crossdesk?style=flat)](https://github.com/kunkundi/crossdesk/releases)
-[![npm](https://img.shields.io/npm/v/%40chunkdash%2Fcrossdesk-cli?style=flat)](https://www.npmjs.com/package/@chunkdash/crossdesk-cli)
-[![Build](https://img.shields.io/github/actions/workflow/status/kunkundi/crossdesk/build.yml?style=flat&label=build)](https://github.com/kunkundi/crossdesk/actions/workflows/build.yml)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/kunkundi/crossdesk?style=flat&label=stars)](https://github.com/kunkundi/crossdesk/stargazers)
 
 </div>
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/17514?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/17514" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-</p>
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/daily?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/weekly?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-  <a href="https://trendshift.io/repositories/17514?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17514" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17514/monthly?language=C%2B%2B" alt="kunkundi%2Fcrossdesk | Trendshift" width="250" height="55"/></a>
-</p>
 
 ## 特别赞助
 
@@ -74,14 +72,14 @@ CrossDesk 让你从电脑、浏览器、手机或终端（桌面 CLI）连接远
 
 ## 下载与平台支持
 
-从 [官方网站](https://www.crossdesk.cn/) 或 [GitHub Releases](https://github.com/kunkundi/crossdesk/releases) 下载与你的系统和 CPU 架构匹配的安装包；也可直接打开 [Web 客户端](https://web.crossdesk.cn/)。
+从 `官方网站` (https://www.crossdesk.cn/) 或 `GitHub Releases` (https://github.com/kunkundi/crossdesk/releases) 下载与你的系统和 CPU 架构匹配的安装包；也可直接打开 `Web 客户端` (https://web.crossdesk.cn/)。
 
 | 平台 | 支持范围与安装要求 |
 | --- | --- |
 | Windows | **控制 / 被控**；Windows 10+，x64；`.exe` 安装包，也支持便携构建 |
 | macOS | **控制 / 被控**；macOS 14.0+；按 Intel / Apple Silicon 选择 x64 / arm64 `.pkg` |
 | Linux | **控制 / 被控**；Ubuntu 20.04+、glibc 2.31 基线；amd64 / arm64 `.deb` |
-| iOS / iPadOS | **仅控制**；从 [App Store](https://apps.apple.com/app/id6828859211) 安装，商店版系统要求以页面为准；当前源码目标为 iOS 16.0+，也可自行构建签名 |
+| iOS / iPadOS | **仅控制**；从 `App Store` (https://apps.apple.com/app/id6828859211) 安装，商店版系统要求以页面为准；当前源码目标为 iOS 16.0+，也可自行构建签名 |
 | Android | **仅控制**；Android 8.0+，arm64；下载已签名 APK 安装，或自行构建 |
 | 鸿蒙 PC（开发版） | **控制 / 被控**；API 26，arm64；使用 DevEco 构建并签名 HAP，仍在进行真机验收 |
 | 鸿蒙手机 / 平板（开发版） | **仅控制**；API 20+，arm64；使用 DevEco 构建并签名 HAP，仍在进行真机验收 |
@@ -93,7 +91,7 @@ CrossDesk 让你从电脑、浏览器、手机或终端（桌面 CLI）连接远
 
 - **Linux：** 已有桌面选普通版 `crossdesk-linux-…deb`；需要独立 Xfce 桌面的服务器选 `crossdesk-virtual-desktop-xfce-…deb`。两者选择其一，安装与启动方法见 [使用指南](docs/USER_GUIDE.md#installation) 和 [无头运行](docs/HEADLESS.md)。
 - **macOS：** 首次运行时按提示授予屏幕录制及辅助功能权限；前者用于桌面采集，后者用于远程键鼠输入。[权限说明](docs/USER_GUIDE.md#installation)
-- **iOS：** 优先从 [App Store](https://apps.apple.com/app/id6828859211) 安装；GitHub 的未签名产物仍需自行签名，步骤见 [iOS 构建说明](apps/ios/README.md)。鸿蒙需使用 DevEco 构建并签名，见 [鸿蒙说明](apps/harmony/README.md)。
+- **iOS：** 优先从 `App Store` (https://apps.apple.com/app/id6828859211) 安装；GitHub 的未签名产物仍需自行签名，步骤见 [iOS 构建说明](apps/ios/README.md)。鸿蒙需使用 DevEco 构建并签名，见 [鸿蒙说明](apps/harmony/README.md)。
 
 <a id="build"></a>
 
@@ -117,7 +115,7 @@ cd crossdesk
 ### 通过设备 ID 连接
 
 1. **准备被控电脑。** 安装并运行 CrossDesk，切换至 ID 连接模式，等待显示“已连接服务器”，查看“本桌面”中的本机 ID 和密码。
-2. **发起连接。** 在另一台电脑的 CrossDesk 中输入被控电脑的 9 位 ID，点击“连接”；也可使用原生移动端或 [Web 客户端](https://web.crossdesk.cn/)。
+2. **发起连接。** 在另一台电脑的 CrossDesk 中输入被控电脑的 9 位 ID，点击“连接”；也可使用原生移动端或 `Web 客户端`（https://web.crossdesk.cn/）。
 3. **验证密码。** 输入被控电脑当前的连接密码，等待远程画面出现。桌面端可勾选“记住密码”，后续从“近期连接”重连。
 
 使用自建服务器时，两端需要接入同一服务；升级客户端前请先更新服务端。更多连接和密码操作见 [使用指南](docs/USER_GUIDE.md#quick-start)，连接失败、黑屏或无法操作键鼠时见 [常见问题](docs/FAQ.md)。
@@ -302,7 +300,7 @@ CLI 通过设备 ID 连接，暂不提供 IP 直连、音频播放、文件传�
 
 ### iOS / iPadOS
 
-可从 [App Store](https://apps.apple.com/app/id6828859211) 安装原生控制端，支持触控与虚拟鼠标、多显示器、远端音频、文件收发和文本剪贴板。悬浮菜单的“剪贴板”按钮可主动发送本机文本，单次上限为 128 KiB；画面设置可调整受支持的远端显示器分辨率，并记住已确认的选择。iPhone / iPad 当前不能作为被控桌面，应用内更新检查指向 App Store。
+可从 `App Store`（https://apps.apple.com/app/id6828859211） 安装原生控制端，支持触控与虚拟鼠标、多显示器、远端音频、文件收发和文本剪贴板。悬浮菜单的“剪贴板”按钮可主动发送本机文本，单次上限为 128 KiB；画面设置可调整受支持的远端显示器分辨率，并记住已确认的选择。iPhone / iPad 当前不能作为被控桌面，
 
 [使用说明](docs/USER_GUIDE.md#ios) · [构建与签名](apps/ios/README.md)
 
