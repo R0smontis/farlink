@@ -220,6 +220,22 @@ minirtc 侧独立测试全绿（含 Wave-6 新增）：`inline_decode_and_reasse
 
 两模式 decode_mean 均 ~1.8ms（VideoToolbox 硬解），解码与 pacing 选择无关。
 
+### 2.14 Wave-7 发送路径可观测性 / 剪贴板隐私门 / Windows 被控端静音
+
+本轮聚焦 Windows 发送侧可观测性、剪贴板隐私加固与被控端静音补全。关键改动：
+
+| 线 | 改动 | 位置 |
+|----|------|------|
+| **原生帧物化封口修复（minirtc）** | Wave-6A 容量构造器刻意保持 `Size()==0` 直到显式 `SetSize()` 封口，但 `RawFrame`、D3D11/WMF 解码器、Harmony 解码器三处要么过早封口、要么从不封口。现在三者都只在拷贝/转换/解映射**完成之后**封口一次——过早封口会把半成品当有效帧暴露，从不封口会丢弃每一帧 | `raw_frame.h`、`d3d11_video_decoder.cpp`、`harmony_video_decoder.cpp`；回归测试 `native_frame_materialization_test` |
+| **发送侧漏斗计数器 + 5s 停摆检测（minirtc）** | 每一帧视频在每个准入阶段（paused/bitrate/not-ready/cadence/rate-control/pacer/encode-queue/zero-hz/task-generation/task-not-ready/codec-create/materialize/scale）加上 encode 调用/失败/回调都被原子计数，会话拆除时按流发射一次机读漏斗；单调的"编码器适用水位线"在帧死于非编码器自身的守卫时重启，提交了帧却连续 5 秒零编码输出时发射一次性 stall WARN——沉默的零编码会话由此可判定。会话摘要的传输角色改由 `video_send_frames_in` 推导，而非 `frames_encoded`，使编码器全拒帧的宿主仍被正确标记为发送方 | `ice_transport_controller.{h,cpp}`、`ice_transport.cpp` |
+| **WMF 编码器可观测性（minirtc）** | `Initialize()` 失败在 release 模式也保留 HRESULT（此前仅在 DEBUG 可见）；准入守卫与未初始化拒绝路径维护原子连续拒绝计数，首次与每第 300 次记录完整帧/几何上下文，任何接受的帧清零 | `wmf_video_encoder.cpp`；测试 `wmf_encode_synthetic_test` |
+| **Windows 被控端静音后端** | `HostAudioMute` 新增真实 Windows 实现：Core Audio MMDevice + `IAudioEndpointVolume`，作用于默认渲染端点。静音时固定端点 id，恢复时经 `IMMDeviceEnumerator::GetDevice` 重解析该确切端点——会话中途切换默认输出（插耳机）不会把原扬声器滞留为静音，也不会写入从未静音过的设备状态。记账全部移入平台无关的 `HostMutePolicy`，单元测试经 mock 后端覆盖 100% 静音/恢复状态机 | `host_audio_mute_policy.h`、`host_audio_mute_win.cpp`；测试 `host_audio_mute_test` |
+| **`--view-only` / 剪贴板许可门** | 只读或控制关闭的 viewer 会话既不得应用剪贴板内容、也不得为其组装入站载荷，现已端到端强制：图像剪贴板在 `clipboard_allowed_` 为假时丢弃入站帧、快照输入代次，并在递延 OS 写入前与文本一样重新校验会话/许可/代次；文件 offer 入站包丢弃、`ApplyPendingFiles` 在焦点/控制之外再查 `clipboard_allowed_`。会话保留以便恢复访问时无需重新协商 | `clipboard_image_controller.cpp`、`clipboard_files_controller.cpp`；测试 `clipboard_view_only_gate_test` |
+| **macOS 渲染可见性与漏斗计数** | Metal 渲染器在 attach 时即发布初始光栅几何/遮挡/可见性（此前 `visible` 一直为假直到首次 resize，首批提交看到的是过期不可见状态），监听 `NSWindowDidChangeOcclusionStateNotification` 以重算可见性并在解除遮挡时唤醒 display link，并喂入零分配原子渲染阶段计数（submit/replace/busy-drop、commit、present-callback/presented、display-link tick/pause、遮挡切换），每会话发射一次伴随的机读 `Video render stages (controller):` 漏斗行 | `metal_video_renderer.mm`、`video_latency.{h,cpp}` |
+| **Windows 端口转发半关闭修复** | `shutdown()` 写侧用 winsock2 的 `SD_SEND` 取代仅 POSIX 的 `SHUT_WR` 拼写，修复 Windows 端口转发构建 | `port_forward_tunnel.cpp` |
+| **LAN 测试配置播种工具** | `lan_profile_seed_tool` 只走生产身份路径（`Identity::Load/RegisterPassword/SetPassword/SaveListenerMode` + `private_file`），使播种配置与应用自举逐字节一致（含证书与私钥）；密码经 stdin 传入，目标目录必须不存在 | `lan_profile_seed_tool.cpp` |
+| **杂项** | `targets.lua` 为 macOS 增加 `@executable_path` rpath，使二进制不依赖 `DYLD_*`（macOS 会在启动链出现系统签名解释器时剥掉它）即可解析内 bundle Slint 运行时；`fail_encode_interposer` 失败注入 harness 复现零编码失败侧的发送阶段诊断 | `targets.lua`、`fail_encode_interposer.cpp` |
+
 ## 3. 与原版 / 旧端互通
 
 关键事实：`machine_identity.h:20-25` 的注释明确说明——**线上协议 token、JSON type 值、

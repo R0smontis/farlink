@@ -101,6 +101,15 @@ void ClipboardController::ReceiveImageFrame(const char* data, size_t size,
   if (!ImageSessionActive(remote_id, session) ||
       session->events.lock().get() != source)
     return;
+  // Privacy gate: a viewer (controlling) session with clipboard disallowed —
+  // view-only launch or control toggled off — must not let a remote host
+  // assemble an image payload inside this process. The session itself is
+  // preserved in image_sessions_ so regaining clipboard access does not
+  // require a fresh capability negotiation; only the inbound frames drop.
+  if (session->controlling) {
+    const auto viewer = session->viewer.lock();
+    if (!viewer || !viewer->clipboard_allowed_.load()) return;
+  }
   const auto result =
       session->assembler.Receive(std::string_view(data, size));
   if (!result.transfer_id || result.png.empty()) return;
@@ -113,6 +122,10 @@ void ClipboardController::ReceiveImageFrame(const char* data, size_t size,
     pending_remote_image_ = std::move(result.png);
     pending_image_remote_id_ = remote_id;
     pending_image_session_ = session->viewer;
+    // Snapshot the input generation alongside the session so ApplyPendingImage
+    // can reject stale payloads exactly like ApplyPendingWrite does for text.
+    const auto viewer = session->viewer.lock();
+    pending_image_generation_ = viewer ? viewer->input_generation_.load() : 0;
   }
   SDL_Event event{};
   event.type = event_type_;
@@ -127,14 +140,36 @@ void ClipboardController::ApplyPendingImage() {
 #ifndef __OHOS__
   std::optional<std::string> png;
   std::string source_id;
+  std::weak_ptr<gui_detail::RemoteSession> source_session;
+  uint64_t generation = 0;
   {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     png.swap(pending_remote_image_);
     source_id.swap(pending_image_remote_id_);
-    pending_image_session_.reset();
+    source_session.swap(pending_image_session_);
+    generation = pending_image_generation_;
+    pending_image_generation_ = 0;
   }
   if (!png || png->empty()) return;
   if (!events_enabled_.load(std::memory_order_acquire)) return;
+
+  // Re-validate on the applying thread, mirroring ApplyPendingWrite exactly:
+  // a viewer (controlling) payload must still match its session, have
+  // clipboard_allowed_ and an unchanged input generation; a host-side write
+  // from a controller must still come from an authorized connected controller.
+  // Focus loss or session teardown between packet arrival and this deferred
+  // write must not let a stale image reach the OS clipboard.
+  if (!source_id.empty()) {
+    if (auto props = owner_.FindRemoteSession(source_id)) {
+      if (props != source_session.lock() ||
+          !props->clipboard_allowed_.load() ||
+          props->input_generation_.load() != generation) {
+        return;
+      }
+    } else if (!owner_.IsAuthorizedController(source_id)) {
+      return;
+    }
+  }
 
   // Validate once more on the applying thread: the wire assembler already
   // checks the signature, but the OS write below is the last gate before the

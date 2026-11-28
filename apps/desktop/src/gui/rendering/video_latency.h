@@ -1027,6 +1027,47 @@ class VideoLatencyStats
   std::atomic<int64_t> first_presented_time_ns_{0};
   std::atomic<bool> first_presented_consumed_{false};
   std::shared_ptr<SessionObservability> observability_;
+
+ public:
+  // Zero-allocation atomic counters for render-stage observability. They are
+  // independent of the rolling windows above so a renderer running on a
+  // dedicated display-link/render thread can update them without touching the
+  // latency mutex. All counters are monotonic per VideoLatencyStats instance
+  // (which on macOS lives for the whole controller session) and are read once
+  // at session teardown by LogVideoSessionSummary. Platform renderers that
+  // never observe a stage leave its counter at zero; zero is a fact, not an
+  // absence, so a reader can distinguish "never happened" from "not emitted".
+  struct RenderStages {
+    // Submit-side counters, written by the decode/network thread in
+    // SubmitNativeFrame/SubmitNv12.
+    std::atomic<uint64_t> submitted{0};       // frames accepted into a slot
+    std::atomic<uint64_t> replaced{0};        // pending slot overwritten
+    std::atomic<uint64_t> busy_drop{0};       // no free slot; frame dropped
+    // Commit-side counters, written on the render queue / display-link thread.
+    std::atomic<uint64_t> commits{0};         // command buffers committed
+    std::atomic<uint64_t> commit_invisible{0}; // commits with visible_at_submit=false
+    // Presented-handler counters, written by the drawable completion callback.
+    std::atomic<uint64_t> present_cb{0};       // presentedHandler invocations
+    std::atomic<uint64_t> present_zero_time{0};// presentedTime == 0 (never displayed)
+    std::atomic<uint64_t> present_invisible{0};// visible_at_submit=false in handler
+    std::atomic<uint64_t> presented{0};        // MarkPresented actually counted
+    // Display-link pacing counters (macOS only).
+    std::atomic<uint64_t> dl_ticks{0};        // CAMetalDisplayLink callbacks
+    std::atomic<uint64_t> dl_pauses{0};       // link transitioned to paused
+    std::atomic<uint64_t> dl_unpauses{0};     // unpause perform-blocks enqueued
+    // Window occlusion transitions observed on the stream window (main thread).
+    std::atomic<uint64_t> occlusion_transitions{0};
+  };
+
+  // Renderers do not own this object, so the stats object exposes the counter
+  // block directly. Writers increment individual atomics; readers copy a
+  // consistent snapshot field-by-field (uint64 atomics are tear-free on every
+  // supported platform).
+  RenderStages& MutableRenderStages() { return render_stages_; }
+  const RenderStages& GetRenderStages() const { return render_stages_; }
+
+ private:
+  RenderStages render_stages_;
   // Per-second presentation histogram; separate mutex so the render hot
   // path never contends with harness snapshot reads. Record() holds mutex_
   // while calling RecordPresentedWallSecond, which takes only

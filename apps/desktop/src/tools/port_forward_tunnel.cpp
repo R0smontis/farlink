@@ -60,6 +60,9 @@ using ReceiveResult = int;
 ReceiveResult ReceiveSocket(SocketHandle socket, char* data, std::size_t size) {
   return recv(socket, data, static_cast<int>(size), 0);
 }
+// winsock2.h names the shutdown constants SD_RECEIVE/SD_SEND/SD_BOTH; the
+// POSIX SHUT_* spellings do not exist there.
+int ShutdownWrite(SocketHandle socket) { return shutdown(socket, SD_SEND); }
 #else
 using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
@@ -93,6 +96,7 @@ using ReceiveResult = ssize_t;
 ReceiveResult ReceiveSocket(SocketHandle socket, char* data, std::size_t size) {
   return recv(socket, data, size, 0);
 }
+int ShutdownWrite(SocketHandle socket) { return shutdown(socket, SHUT_WR); }
 #endif
 
 void CloseIfValid(SocketHandle& socket) {
@@ -299,7 +303,7 @@ class PumpCore {
     }
     if (stream.egress_eof && stream.egress.empty() &&
         !stream.egress_write_shutdown && stream.socket != kInvalidSocket) {
-      shutdown(stream.socket, SHUT_WR);
+      ShutdownWrite(stream.socket);
       stream.egress_write_shutdown = true;
     }
   }

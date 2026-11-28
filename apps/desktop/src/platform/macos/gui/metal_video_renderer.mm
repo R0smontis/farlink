@@ -45,6 +45,11 @@
 @property(nonatomic, copy) BOOL (^windowLayoutHandler)(NSWindow* window);
 @property(nonatomic, copy) void (^surfaceInvalidationHandler)(void);
 @property(nonatomic, copy) void (^resizeVideoHandler)(NSWindow*);
+// Invoked on the main thread every time the stream window's occlusion state
+// changes. The argument is the new NSWindowOcclusionState bitmask; consumers
+// use it to keep cached visibility in sync with reality rather than waiting
+// for the next per-frame geometry pass. Nil-safe.
+@property(nonatomic, copy) void (^occlusionChangedHandler)(NSWindowOcclusionState);
 @property(nonatomic) BOOL windowLayoutPending;
 - (instancetype)initWithWindow:(NSWindow*)window;
 @end
@@ -150,6 +155,15 @@
                    name:NSWindowWillExitFullScreenNotification object:window];
     [center addObserver:self selector:@selector(windowDidToggleFullscreen:)
                    name:NSWindowDidExitFullScreenNotification object:window];
+    // Occlusion is the single most important visibility input for the render
+    // pipeline: NSWindowOcclusionStateVisible clears when the window is fully
+    // covered, minimized or on another Space, and macOS stops compositing its
+    // contents. Without this observer the only thing updating the cached
+    // visibility in the async render state is the per-frame geometry pass,
+    // which never runs when the remote desktop is static — exactly the
+    // scenario in which occlusion is most likely to silently change.
+    [center addObserver:self selector:@selector(windowOcclusionChanged:)
+                   name:NSWindowDidChangeOcclusionStateNotification object:window];
   }
   return self;
 }
@@ -208,6 +222,24 @@
 - (void)windowBackingPropertiesChanged:(NSNotification*)notification {
   (void)notification;
   [self invalidateVideoSurface];
+}
+
+- (void)windowOcclusionChanged:(NSNotification*)notification {
+  (void)notification;
+  NSWindow* window = _streamWindow;
+  if (window == nil) return;
+  const NSWindowOcclusionState state = window.occlusionState;
+  if (self.occlusionChangedHandler != nil) {
+    self.occlusionChangedHandler(state);
+  }
+  // Becoming visible again after a fully occluded period does not generate
+  // any new video content on its own: the remote desktop may have been static
+  // the whole time, and macOS does not guarantee the layer re-composites the
+  // last committed frame when the window unoccludes. Invalidate the surface
+  // so the very next frame — or the redraw path — repaints the full viewport.
+  if ((state & NSWindowOcclusionStateVisible) != 0) {
+    [self invalidateVideoSurface];
+  }
 }
 
 - (void)windowDidUpdate:(NSNotification*)notification {
@@ -292,6 +324,15 @@ API_AVAILABLE(macos(14.0))
 // when there was nothing to present; two consecutive NO ticks pause the
 // link. Set before -startWithLayer:.
 @property(nonatomic, copy) BOOL (^renderTick)(id<CAMetalDrawable> drawable);
+
+// Optional counters invoked on the display-link thread: tickCounter fires on
+// every vsync callback before any rendering decision; pauseCounter fires only
+// when the link transitions into the paused state (the two-idle-tick path).
+// Both must be trivially cheap — incrementing an atomic or similar — and are
+// invoked with no driver lock held, so a non-trivial implementation must do
+// its own synchronization. Set before -startWithLayer:.
+@property(nonatomic, copy) void (^tickCounter)(void);
+@property(nonatomic, copy) void (^pauseCounter)(void);
 
 // Spawns the thread, creates the link paused and arms it on the thread's
 // runloop. Synchronous; returns NO when the link could not be created, in
@@ -502,6 +543,7 @@ static void CrossDeskRunloopWakePerform(void* info) {
   // zero nextDrawable wait. It is never presented when the tick renders
   // nothing — dropping it simply returns it to the pool, whereas committing
   // an unwritten texture would flash garbage.
+  if (self.tickCounter != nil) self.tickCounter();
   BOOL rendered = NO;
   if (self.renderTick != nil && update.drawable != nil) {
     rendered = self.renderTick(update.drawable);
@@ -514,6 +556,7 @@ static void CrossDeskRunloopWakePerform(void* info) {
     // link, so a 0 Hz desktop costs zero background wakeups.
     _idle_ticks = 0;
     link.paused = YES;
+    if (self.pauseCounter != nil) self.pauseCounter();
   }
 }
 
@@ -946,6 +989,13 @@ struct MacMetalVideoRenderer::Impl {
     // synchronously, so by the time the state dies the thread is already
     // joined and dealloc is trivial.
     CrossDeskMetalDisplayLinkDriver* display_link_driver = nil;
+    // Latest render-stage counter sink, refreshed on every frame submission.
+    // The counters themselves live inside the session's VideoLatencyStats so
+    // the teardown line reads them without any harvesting; this weak pointer
+    // simply lets non-frame events (display-link ticks, pauses, occlusion
+    // transitions) reach the same sink. Weak because the stats object owns the
+    // session lifetime and the renderer must never extend it.
+    std::weak_ptr<VideoLatencyStats> latency_stats;
   };
 
   // Dedicated user-interactive serial queue owning every steady-state frame
@@ -1128,6 +1178,7 @@ struct MacMetalVideoRenderer::Impl {
       drawable_request.reset();
       NSWindow* window = slint_view.window;
       ((CrossDeskStreamTitleView*)title_accessory_controller.view).resizeVideoHandler = nil;
+      ((CrossDeskStreamTitleView*)title_accessory_controller.view).occlusionChangedHandler = nil;
       if (video_view != nil) {
         [video_view removeFromSuperview];
       }
@@ -1267,6 +1318,9 @@ struct MacMetalVideoRenderer::Impl {
     // which case presentation falls through to the immediate render-queue
     // path below exactly as before.
     if (state->display_link_driver != nil) {
+      if (const auto stats = state->latency_stats.lock()) {
+        stats->MutableRenderStages().dl_unpauses.fetch_add(1, std::memory_order_relaxed);
+      }
       [state->display_link_driver unpause];
       return;
     }
@@ -1480,15 +1534,27 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
       }
     }
   }
+  // Refresh the counter sink on every submission so non-frame events (link
+  // ticks, occlusion transitions) keep landing in the live session stats.
+  if (timing.stats) {
+    const std::shared_ptr<Impl::AsyncRenderState> state = impl_->GetAsyncState();
+    state->latency_stats = timing.stats;
+  }
   if (!target) {
     CFRelease(y_cv_texture);
     CFRelease(uv_cv_texture);
     timing.MarkStage(VideoFrameStage::busy);
+    if (timing.stats) {
+      timing.stats->MutableRenderStages().busy_drop.fetch_add(1, std::memory_order_relaxed);
+    }
     return SubmitResult::dropped;
   }
 
   if (target->use == SlotUse::pending) {
     target->timing.MarkStage(VideoFrameStage::replaced);
+    if (timing.stats) {
+      timing.stats->MutableRenderStages().replaced.fetch_add(1, std::memory_order_relaxed);
+    }
   }
   target->ReleaseResources();
   target->y_cv_texture = y_cv_texture;
@@ -1513,6 +1579,9 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNativeFrame(
   target->use = SlotUse::pending;
   target->valid = true;
   timing.MarkStage(VideoFrameStage::accepted);
+  if (timing.stats) {
+    timing.stats->MutableRenderStages().submitted.fetch_add(1, std::memory_order_relaxed);
+  }
   if (!impl_->native_path_logged.exchange(true, std::memory_order_acq_rel)) {
     LOG_INFO("macOS VideoToolbox-to-Metal native YUV path enabled");
   }
@@ -1585,8 +1654,15 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNv12Internal(
       }
     }
   }
+  if (timing.stats) {
+    const std::shared_ptr<Impl::AsyncRenderState> state = impl_->GetAsyncState();
+    state->latency_stats = timing.stats;
+  }
   if (target == nullptr) {
     timing.MarkStage(VideoFrameStage::busy);
+    if (timing.stats) {
+      timing.stats->MutableRenderStages().busy_drop.fetch_add(1, std::memory_order_relaxed);
+    }
     return SubmitResult::dropped;
   }
   const VideoLatencyFrame replaced_timing =
@@ -1595,6 +1671,9 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNv12Internal(
     return SubmitResult::failed;
   }
   replaced_timing.MarkStage(VideoFrameStage::replaced);
+  if (replaced_timing.stats) {
+    replaced_timing.stats->MutableRenderStages().replaced.fetch_add(1, std::memory_order_relaxed);
+  }
 
   auto* y_destination = static_cast<uint8_t*>(target->y_buffer.contents);
   auto* uv_destination = static_cast<uint8_t*>(target->uv_buffer.contents);
@@ -1614,6 +1693,9 @@ MacMetalVideoRenderer::SubmitResult MacMetalVideoRenderer::SubmitNv12Internal(
   target->use = SlotUse::pending;
   target->valid = true;
   timing.MarkStage(VideoFrameStage::accepted);
+  if (timing.stats) {
+    timing.stats->MutableRenderStages().submitted.fetch_add(1, std::memory_order_relaxed);
+  }
   impl_->RequestAsyncRender(std::string(remote_id));
   return SubmitResult::submitted;
 }
@@ -1732,6 +1814,20 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
         return outcome.result == RenderResult::rendered ||
                outcome.result == RenderResult::empty;
       };
+      driver.tickCounter = ^{
+        if (const std::shared_ptr<Impl::AsyncRenderState> state = weak_state.lock()) {
+          if (const auto stats = state->latency_stats.lock()) {
+            stats->MutableRenderStages().dl_ticks.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      };
+      driver.pauseCounter = ^{
+        if (const std::shared_ptr<Impl::AsyncRenderState> state = weak_state.lock()) {
+          if (const auto stats = state->latency_stats.lock()) {
+            stats->MutableRenderStages().dl_pauses.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      };
       if ([driver startWithLayer:impl_->metal_layer]) {
         fresh_state->display_link_driver = driver;
       } else {
@@ -1787,6 +1883,46 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
       const CGSize size = impl_->metal_layer.drawableSize;
       DrawFrame(rendered_stream, size.width, size.height, false);
     };
+    title_view.occlusionChangedHandler = ^(NSWindowOcclusionState occlusion_state) {
+      // Main thread. The render queue and display-link thread never read
+      // AppKit directly, so this callback is the only path that can push the
+      // fresh occlusion fact into the async state outside the per-frame
+      // geometry pass — critical when the remote desktop is static and no
+      // RenderLatest is running.
+      const bool occluded = (occlusion_state & NSWindowOcclusionStateVisible) == 0;
+      LOG_INFO("Stream window occlusion state changed: {}",
+               occluded ? "occluded" : "visible");
+      if (const std::shared_ptr<Impl::AsyncRenderState> state = impl_->GetAsyncState()) {
+        if (const auto stats = state->latency_stats.lock()) {
+          stats->MutableRenderStages().occlusion_transitions.fetch_add(1, std::memory_order_relaxed);
+        }
+        // Recompute visibility exactly like PublishAsyncGeometry does. The
+        // raster size is unchanged (the occlusion transition carries no
+        // resize), so writing only the visibility/transitioning bits is
+        // sufficient — no geometry_valid churn.
+        bool visible = false;
+        bool transitioning = false;
+        if (impl_->slint_view != nil) {
+          NSWindow* slint_window = impl_->slint_view.window;
+          visible = slint_window != nil && slint_window.isVisible &&
+              !slint_window.isMiniaturized &&
+              !(impl_->video_view != nil &&
+                impl_->video_view.isHiddenOrHasHiddenAncestor) &&
+              (occlusion_state & NSWindowOcclusionStateVisible) != 0;
+          transitioning =
+              IsStreamWindowFullscreenTransitioning((__bridge void*)impl_->slint_view);
+        }
+        state->visible.store(visible, std::memory_order_release);
+        state->transitioning.store(transitioning, std::memory_order_release);
+        // Wake the display link on un-occlusion: the link is often paused
+        // after two idle ticks (the remote desktop is static), so without
+        // this nudge the surface can sit unpainted until the next frame
+        // arrives even though the user is looking at the window again.
+        if (!occluded && state->display_link_driver != nil) {
+          [state->display_link_driver unpause];
+        }
+      }
+    };
     impl_->title_accessory_controller.view = title_view;
     [window addTitlebarAccessoryViewController:
                 impl_->title_accessory_controller];
@@ -1807,7 +1943,7 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
       window.titleVisibility = NSWindowTitleHidden;
       return restored && window.titleVisibility == NSWindowTitleHidden;
     };
-    impl_->UpdateVideoGeometry(0.0);
+    const CGSize initial_raster = impl_->UpdateVideoGeometry(0.0);
     // The surface now sits inside the window hierarchy with real geometry;
     // creating the display link earlier than this races WindowServer's
     // first compositing pass for the layer and can latch the link onto no
@@ -1817,6 +1953,15 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
       std::lock_guard lock(impl_->async_state_mutex);
       impl_->async_state = fresh_state;
     }
+    // Publish the freshly measured raster geometry, occlusion state and
+    // fullscreen-transition flag into the new async state immediately. Until
+    // this point fresh_state->visible is false and raster_width/height are
+    // zero, so a decode thread submitting the very first frame before the
+    // main thread's first RenderLatest would either skip the render queue
+    // dispatch (geometry_valid=false) or count the presentation against a
+    // stale invisible state. Publishing here means the first submission sees
+    // the real window state from the moment Attach returns.
+    impl_->PublishAsyncGeometry(initial_raster);
     impl_->native_surface_needs_redraw->store(true,
                                               std::memory_order_release);
     const bool attached = impl_->video_view.superview != nil;
@@ -2178,7 +2323,20 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::Impl::RenderFrameCor
       const double host_now = CACurrentMediaTime();
       const auto presented_at = VideoLatencyFrame::FromHostTime(
           presented_time, host_now, now);
+      if (timing.stats) {
+        auto& stages = timing.stats->MutableRenderStages();
+        stages.present_cb.fetch_add(1, std::memory_order_relaxed);
+        if (presented_time <= 0) {
+          stages.present_zero_time.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!visible_at_submit) {
+          stages.present_invisible.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
       if (visible_at_submit && presented_at) {
+        if (timing.stats) {
+          timing.stats->MutableRenderStages().presented.fetch_add(1, std::memory_order_relaxed);
+        }
         timing.MarkPresented(*presented_at);
         // TRUE presentation is the drawable presented handler. Exactly once
         // per session, report ms since connect request/Ice ready. The codec
@@ -2208,6 +2366,13 @@ MacMetalVideoRenderer::RenderOutcome MacMetalVideoRenderer::Impl::RenderFrameCor
     [command_buffer presentDrawable:drawable];
     timing.MarkStage(VideoFrameStage::committed, VideoLatencyFrame::Clock::now(),
                      drawable_wait_ms);
+    if (timing.stats) {
+      auto& stages = timing.stats->MutableRenderStages();
+      stages.commits.fetch_add(1, std::memory_order_relaxed);
+      if (!visible_at_submit) {
+        stages.commit_invisible.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
     [command_buffer commit];
     {
       std::lock_guard lock(frames.mutex);

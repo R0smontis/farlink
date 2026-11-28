@@ -146,6 +146,10 @@ private:
   std::optional<std::string> pending_remote_image_;
   std::string pending_image_remote_id_;
   std::weak_ptr<gui_detail::RemoteSession> pending_image_session_;
+  // Input-generation snapshot of the viewer session at the moment the image
+  // payload completed. Mirrored against the live value in ApplyPendingImage
+  // so a focus/control flip invalidates the queued write exactly like text.
+  uint64_t pending_image_generation_ = 0;
   uint32_t next_image_transfer_id_ = 1;
   // Hash of the local clipboard image most recently sent or suppressed; UI
   // thread only. Breaks A->B->A loops when both ends copy the same pixels.

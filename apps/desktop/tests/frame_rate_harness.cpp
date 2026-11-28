@@ -144,6 +144,32 @@ struct Config {
   // exact same binary measures both. This flag only flips the harness params;
   // the mechanism lives in minirtc (MiniRtcParams::disable_video_jitter_buffer).
   bool jitter_buffer = true;
+  // Pause-regression control: when > 0, video send is paused on the sender
+  // immediately after the direct session connects and held for this many
+  // milliseconds, then resumed, while frame submission runs continuously.
+  // Exists to prove the stall detector does not fire on a deliberately paused
+  // stream. The measurement window should extend at least a few seconds past
+  // the resume point or delivered stays zero by design.
+  int pause_first_ms = 0;
+  // Mid-session pause: pause the sender this many milliseconds after the
+  // connection is established, hold for pause_duration_ms, then resume.
+  // Exists to exercise the stall detector's pause-restart semantics on a
+  // stream that has ALREADY admitted frames (unlike pause_first_ms, which
+  // pauses before any admission). Zero disables.
+  int pause_after_ms = 0;
+  int pause_duration_ms = 0;
+  // With --pause-after-ms: suppress frame submission entirely during the
+  // pause window (capturer-stopped shape) instead of submitting frames that
+  // die at the transport's pause guard.
+  bool pause_silent = false;
+  // With --submit-interval-ms: override the frame submission interval
+  // directly in milliseconds, replacing the 1/fps cadence in both the warmup
+  // and measured submission loops. Exists to exercise the stall detector's
+  // arrival-gap restart at spacings straddling kVideoStallArrivalGapMs (1500
+  // ms), which integer --fps cannot produce above 1 s spacing. Zero = use
+  // the fps-derived cadence (the default; inert when absent). Does not touch
+  // the fps value passed to MiniRtcParams, which is session/pacing config.
+  int submit_interval_ms = 0;
 };
 
 struct Endpoint {
@@ -227,6 +253,12 @@ std::string g_session_id;
 // just the relay port, which never changes after startup.
 crossdesk::UdpShaper* g_shaper = nullptr;
 uint16_t g_shaper_port = 0;
+
+// Set by the mid-session pause thread when --pause-silent is in effect: the
+// submit loop skips the actual frame submission while paused, reproducing a
+// capturer that stops delivering frames for the pause window (screen lock,
+// display sleep) instead of merely having them rejected at the pause guard.
+std::atomic<bool> g_pause_silent{false};
 
 // Rewrite the port field of one ICE candidate string (with or without the
 // leading "a="). The candidate grammar the direct protocol accepts is fixed:
@@ -740,6 +772,40 @@ int RunHarness(const Config& config) {
     return 2;
   }
 
+  if (config.pause_first_ms > 0) {
+    // Pause before the first frame is ever submitted and hold it across the
+    // media-ready + 5 s boundary: the stall detector must stay silent because
+    // nothing is admitted, and after resume the encoder gets its full window.
+    if (MiniRtcSetVideoSendPaused(sender, receiver_local.c_str(),
+                                  receiver_local.size(), true) != 0) {
+      std::fprintf(stderr, "warning: pause request rejected\n");
+    }
+    std::thread([sender, receiver_local = receiver_local,
+                 pause_ms = config.pause_first_ms] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(pause_ms));
+      MiniRtcSetVideoSendPaused(sender, receiver_local.c_str(),
+                                receiver_local.size(), false);
+    }).detach();
+  }
+  if (config.pause_after_ms > 0 && config.pause_duration_ms > 0) {
+    std::thread([sender, receiver_local = receiver_local,
+                 after_ms = config.pause_after_ms,
+                 duration_ms = config.pause_duration_ms,
+                 silent = config.pause_silent] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(after_ms));
+      if (MiniRtcSetVideoSendPaused(sender, receiver_local.c_str(),
+                                    receiver_local.size(), true) != 0) {
+        std::fprintf(stderr, "warning: mid-session pause request rejected\n");
+        return;
+      }
+      if (silent) g_pause_silent.store(true, std::memory_order_release);
+      std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
+      if (silent) g_pause_silent.store(false, std::memory_order_release);
+      MiniRtcSetVideoSendPaused(sender, receiver_local.c_str(),
+                                receiver_local.size(), false);
+    }).detach();
+  }
+
   if (config.max_bitrate_bps > 0) {
     // Raise the video budget ceiling so GCC can ramp toward the real path
     // capacity (up to 100 Mbps) instead of sitting at the default start.
@@ -780,6 +846,7 @@ int RunHarness(const Config& config) {
   // Send instants are recorded by absolute sequence so the decoder can pair them
   // exactly via the barcode.
   auto submit = [&](uint32_t seq) {
+    if (g_pause_silent.load(std::memory_order_acquire)) return;
     const int64_t cap = MiniRtcGetSystemTimeMicros(sender);
     MiniRtcVideoFrame frame{};
 #if defined(__APPLE__)
@@ -807,7 +874,10 @@ int RunHarness(const Config& config) {
   while (NowUs() < warmup_end) {
     submit(sequence);
     ++sequence;
-    std::this_thread::sleep_for(std::chrono::microseconds(1000000 / config.fps));
+    const int64_t warm_interval_us = config.submit_interval_ms > 0
+        ? config.submit_interval_ms * 1000
+        : 1000000 / config.fps;
+    std::this_thread::sleep_for(std::chrono::microseconds(warm_interval_us));
   }
 
   // Brief settle so the warmup tail clears the encode/decode pipeline; warmup
@@ -837,7 +907,9 @@ int RunHarness(const Config& config) {
   // Pace on a steadily advancing local-clock slot so per-frame work does not
   // accumulate cadence drift; the capture timestamp itself is stamped in the
   // library clock domain used only for end-to-end latency.
-  const int64_t interval_us = 1000000 / config.fps;
+  const int64_t interval_us = config.submit_interval_ms > 0
+      ? config.submit_interval_ms * 1000
+      : 1000000 / config.fps;
   int64_t next_slot = NowUs();
   // Per-second trajectory sampling: emitted on stderr with a distinct prefix
   // so the final JSON line on stdout stays machine-consumable.
@@ -1157,6 +1229,15 @@ int main(int argc, char** argv) {
           static_cast<uint64_t>(std::strtoull(next("--bottleneck-seed"), nullptr, 10));
     else if (arg == "--jitter-buffer") config.jitter_buffer = true;
     else if (arg == "--no-jitter-buffer") config.jitter_buffer = false;
+    else if (arg == "--pause-first-ms")
+      config.pause_first_ms = std::atoi(next("--pause-first-ms"));
+    else if (arg == "--pause-after-ms")
+      config.pause_after_ms = std::atoi(next("--pause-after-ms"));
+    else if (arg == "--pause-duration-ms")
+      config.pause_duration_ms = std::atoi(next("--pause-duration-ms"));
+    else if (arg == "--pause-silent") config.pause_silent = true;
+    else if (arg == "--submit-interval-ms")
+      config.submit_interval_ms = std::atoi(next("--submit-interval-ms"));
   }
   if (!config.address) {
     std::fprintf(stderr, "--address is required\n");

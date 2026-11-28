@@ -256,6 +256,35 @@ void LogVideoSessionSummary(const VideoLatencyStats& stats,
       resolutions.empty() ? "none" : resolutions,
       inter_present.empty() ? "inter_present=none" : inter_present,
       stage);
+  // Render-stage funnel counters, emitted as a separate companion line so the
+  // machine-readable metrics line above stays byte-compatible with every
+  // existing parser. Each counter is monotonic per session and zero means the
+  // stage never fired — comparing them pairwise pinpoints where frames stop
+  // being counted:
+  //   submitted>0 but commits small      → display link paused / render starved
+  //   commits high but present_zero_time → window occluded, never displayed
+  //   present_cb high but presented low  → visible_at_submit=false flip
+  //   occlusion_transitions rising       → window occlusion churn during session
+  const auto& rs = stats.GetRenderStages();
+  LOG_INFO(
+      "Video render stages (controller): remote={} submitted={} replaced={}"
+      " busy_drop={} commits={} commit_invisible={} present_cb={}"
+      " present_zero_time={} present_invisible={} presented={}"
+      " dl_ticks={} dl_pauses={} dl_unpauses={} occlusion_transitions={}",
+      context->remote_id,
+      rs.submitted.load(std::memory_order_relaxed),
+      rs.replaced.load(std::memory_order_relaxed),
+      rs.busy_drop.load(std::memory_order_relaxed),
+      rs.commits.load(std::memory_order_relaxed),
+      rs.commit_invisible.load(std::memory_order_relaxed),
+      rs.present_cb.load(std::memory_order_relaxed),
+      rs.present_zero_time.load(std::memory_order_relaxed),
+      rs.present_invisible.load(std::memory_order_relaxed),
+      rs.presented.load(std::memory_order_relaxed),
+      rs.dl_ticks.load(std::memory_order_relaxed),
+      rs.dl_pauses.load(std::memory_order_relaxed),
+      rs.dl_unpauses.load(std::memory_order_relaxed),
+      rs.occlusion_transitions.load(std::memory_order_relaxed));
 }
 
 }  // namespace crossdesk

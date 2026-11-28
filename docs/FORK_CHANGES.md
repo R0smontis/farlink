@@ -2,7 +2,7 @@
 
 **Farlink** is a modified version of **CrossDesk** (<https://github.com/kunkundi/crossdesk>),
 forked at upstream base commit `0551055` (`[fix] migrate legacy autostart settings on upgrade, refs #242`).
-Fork modification date range: **2026-11-25 – 2026-11-27**.
+Fork modification date range: **2026-11-25 – 2026-11-28**.
 
 This file is the prominent notice of modification required by the GNU General Public
 License v3 §5(a) (and, for the bundled `deps/submodules/minirtc`, the GNU Lesser General
@@ -238,6 +238,62 @@ The fork extends upstream CrossDesk across these independent areas:
     zero-count second in any cell; measured pacing trade-off on the 120Hz
     panel — displaylink cadence p95_max 17ms at ~45ms decode-to-screen,
     immediate p95_max 25ms at ~21ms. Detail: `docs/FARLINK.md` §2.13.
+- **Wave-7 send-path observability & privacy gates** — the Windows send-side
+  observability, clipboard privacy hardening and host-mute completion wave:
+  - *Windows host speaker mute backend*: `HostAudioMute` now has a real
+    Windows implementation through Core Audio MMDevice +
+    `IAudioEndpointVolume` on the default render endpoint
+    (`platform/windows/host_audio_mute_win.cpp`), replacing the inert stub.
+    The endpoint id is pinned at mute time and restore re-resolves that exact
+    endpoint through `IMMDeviceEnumerator::GetDevice`, so a mid-session
+    default-device switch (headphones plugged in) can never strand the
+    original speaker muted nor write the state of a device never muted. All
+    bookkeeping moves into the platform-independent `HostMutePolicy`
+    (`common/host_audio_mute_policy.h`) so the unit test covers 100% of the
+    mute/restore state machine through a mock backend. Verified by
+    `host_audio_mute_test` (mock state machine + read-only hardware probe).
+  - *`--view-only` / `clipboard_allowed_` clipboard gates*: the privacy
+    contract that a view-only or control-off viewer session must neither
+    apply clipboard content nor assemble inbound payloads is now enforced
+    end-to-end. Image clipboard receive drops inbound frames when the viewer
+    session's `clipboard_allowed_` is false, snapshots the input generation
+    alongside the payload, and re-validates session/clipboard permission/
+    generation before the deferred OS write exactly like text
+    (`clipboard_image_controller.cpp`); file-offer receive drops inbound
+    packets and `ApplyPendingFiles` re-checks `clipboard_allowed_` in
+    addition to focus/control state (`clipboard_files_controller.cpp`).
+    Sessions are preserved so regaining access resumes without a fresh
+    capability negotiation; only inbound data is dropped. Verified by
+    `clipboard_view_only_gate_test`.
+  - *macOS render visibility & funnel counters*: the Metal renderer now
+    publishes initial raster geometry, occlusion state and visibility at
+    attach time (previously `visible` stayed false until the first resize,
+    so the first submissions saw a stale invisible state), observes
+    `NSWindowDidChangeOcclusionStateNotification` to recompute visibility
+    and wake the display link on un-occlusion, and feeds zero-allocation
+    atomic render-stage counters — submit/replace/busy-drop, commit,
+    present-callback/presented, display-link ticks/pauses, occlusion
+    transitions — emitted once per session as a companion machine-readable
+    `Video render stages (controller):` funnel line
+    (`metal_video_renderer.mm`, `video_latency.{h,cpp}`).
+  - *Windows `port_forward_tunnel.cpp` half-close fix*: `shutdown()` on the
+    write side uses winsock2's `SD_SEND` instead of the POSIX-only
+    `SHUT_WR` spelling, fixing the Windows port-forward build.
+  - *`lan_profile_seed_tool`*: a disposable LAN test-profile seeder that
+    drives only the production identity path
+    (`Identity::Load/RegisterPassword/SetPassword/SaveListenerMode` +
+    `private_file`) so a seeded profile is byte-identical to what the app
+    itself bootstraps — certificate and private key included. The password
+    arrives on stdin and the destination must not pre-exist.
+  - *misc*: macOS `@executable_path` rpath added in `targets.lua` so the
+    binary resolves the bundled Slint runtime without `DYLD_*` variables
+    (which macOS strips whenever a system-signed interpreter sits in the
+    launch chain); `fail_encode_interposer` failure-injection harness
+    exercising the zero-encoded failure-side send-stage diagnostics.
+  - *minirtc side*: native-frame materialization `SetSize()` seal fix,
+    `peer_connection.h` C++20/MSVC fix, video send-stage funnel + 5 s stall
+    detector, WMF encoder observability — see
+    `deps/submodules/minirtc/docs/FORK_CHANGES.md` (Wave-7).
 
 ## Modified upstream files
 
@@ -302,6 +358,16 @@ The fork extends upstream CrossDesk across these independent areas:
 | `apps/desktop/src/gui/features/feedback/diagnostic_export.h` | Declarations for the above. |
 | `apps/desktop/src/gui/runtime/peer_media_callbacks.cpp` | W6D per-stage latency metric feed from the decode/render pipeline. |
 | `apps/desktop/src/gui/ui/stream_window.slint` | W6D taller HUD layout rendering the per-stage latency attribution rows. |
+| `apps/desktop/src/common/host_audio_mute.h` | Wave-7 bookkeeping moved into the platform-independent `HostMutePolicy`; Windows backend documented. |
+| `apps/desktop/src/common/host_audio_mute_stub.cpp` | Wave-7 inert backend now Linux-only; Windows has a real backend. |
+| `apps/desktop/src/gui/features/clipboard/clipboard_controller.h` | Wave-7 pending-image input-generation snapshot field for stale-write rejection. |
+| `apps/desktop/src/gui/features/clipboard/clipboard_files_controller.cpp` | Wave-7 `clipboard_allowed_` admission gate on inbound file-offer packets and apply. |
+| `apps/desktop/src/gui/features/clipboard/clipboard_image_controller.cpp` | Wave-7 `clipboard_allowed_` receive gate plus input-generation re-validation on the deferred OS write. |
+| `apps/desktop/src/gui/rendering/video_latency.cpp` | Wave-7 render-stage funnel counters emitted as a companion `Video render stages (controller):` line. |
+| `apps/desktop/src/gui/rendering/video_latency.h` | Wave-7 zero-allocation atomic `RenderStages` counter block. |
+| `apps/desktop/src/platform/macos/gui/metal_video_renderer.mm` | Wave-7 initial visibility/geometry publish, occlusion-state observer, render-stage counter integration. |
+| `apps/desktop/src/tools/port_forward_tunnel.cpp` | Wave-7 Windows write-side half-close uses winsock2 `SD_SEND` via a `ShutdownWrite` helper. |
+| `apps/desktop/xmake/targets.lua` | Wave-7 macOS `@executable_path` rpath; new wave-7 test/tool targets. |
 
 ## Added files
 
@@ -360,3 +426,9 @@ The fork extends upstream CrossDesk across these independent areas:
 | `apps/desktop/tests/pixel_scroll_and_dispatcher_test.cpp` | W5D pixel-scroll fixed-point + dispatcher binary-input tests. |
 | `apps/desktop/tests/macos_color_and_displaylink_test.mm` | W6C full-range BT.709 round-trip exactness (256/256 levels, 0 LSB error) + CAMetalDisplayLink lifecycle verification against the production renderer translation unit. |
 | `apps/desktop/tests/stage_latency_attribution_test.cpp` | W6D per-stage latency attribution classifier and plumbing tests. |
+| `apps/desktop/src/common/host_audio_mute_policy.h` | Wave-7 platform-independent host-mute bookkeeping/state-machine policy. |
+| `apps/desktop/src/platform/windows/host_audio_mute_win.cpp` | Wave-7 Windows host speaker mute backend (Core Audio MMDevice + `IAudioEndpointVolume`). |
+| `apps/desktop/tests/clipboard_view_only_gate_test.cpp` | Wave-7 source-invariant test asserting every view-only clipboard admission gate exists. |
+| `apps/desktop/tests/fail_encode_interposer.cpp` | Wave-7 static-link failure-injection interposer for the zero-encoded failure-path harness. |
+| `apps/desktop/tests/host_audio_mute_test.cpp` | Wave-7 mock-backend host-mute state-machine unit test plus read-only hardware probe. |
+| `apps/desktop/tests/lan_profile_seed_tool.cpp` | Wave-7 disposable LAN test-profile seeder driving the production identity path. |

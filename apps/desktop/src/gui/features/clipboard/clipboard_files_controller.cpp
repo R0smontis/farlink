@@ -127,8 +127,18 @@ void ClipboardController::ReceiveFiles(const char* data, size_t size, const std:
     const auto found = file_sessions_.find(remote);
     if (found != file_sessions_.end()) session = found->second;
   }
-  if (FileSessionActive(remote, session) && session->events.lock().get() == source)
-    session->transfer->Receive(data, size);
+  if (!FileSessionActive(remote, session) || session->events.lock().get() != source)
+    return;
+  // Privacy gate: a viewer (controlling) session with clipboard disallowed —
+  // view-only launch, control toggled off, or stream unfocused — must not let
+  // a remote host drive file-offer assembly into this process. The session
+  // itself is preserved so regaining clipboard access resumes transfers
+  // without a renegotiation round-trip; only the inbound packets are dropped.
+  if (session->controlling) {
+    const auto viewer = session->viewer.lock();
+    if (!viewer || !viewer->clipboard_allowed_.load()) return;
+  }
+  session->transfer->Receive(data, size);
 }
 
 void ClipboardController::SendLocalFiles(bool changed) {
@@ -182,7 +192,11 @@ void ClipboardController::ApplyPendingFiles() {
   if (!FileSessionActive(pending->remote, session)) { reject(); return; }
   if (session->controlling) {
     const auto viewer = session->viewer.lock();
-    if (!viewer || !viewer->stream_window_open_ || !viewer->last_focused_stream_ || !viewer->control_mouse_) {
+    // The same clipboard_allowed_ gate as text/image writes: control_mouse_
+    // alone is not sufficient because view-only sessions can transiently hold
+    // keyboard focus while clipboard sharing stays disabled.
+    if (!viewer || !viewer->stream_window_open_ || !viewer->last_focused_stream_ ||
+        !viewer->control_mouse_ || !viewer->clipboard_allowed_.load()) {
       reject(); return;
     }
   }

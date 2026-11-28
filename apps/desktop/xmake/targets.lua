@@ -107,7 +107,9 @@ function setup_targets()
         if is_os("windows") then
             add_files("apps/desktop/src/platform/windows/system_info.cpp",
                 "apps/desktop/src/platform/windows/screen_lock.cpp",
-                "apps/desktop/src/platform/windows/desktop_automation.cpp")
+                "apps/desktop/src/platform/windows/desktop_automation.cpp",
+                "apps/desktop/src/platform/windows/host_audio_mute_win.cpp")
+            remove_files("apps/desktop/src/common/host_audio_mute_stub.cpp")
             add_syslinks("Advapi32", "Wtsapi32", "Ole32", "OleAut32", "Uiautomationcore", {public = true})
         elseif is_os("macosx") then
             add_files("apps/desktop/src/platform/macos/system_info.cpp",
@@ -506,7 +508,25 @@ function setup_targets()
             add_includedirs("apps/desktop/src")
             add_files("apps/desktop/tests/clipboard_image_mac_test.mm")
             add_frameworks("AppKit", "Foundation")
+
     end
+
+    -- View-only / control-off clipboard admission gate invariant test.
+    -- Pure C++ source-invariant checker: reads the production clipboard
+    -- controller translation units and asserts every privacy gate required
+    -- by the --view-only contract is present at the exact function where a
+    -- regression would hide it. Zero platform dependencies; runs anywhere.
+    target("clipboard_view_only_gate_test")
+        set_kind("binary")
+        set_default(false)
+        add_files("apps/desktop/tests/clipboard_view_only_gate_test.cpp")
+        add_runenvs("CLIPBOARD_SRC_DIR=apps/desktop/src/gui/features/clipboard")
+        on_run(function (target)
+            import("core.base.option")
+            local runargs = option.get("arguments") or {}
+            table.insert(runargs, 1, "apps/desktop/src/gui/features/clipboard")
+            os.execv(target:targetfile(), runargs)
+        end)
 
 
     target("cursor_position_test")
@@ -556,6 +576,28 @@ function setup_targets()
             "apps/desktop/src/gui/runtime/device_identity_store.cpp",
             "apps/desktop/src/common/private_file.cpp")
         add_packages("openssl3", "nlohmann_json")
+
+    -- Disposable LAN test-profile seeder. Drives ONLY the production
+    -- identity path (Identity::Load/RegisterPassword/SetPassword/
+    -- SaveListenerMode + private_file) so a seeded profile is byte-
+    -- identical to what the app itself would bootstrap — certificate and
+    -- private key included. No GUI, no capture, no listeners; the password
+    -- arrives on stdin and the destination must not pre-exist. Built on
+    -- every desktop platform for the remote test kit (20_build.ps1 on
+    -- Windows); statically linked against the same OpenSSL the app uses.
+    target("lan_profile_seed_tool")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src", "apps/desktop/src/common",
+            "apps/desktop/src/network/lan", "deps/submodules/minirtc/src/api")
+        add_files("apps/desktop/tests/lan_profile_seed_tool.cpp",
+            "apps/desktop/src/network/lan/lan_identity.cpp",
+            "apps/desktop/src/network/lan/lan_password.cpp")
+        add_deps("private_file", "minirtc")
+        add_packages("openssl3", "nlohmann_json")
+        if is_os("windows") then
+            add_syslinks("Ws2_32", "Iphlpapi")
+        end
 
     target("lan_discovery_test")
         set_kind("binary")
@@ -811,6 +853,36 @@ function setup_targets()
             add_files("apps/desktop/tests/iosurface_frame_source.mm")
             add_frameworks("CoreVideo", "IOSurface", "Foundation")
         end
+
+    -- Failure-injection variant of the loopback harness: same sources plus a
+    -- test-only static-link interposer that replaces VideoEncoderFactory with
+    -- an encoder whose Init() succeeds but whose Encode() returns -1 for every
+    -- frame. Exists to exercise the zero-encoded failure-side send-stage
+    -- diagnostics (streak log, stall WARN, teardown funnel) through the real
+    -- transport. Never use for latency measurement: it encodes nothing.
+    if not is_plat("windows") then
+    -- not on Windows: the interposition is proven for ld64 only, and the
+    -- interposer deliberately omits the factory's Windows-only symbols.
+    target("frame_rate_fail_harness")
+        set_kind("binary")
+        set_default(false)
+        add_deps("minirtc")
+        add_packages("nlohmann_json", "spdlog")
+        add_includedirs("deps/submodules/minirtc/src/api",
+            "deps/submodules/minirtc/src/log",
+            "deps/submodules/minirtc/src/media",
+            "deps/submodules/minirtc/src/media/video/encode",
+            "deps/submodules/minirtc/src/media/video/encode/video_toolbox")
+        add_files("apps/desktop/tests/frame_rate_harness.cpp",
+            "apps/desktop/tests/udp_shaper.cpp",
+            "apps/desktop/tests/fail_encode_interposer.cpp")
+        if is_plat("macosx") then
+            add_files("apps/desktop/tests/iosurface_frame_source.mm")
+            add_frameworks("CoreVideo", "IOSurface", "Foundation",
+                "VideoToolbox", "CoreMedia")
+        end
+    target_end()
+    end
 
     -- MiniRTC-level two-endpoint LAN harness: measures direct-connection
     -- stage timings and first-frame latency without any signaling server.
@@ -1485,6 +1557,35 @@ function setup_targets()
         elseif is_os("linux") then
             add_files("apps/desktop/src/platform/linux/headless/headless_session.cpp")
         end
+        -- The Slint runtime is copied next to the binary by the
+        -- crossdesk.slint_runtime rule and referenced through @rpath. macOS
+        -- strips DYLD_* variables whenever any system-signed interpreter
+        -- (python3, sh) sits anywhere in the launch chain — exactly what the
+        -- e2e harness does — so the binary must carry its own rpath entry
+        -- instead of relying on the environment.
+        if is_os("macosx") then
+            add_rpathdirs("@executable_path")
+        end
         add_rules("crossdesk.slint_runtime")
         after_build(copy_usbmmidd_package)
+
+    -- Host speaker mute: cross-platform unit test for the mute/restore
+    -- state machine (mock backend, zero side effects) plus a strictly
+    -- read-only hardware probe of the real platform backend linkage
+    -- (MMDevice/IAudioEndpointVolume enumeration on Windows, CoreAudio on
+    -- macOS — nothing is ever written to any device). Exits 77 when the
+    -- machine has no usable output device: an honest environment answer,
+    -- not a pass. Pure C++ plus the platform audio frameworks; no app
+    -- object dependencies, so it builds fast and runs headless.
+    target("host_audio_mute_test")
+        set_kind("binary")
+        set_default(false)
+        add_includedirs("apps/desktop/src/common")
+        add_files("apps/desktop/tests/host_audio_mute_test.cpp")
+        if is_os("windows") then
+            add_syslinks("Ole32")
+        elseif is_os("macosx") then
+            add_frameworks("CoreAudio", "Foundation")
+        end
+
 end
