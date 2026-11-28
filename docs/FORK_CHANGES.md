@@ -14,6 +14,26 @@ repository (fork commits are prefixed `[feat]` / `[fix]` / `[chore]` / `[test]`)
 The bundled media library `deps/submodules/minirtc` is itself a modified version of
 <https://github.com/kunkundi/minirtc>; see `deps/submodules/minirtc/docs/FORK_CHANGES.md`.
 
+## Operational decoupling from upstream (2026-11-28)
+
+A dedicated wave on 2026-11-28 removed all upstream operational wiring:
+
+- **Upstream self-update channel removed** — the `updater/` and `version_checker/`
+  source trees, the `crossdesk_updater` xmake target, the `CROSSDESK_ENABLE_UPDATER`
+  and `CROSSDESK_UPDATE_PUBLIC_KEY` options, the slint update UI (check/install/retry
+  dialogs, about-panel banner, menu badges), and the NSIS unattended-upgrade path were
+  deleted. No configuration reaches `version.crossdesk.cn` or `downloads.crossdesk.cn`.
+  Mobile update checks (Android/iOS/HarmonyOS) no longer perform network requests.
+- **Default signalling server emptied** — fresh profiles no longer register with
+  upstream's `api.crossdesk.cn:9099`. The fork operates no infrastructure; users
+  configure a self-hosted server in Settings or use serverless LAN direct connect.
+- **Product naming unified to Farlink** — binaries, xmake targets (`farlink`,
+  `farlink_service`, …), the Windows service (`FarlinkService`) with its pipes,
+  kernel objects and registry keys, packaging (NSIS/deb/pkg), XDG ids, log file
+  names, OS-visible strings and the automation protocol token are renamed.
+  Internal identifiers (`namespace crossdesk`, datachannel wire tokens) are
+  unchanged; upstream copyright attribution is retained throughout.
+
 ## Summary of modifications
 
 The fork extends upstream CrossDesk across these independent areas:

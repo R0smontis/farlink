@@ -560,7 +560,7 @@
 					"-framework",
 					Foundation,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.chunkdash.crossdesk;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.farlink.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OBJC_BRIDGING_HEADER = "CrossDeskMobile/CrossDeskMobile-Bridging-Header.h";
@@ -612,7 +612,7 @@
 					"-framework",
 					Foundation,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.chunkdash.crossdesk;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.farlink.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OBJC_BRIDGING_HEADER = "CrossDeskMobile/CrossDeskMobile-Bridging-Header.h";

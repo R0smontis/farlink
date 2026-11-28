@@ -4,7 +4,7 @@ import Foundation
 /// preview after a clear/revocation has finished.
 final class ThumbnailFileStore {
     let directory: URL
-    private let queue = DispatchQueue(label: "cn.crossdesk.mobile.thumbnails",
+    private let queue = DispatchQueue(label: "cn.farlink.mobile.thumbnails",
                                      qos: .utility)
 
     init(directory: URL) {

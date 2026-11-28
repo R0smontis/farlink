@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.chunkdash.crossdesk",
+    "bundleName": "cn.farlink.mobile",
     "vendor": "CrossDesk",
     "versionCode": 10002,
     "versionName": "1.7.7",

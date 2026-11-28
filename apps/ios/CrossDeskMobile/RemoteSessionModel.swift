@@ -170,7 +170,7 @@ private enum RecentConnectionStore {
 }
 
 private enum ConnectionCredentialStore {
-    private static let service = "cn.crossdesk.mobile.saved-password"
+    private static let service = "cn.farlink.mobile.saved-password"
 
     static func password(for remoteID: String) -> String? {
         let query: [String: Any] = [
@@ -213,7 +213,7 @@ private enum ConnectionCredentialStore {
 private final class RemoteAudioPlayer {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let queue = DispatchQueue(label: "cn.crossdesk.mobile.audio")
+    private let queue = DispatchQueue(label: "cn.farlink.mobile.audio")
     // Older iOS audio units can reject an Int16 player-to-mixer connection
     // with an Objective-C exception. Use the standard Float32 graph format.
     private let format = AVAudioFormat(standardFormatWithSampleRate: 48_000,

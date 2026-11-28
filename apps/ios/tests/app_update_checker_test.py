@@ -10,7 +10,7 @@ import unittest
 class AppUpdateCheckerTest(unittest.TestCase):
     def test_visit_session_end_failures_and_lifecycle(self):
         source = Path(__file__).resolve().parents[1] / "CrossDeskMobile/AppUpdateChecker.swift"
-        with tempfile.TemporaryDirectory(prefix="crossdesk-app-update-tests-") as directory:
+        with tempfile.TemporaryDirectory(prefix="farlink-app-update-tests-") as directory:
             harness = Path(directory) / "Tests.swift"
             harness.write_text(r'''
 import Foundation
@@ -24,7 +24,7 @@ final class Fixture {
     var cancellations = 0
     var time = Date(timeIntervalSince1970: 0)
     lazy var checker = AppUpdateChecker(currentVersion: "0.0.1",
-        bundleIdentifier: "com.chunkdash.crossdesk", appStoreID: "6828859211", systemVersion: "17.0",
+        bundleIdentifier: "cn.farlink.mobile", appStoreID: "6828859211", systemVersion: "17.0",
         fetch: { completion in
         self.replies.append(completion)
         return { self.cancellations += 1 }
@@ -32,7 +32,7 @@ final class Fixture {
     func reply(_ value: String?) {
         replies.last!(value.map { version in
             try! JSONSerialization.data(withJSONObject: ["resultCount": 1, "results": [[
-                "wrapperType": "software", "bundleId": "com.chunkdash.crossdesk",
+                "wrapperType": "software", "bundleId": "cn.farlink.mobile",
                 "trackId": 6828859211, "version": version, "minimumOsVersion": "16.0"
             ]]])
         })
