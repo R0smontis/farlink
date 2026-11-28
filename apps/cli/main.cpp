@@ -1028,14 +1028,14 @@ int Bridge(int fd, SessionOptions options, int password_fd) {
   s.Disconnect();
   return interrupted ? 130 : 0;
 }
-const char *help = R"(crossdesk-cli <9-digit-device-id> [--renderer auto|ansi|kitty|sixel] [--fps 1..30]
+const char *help = R"(farlink-cli <9-digit-device-id> [--renderer auto|ansi|kitty|sixel] [--fps 1..30]
                [--display 0..63] [--control] [--server host] [--port 9099]
                [--quality low|balanced|high|ultra] [--ansi-detail quadrant|half] [--zoom 1..32|native]
                [--cell-aspect auto|0.2..2]
-crossdesk-cli view <9-digit-device-id> [options] (compatibility alias)
-crossdesk-cli doctor [--json]
-crossdesk-cli bridge --stdio [--password-fd 3] [--server host] [--port 9099]
-crossdesk-cli agent --stdio [--password-fd 3] [--video-ws] [--server host] [--port 9099]
+farlink-cli view <9-digit-device-id> [options] (compatibility alias)
+farlink-cli doctor [--json]
+farlink-cli bridge --stdio [--password-fd 3] [--server host] [--port 9099]
+farlink-cli agent --stdio [--password-fd 3] [--video-ws] [--server host] [--port 9099]
 
 Connect by device ID: read-only and silent by default; hidden password prompt on the local terminal.
 Read-only: c enables control; q or Ctrl+C quits; ? shows local commands.
@@ -1055,7 +1055,7 @@ Auto rendering prefers Kitty, then Sixel, then ANSI. Explicit pixel renderers re
 Explicit --fps keeps a fixed preview request. Kitty transport fallback keeps the local target unchanged.
 Preview requests above 15 use the negotiated interactive 30 FPS stream; lower requests use 1/8/15 FPS.
 bridge: private NDJSON v1, default 8 FPS, credentials on a separate inherited descriptor.
-agent: crossdesk-automation/1, structured actions and PNG screenshots; no terminal required.
+agent: farlink-automation/1, structured actions and PNG screenshots; no terminal required.
 No IP direct connection, audio playback, clipboard or file transfer support.
 )";
 } // namespace
@@ -1092,7 +1092,7 @@ int main(int argc, char **argv) {
                 {"audio_playback", false},
                 {"bridge_version", 1},
                 {"automation_terminal_protocol", "ansi/1"},
-                {"automation_protocol", "crossdesk-automation/1"},
+                {"automation_protocol", "farlink-automation/1"},
                 {"automation_unlock_protocol", "password/1"},
                 {"automation_video", "h264-annexb/1"},
                 {"automation_video_transport", "loopback-websocket/1"},
@@ -1214,7 +1214,7 @@ int main(int argc, char **argv) {
                                      : Bridge(output.value, options, secret_fd);
     } catch (const std::exception &e) {
       if (command == "view") {
-        std::string msg = "crossdesk-cli: " + SafeText(e.what()) + "\r\n";
+        std::string msg = "farlink-cli: " + SafeText(e.what()) + "\r\n";
         if (std::string(e.what()) == "connection_lost")
           msg += "The remote connection was lost after connecting.\r\n";
         msg += "Diagnostics: " + SafeText(options.log_directory) + "\r\n";
@@ -1223,7 +1223,7 @@ int main(int argc, char **argv) {
       throw;
     }
   } catch (const std::exception &e) {
-    std::cerr << "crossdesk-cli: " << SafeText(e.what()) << "\n";
+    std::cerr << "farlink-cli: " << SafeText(e.what()) << "\n";
     return 1;
   }
 }

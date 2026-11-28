@@ -30,8 +30,6 @@
 
 namespace crossdesk {
 
-class UpdateChecker;
-namespace updater { class Controller; }
 
 // Slint application shell. GuiRuntime remains the owner of transport, media,
 // device, clipboard, transfer and settings behavior.
@@ -216,8 +214,6 @@ private:
 
   std::unique_ptr<SlintUi> ui_;
 #if CROSSDESK_HAS_UPDATER
-  std::unique_ptr<UpdateChecker> update_checker_;
-  std::unique_ptr<updater::Controller> updater_;
 #endif
   CursorStateProvider cursor_state_provider_;
   std::unordered_map<std::string, CursorDeliveryState>

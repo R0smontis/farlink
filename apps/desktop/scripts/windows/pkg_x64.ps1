@@ -59,13 +59,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Push-Location $scriptDir
 try {
-  # The updater is only produced in non-portable builds (CROSSDESK_HAS_UPDATER).
-  # The fork ships portable, so pass the define only when the build produced it.
   $makensisArgs = @("/DVERSION=$normalizedVersion", "/DVERSION_NUMERIC=$windowsVersion")
-  $updaterExe = Join-Path $scriptDir "..\..\..\..\build\windows\x64\release\crossdesk_updater.exe"
-  if (Test-Path $updaterExe) {
-    $makensisArgs += "/DCROSSDESK_HAS_UPDATER"
-  }
   & makensis @makensisArgs "nsis_script.nsi"
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

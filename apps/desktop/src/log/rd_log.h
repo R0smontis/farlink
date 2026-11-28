@@ -18,7 +18,7 @@
 
 namespace crossdesk {
 
-constexpr auto LOGGER_NAME = "crossdesk";
+constexpr auto LOGGER_NAME = "farlink";
 
 void InitLogger(const std::string& log_dir,
                 const std::string& logger_name = LOGGER_NAME);

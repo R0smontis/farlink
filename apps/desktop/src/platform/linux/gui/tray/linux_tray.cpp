@@ -315,7 +315,7 @@ std::pair<std::string, std::string> ResolveDesktopIndicatorIcon() {
               absolute_path.parent_path().string()};
     }
   }
-  return {"crossdesk", {}};
+  return {"farlink", {}};
 }
 
 int CountMaskBits(unsigned long mask) {
@@ -574,7 +574,7 @@ struct LinuxTrayImpl {
 
     const auto [icon_name, icon_path] = ResolveDesktopIndicatorIcon();
     desktop_indicator = desktop_indicator_api.indicator_new_with_path(
-        "crossdesk", icon_name.c_str(),
+        "farlink", icon_name.c_str(),
         kAppIndicatorCategoryApplicationStatus,
         icon_path.empty() ? nullptr : icon_path.c_str());
     if (!desktop_indicator) {
@@ -832,7 +832,7 @@ struct LinuxTrayImpl {
     XSetWMNormalHints(display, icon_window, &size_hints);
 
     XClassHint class_hint{};
-    class_hint.res_name = const_cast<char*>("crossdesk");
+    class_hint.res_name = const_cast<char*>("farlink");
     class_hint.res_class = const_cast<char*>("CrossDesk");
     XSetClassHint(display, icon_window, &class_hint);
 

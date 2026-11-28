@@ -12,7 +12,7 @@ namespace crossdesk {
 namespace {
 
 std::wstring ServiceExecutable() {
-  return platform::SiblingExecutablePath(L"crossdesk_service.exe").wstring();
+  return platform::SiblingExecutablePath(L"farlink_service.exe").wstring();
 }
 
 bool SharedHostArmed() {

@@ -38,9 +38,6 @@
 #include "platform/single_instance.h"
 #include "rd_log.h"
 #include "render.h"
-#if CROSSDESK_HAS_UPDATER
-#include "updater/update_platform.h"
-#endif
 
 #ifdef __linux__
 #include "SimpleIni.h"
@@ -81,7 +78,7 @@ void EnsureConsoleForCli() {
 void PrintServiceCliUsage() {
   std::cout
       << crossdesk::platform::kMachineAppName << " service management commands\n"
-      << "  --service-install    Install the sibling crossdesk_service.exe\n"
+      << "  --service-install    Install the sibling farlink_service.exe\n"
       << "  --service-repair     Update the service path and restart it\n"
       << "  --service-uninstall  Remove the installed Windows service\n"
       << "  --service-start      Start the Windows service\n"
@@ -100,7 +97,7 @@ void PrintServiceCliUsage() {
 }
 
 std::filesystem::path GetSiblingServiceExecutablePath() {
-  return crossdesk::platform::SiblingExecutablePath(L"crossdesk_service.exe");
+  return crossdesk::platform::SiblingExecutablePath(L"farlink_service.exe");
 }
 
 bool IsServiceCliCommand(const char* arg) {
@@ -172,7 +169,7 @@ int HandleServiceCliCommand(const std::string& command) {
   if (command == "--service-install" || command == "--service-repair") {
     std::filesystem::path service_path = GetSiblingServiceExecutablePath();
     if (service_path.empty()) {
-      std::cerr << "Failed to locate crossdesk_service.exe" << std::endl;
+      std::cerr << "Failed to locate farlink_service.exe" << std::endl;
       return 1;
     }
     if (!std::filesystem::exists(service_path)) {
@@ -362,7 +359,7 @@ int main(int argc, char* argv[]) {
     if (acquired == crossdesk::platform::InstanceResult::kAlreadyRunning)
       return crossdesk::ConfigCenter::MigrateAutostartWhileRunning(config.string()) ? 0 : 1;
     if (acquired != crossdesk::platform::InstanceResult::kAcquired) return 1;
-    crossdesk::InitLogger(paths.GetLogPath().string(), "crossdesk-autostart-cli");
+    crossdesk::InitLogger(paths.GetLogPath().string(), "farlink-autostart-cli");
     return crossdesk::ConfigCenter(config.string()).MigrateAutostart() ? 0 : 1;
   }
 #endif
@@ -416,7 +413,7 @@ int main(int argc, char* argv[]) {
         !crossdesk::PrepareUnattendedDirectory(false))
       return 1;
     const std::string name(argv[2]);
-    if (name.rfind("Global\\CrossDeskUnattendedStop-", 0) != 0) return 1;
+    if (name.rfind("Global\\FarlinkUnattendedStop-", 0) != 0) return 1;
     const std::wstring wide_name(name.begin(), name.end());
     HANDLE stop = OpenEventW(SYNCHRONIZE, FALSE, wide_name.c_str());
     if (!stop) return 1;
@@ -440,7 +437,7 @@ int main(int argc, char* argv[]) {
                     std::strcmp(argv[1], "--autostart-uninstall") == 0)) {
     crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
     crossdesk::InitLogger(paths.GetLogPath().string(),
-                          "crossdesk-autostart-cli");
+                          "farlink-autostart-cli");
     const bool success =
         std::strcmp(argv[1], "--autostart-migrate") == 0
             ? crossdesk::MigrateServiceAutostart(false)
@@ -461,23 +458,12 @@ int main(int argc, char* argv[]) {
         AcquireInstance(cli_instance, crossdesk::platform::InstanceRole::kServiceCli) !=
             crossdesk::platform::InstanceResult::kAcquired) return 1;
     crossdesk::PathManager paths(crossdesk::platform::kMachineAppName);
-    crossdesk::InitLogger(paths.GetLogPath().string(), "crossdesk-service-cli");
+    crossdesk::InitLogger(paths.GetLogPath().string(), "farlink-service-cli");
     return HandleServiceCliCommand(argv[1]);
   }
 #endif
 
   using crossdesk::platform::InstanceResult;
-#if CROSSDESK_HAS_UPDATER
-  // Installer CLI commands above stay available during maintenance. Ordinary
-  // launches (including daemon restarts) must not reopen the installation.
-  try {
-    if (crossdesk::updater::MaintenanceActive(crossdesk::updater::ExecutablePath()))
-      return 0;
-  } catch (const std::exception& error) {
-    std::cerr << "Cannot check update maintenance: " << error.what() << '\n';
-    return 1;
-  }
-#endif
   using crossdesk::platform::InstanceRole;
   crossdesk::platform::SingleInstanceGuard launcher_instance;
   crossdesk::platform::SingleInstanceGuard client_instance;

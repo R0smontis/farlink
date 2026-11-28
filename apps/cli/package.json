@@ -1,17 +1,17 @@
 {
-  "name": "@chunkdash/crossdesk-cli",
+  "name": "@chunkdash/farlink-cli",
   "version": "0.2.0",
   "private": true,
-  "description": "CrossDesk remote desktop controller for the terminal",
+  "description": "Farlink remote desktop controller for the terminal",
   "license": "GPL-3.0-only",
   "author": "DI JUNKUN",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kunkundi/crossdesk.git",
+    "url": "git+https://github.com/R0smontis/farlink.git",
     "directory": "apps/cli"
   },
-  "homepage": "https://github.com/kunkundi/crossdesk#readme",
-  "bugs": { "url": "https://github.com/kunkundi/crossdesk/issues" },
+  "homepage": "https://github.com/R0smontis/farlink#readme",
+  "bugs": { "url": "https://github.com/R0smontis/farlink/issues" },
   "engines": { "node": ">=22" },
   "scripts": {
     "pack:npm": "node scripts/pack-npm.cjs"

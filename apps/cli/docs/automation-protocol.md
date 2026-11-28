@@ -11,8 +11,8 @@ Optional native arguments are `--server HOST`, `--port PORT`, `--quality PRESET`
 One UTF-8 JSON object per line, maximum request 64 KiB and nesting depth 32. Use nonnegative integer request IDs. Responses may complete out of order; correlate by ID.
 
 ```json
-{"id":1,"method":"hello","protocol":"crossdesk-automation/1"}
-{"id":1,"ok":true,"result":{"protocol":"crossdesk-automation/1","image_formats":["image/png"],"action_completion":"submitted","human_pause":true,"max_request_bytes":65536,"max_response_bytes":4194304,"operation_cache_entries":128,"operation_cache_ms":300000}}
+{"id":1,"method":"hello","protocol":"farlink-automation/1"}
+{"id":1,"ok":true,"result":{"protocol":"farlink-automation/1","image_formats":["image/png"],"action_completion":"submitted","human_pause":true,"max_request_bytes":65536,"max_response_bytes":4194304,"operation_cache_entries":128,"operation_cache_ms":300000}}
 ```
 
 Unknown fields and malformed arguments are rejected. Error responses contain a stable code, retryability and whether input may already have been submitted:
@@ -27,7 +27,7 @@ The output queue is bounded to 64 messages and 8 MiB; a blocked output pipe term
 
 | Method | Parameters in addition to `id`/`method` |
 | --- | --- |
-| `hello` | `protocol: "crossdesk-automation/1"` |
+| `hello` | `protocol: "farlink-automation/1"` |
 | `connect` | `device` (9 digits), `mode: "observe" | "control"`, `display` (0–63), optional `decode_path: "browser" / "minirtc"`, `decoder: "auto" / "software"` |
 | `status` | none |
 | `screenshot` | optional `region: {x,y,width,height}`, `max_edge` (64–2048), `after_frame_id`, `generation`, `timeout_ms` (0–5000) |

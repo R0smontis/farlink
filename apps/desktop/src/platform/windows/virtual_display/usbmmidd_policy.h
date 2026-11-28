@@ -23,7 +23,7 @@ namespace crossdesk {
 inline constexpr wchar_t kUsbmmiddHardwareId[] = L"usbmmidd";
 // Set when CrossDesk itself installed the driver. The NSIS uninstaller reads
 // it (64-bit registry view) and removes the driver only in that case.
-inline constexpr wchar_t kUsbmmiddInstallMarkerKey[] = L"SOFTWARE\\CrossDesk";
+inline constexpr wchar_t kUsbmmiddInstallMarkerKey[] = L"SOFTWARE\\Farlink";
 inline constexpr wchar_t kUsbmmiddInstallMarkerValue[] =
     L"UsbmmiddDriverInstalled";
 inline constexpr wchar_t kUsbmmiddAdapterDescription[] =

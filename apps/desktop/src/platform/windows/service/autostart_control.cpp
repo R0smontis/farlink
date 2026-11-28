@@ -101,10 +101,10 @@ bool ApplyServiceAutostart(StartupChange change, std::string& error) {
   }
 
   const auto executable = platform::GetAutostartExecutablePath();
-  const auto service = platform::SiblingExecutablePath(L"crossdesk_service.exe");
+  const auto service = platform::SiblingExecutablePath(L"farlink_service.exe");
   std::error_code file_error;
   if (executable.empty() || !std::filesystem::is_regular_file(service, file_error) ||
-      !std::filesystem::is_regular_file(service.parent_path() / L"crossdesk_session_helper.exe", file_error)) {
+      !std::filesystem::is_regular_file(service.parent_path() / L"farlink_session_helper.exe", file_error)) {
     error = "The Windows service or session helper is missing. Repair the installation";
     return false;
   }

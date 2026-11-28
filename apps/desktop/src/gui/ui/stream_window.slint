@@ -209,7 +209,7 @@ component ControlBarButton inherits Rectangle {
             // Keep the mark at 24px while giving the white plate more room.
             width: 24px * root.logo-scale;
             height: self.width * 76 / 104;
-            source: @image-url("../../../resources/linux/crossdesk_128x128.png");
+            source: @image-url("../../../resources/linux/farlink_128x128.png");
             source-clip-x: 12; source-clip-y: 26;
             source-clip-width: 104; source-clip-height: 76;
             image-fit: contain;
@@ -394,7 +394,7 @@ component VideoSettingRow inherits StreamSettingRow {
 export component StreamWindow inherits Window {
     in property <string> session-title: "Farlink";
     title: root.session-title;
-    icon: @image-url("../../../resources/linux/crossdesk_256x256.png");
+    icon: @image-url("../../../resources/linux/farlink_256x256.png");
     preferred-width: 1280px;
     preferred-height: 720px + (root.custom-titlebar ? 32px : 0px);
     min-width: 640px;

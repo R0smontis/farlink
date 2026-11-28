@@ -78,7 +78,7 @@ export async function nativeBinary(override?: string): Promise<string> {
       env: nativeEnvironment(),
     });
     const doctor = JSON.parse(stdout);
-    if (doctor.automation_protocol !== "crossdesk-automation/1" ||
+    if (doctor.automation_protocol !== "farlink-automation/1" ||
         doctor.automation_terminal_protocol !== "ansi/1" ||
         doctor.automation_video_transport !== "loopback-websocket/1" ||
         !["h264-annexb/1", "nv12/1"].every((p) => doctor.automation_video_protocols?.includes(p)) ||
@@ -153,7 +153,7 @@ export class NativeClient {
       throw new Failure("INVALID_CREDENTIAL");
     const hello = await this.request(
       "hello",
-      { protocol: "crossdesk-automation/1" },
+      { protocol: "farlink-automation/1" },
       5000,
       signal,
     );
@@ -161,7 +161,7 @@ export class NativeClient {
     this.viewerInputSupported = hello.viewer_input_protocol === "events/1";
     this.sequenceSupported = hello.action_sequence_protocol === "sequence/1";
     this.waitAfterFrameSupported = hello.wait_after_frame_supported === true;
-    if (hello.protocol !== "crossdesk-automation/1" ||
+    if (hello.protocol !== "farlink-automation/1" ||
         hello.terminal_protocol !== "ansi/1" ||
         hello.video_transport !== "loopback-websocket/1" ||
         !hello.video_protocols?.includes(this.videoOptions.decode_path === "minirtc" ? "nv12/1" : "h264-annexb/1") ||

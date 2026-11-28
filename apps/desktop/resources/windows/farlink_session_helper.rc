@@ -1,5 +1,5 @@
 // Session helper icon and manifest resources.
-IDI_ICON1 ICON "crossdesk.ico"
+IDI_ICON1 ICON "farlink.ico"
 
 #define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
 #define RT_MANIFEST 24
@@ -7,9 +7,9 @@ IDI_ICON1 ICON "crossdesk.ico"
 // The service supplies either the user's token (desktop observer) or a SYSTEM
 // token (secure capture/input). Requiring elevation here prevents the observer
 // from starting with CreateProcessAsUserW in installed release builds (740).
-CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "crossdesk_session_helper.manifest"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "farlink_session_helper.manifest"
 
-#define CROSSDESK_FILE_DESCRIPTION "CrossDesk Session Helper"
-#define CROSSDESK_ORIGINAL_FILENAME "crossdesk_session_helper.exe"
+#define CROSSDESK_FILE_DESCRIPTION "Farlink Session Helper"
+#define CROSSDESK_ORIGINAL_FILENAME "farlink_session_helper.exe"
 
 #include "version_info.rcinc"

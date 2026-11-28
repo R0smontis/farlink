@@ -11,8 +11,9 @@
 
 namespace {
 NSImage* LoadPrivacyLogo() {
-  // The macOS installer currently packages the icon as "crossedesk.icns".
-  for (NSString* name in @[@"crossdesk", @"crossedesk"]) {
+  // Packaged builds install the icon under the fork's bundle name; the
+  // upstream spellings remain as fallbacks for legacy unpacked runs.
+  for (NSString* name in @[@"farlink", @"crossdesk", @"crossedesk"]) {
     NSString* path = [NSBundle.mainBundle pathForResource:name ofType:@"icns"];
     if (path) {
       NSImage* image = [[NSImage alloc] initWithContentsOfFile:path];
@@ -21,7 +22,7 @@ NSImage* LoadPrivacyLogo() {
   }
   // Support unbundled development builds, including launches from outside
   // the repository. No source-tree path is embedded in the executable.
-  NSString* resource = @"apps/desktop/resources/macos/crossdesk.icns";
+  NSString* resource = @"apps/desktop/resources/macos/farlink.icns";
   NSString* directory = NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent;
   NSMutableArray<NSString*>* paths = [NSMutableArray arrayWithObject:
       [NSFileManager.defaultManager.currentDirectoryPath stringByAppendingPathComponent:resource]];

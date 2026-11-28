@@ -12,8 +12,8 @@
 namespace crossdesk::platform {
 namespace {
 
-constexpr const char* kInstalledExecutable = "/usr/lib/crossdesk/crossdesk-bin";
-constexpr const char* kInstalledLauncher = "/usr/bin/crossdesk";
+constexpr const char* kInstalledExecutable = "/usr/lib/farlink/farlink-bin";
+constexpr const char* kInstalledLauncher = "/usr/bin/farlink";
 
 std::string LoginCommand(const std::string& executable) {
   std::string command = "Exec=\"";

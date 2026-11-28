@@ -496,7 +496,7 @@ struct VirtualDisplayJobState {
 // The helper pipe grants read/write to every authenticated user so that the
 // GUI can poll status without elevation. Plug/unplug install a driver and
 // change the interactive desktop's topology as SYSTEM, so those commands are
-// accepted only from a CrossDesk executable in this helper's own directory.
+// accepted only from a Farlink executable in this helper's own directory.
 bool IsTrustedVirtualDisplayClient(HANDLE pipe) {
   ULONG client_pid = 0;
   if (!GetNamedPipeClientProcessId(pipe, &client_pid)) return false;
@@ -515,7 +515,7 @@ bool IsTrustedVirtualDisplayClient(HANDLE pipe) {
   if (own_length == 0 || own_length >= MAX_PATH) return false;
   std::error_code ignored;
   const std::filesystem::path client(image);
-  if (_wcsicmp(client.filename().c_str(), L"CrossDesk.exe") != 0) return false;
+  if (_wcsicmp(client.filename().c_str(), L"Farlink.exe") != 0) return false;
   const std::filesystem::path client_directory =
       std::filesystem::weakly_canonical(client.parent_path(), ignored);
   const std::filesystem::path own_directory = std::filesystem::weakly_canonical(

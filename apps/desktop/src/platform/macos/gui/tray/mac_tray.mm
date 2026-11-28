@@ -284,7 +284,7 @@ struct MacTrayImpl {
     [candidate_paths
         addObject:[current_directory
                       stringByAppendingPathComponent:
-                          @"apps/desktop/resources/macos/crossdesk.icns"]];
+                          @"apps/desktop/resources/macos/farlink.icns"]];
 
     const char *base_path = SDL_GetBasePath();
     if (base_path && base_path[0] != '\0') {
@@ -292,12 +292,12 @@ struct MacTrayImpl {
       [candidate_paths
           addObject:[base_directory
                         stringByAppendingPathComponent:
-                            @"apps/desktop/resources/macos/crossdesk.icns"]];
+                            @"apps/desktop/resources/macos/farlink.icns"]];
       [candidate_paths
           addObject:[base_directory
                         stringByAppendingPathComponent:
                             @"../../../../apps/desktop/resources/macos/"
-                             "crossdesk.icns"]];
+                             "farlink.icns"]];
     }
 
     for (NSString *candidate_path in candidate_paths) {

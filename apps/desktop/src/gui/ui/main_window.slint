@@ -48,7 +48,6 @@ export struct ReleaseNoteBlock {
     section-gap: bool,
 }
 
-export enum UpdateCheckStatus { idle, checking, up-to-date, available, failed }
 export enum AutostartStatus { checking, enabled, disabled, unsupported, failed }
 enum CopyFeedback { idle, success, failed }
 
@@ -109,19 +108,8 @@ export global UiStrings {
     in-out property <string> tls-error: "Server certificate invalid or expired. Retrying automatically.";
     in-out property <string> signal-reconnect: "Reconnect";
     in-out property <string> signal-reconnecting: "Reconnecting...";
-    in-out property <string> update-available: "A new version is available";
-    in-out property <string> new-version: "New version";
-    in-out property <string> check-for-updates: "Check for updates";
-    in-out property <string> checking-for-updates: "Checking for updates…";
-    in-out property <string> up-to-date: "You’re up to date";
-    in-out property <string> update-check-failed: "Check failed. Please try again later.";
     in-out property <string> release-notes: "Release notes";
     in-out property <string> view-release-notes: "Release notes";
-    in-out property <string> later: "Later";
-    in-out property <string> download: "Download";
-    in-out property <string> install-update: "Install update";
-    in-out property <string> retry-update: "Retry update";
-    in-out property <string> install-update-confirm;
     in-out property <string> input-password: "Input password";
     in-out property <string> reinput-password: "Incorrect password, please try again";
     in-out property <string> remember-password: "Remember password";
@@ -332,7 +320,7 @@ component PasswordInput inherits FlatSurface {
 export component MainWindow inherits Window {
     title: root.window-title;
     out property <string> window-title: root.gallery-mode ? "Farlink " + GalleryStrings.texts[54] : "Farlink";
-    icon: @image-url("../../../resources/linux/crossdesk_256x256.png");
+    icon: @image-url("../../../resources/linux/farlink_256x256.png");
     preferred-width: root.minimum-window-width;
     preferred-height: root.minimum-window-height;
     min-width: root.minimum-window-width;
@@ -670,24 +658,6 @@ export component MainWindow inherits Window {
     callback refresh-announcements;
     callback read-all-announcements;
     callback load-more-announcements;
-    in property <bool> update-available: false;
-    in property <bool> update-install-available: false;
-    in property <bool> update-install-busy: false;
-    in property <bool> update-install-failed: false;
-    changed update-install-available => {
-        if !root.update-install-available { root.update-confirm-open = false; }
-    }
-    changed update-install-busy => {
-        if root.update-install-busy { root.update-confirm-open = false; }
-    }
-    in property <string> update-install-status: "";
-    private property <string> update-action-text: !root.update-install-available ? UiStrings.download
-        : root.update-install-failed && !root.update-install-busy ? UiStrings.retry-update : UiStrings.install-update;
-    in property <UpdateCheckStatus> update-check-status: idle;
-    private property <string> update-status-text:
-        root.update-check-status == UpdateCheckStatus.checking ? UiStrings.checking-for-updates :
-        root.update-check-status == UpdateCheckStatus.up-to-date ? UiStrings.up-to-date :
-        root.update-check-status == UpdateCheckStatus.failed ? UiStrings.update-check-failed : "";
     in property <string> current-version: "";
     in property <string> latest-version: "";
     in property <string> release-name: "";
@@ -791,13 +761,7 @@ export component MainWindow inherits Window {
     callback save-self-hosted-settings() -> bool;
     callback cancel-self-hosted-settings;
     callback browse-save-path;
-    callback open-download;
-    callback open-manual-download;
-    callback confirm-update;
-    callback cancel-update;
-    callback open-website;
     callback dismiss-release-welcome;
-    callback check-for-updates;
     callback signal-reconnect-requested;
     callback connection-cancel;
     callback connection-acknowledge;
@@ -866,8 +830,7 @@ export component MainWindow inherits Window {
     private property <bool> main-unobstructed: !root.gallery-mode
         && !root.controller-panel-open && !root.menu-open && !root.settings-open
         && !root.self-host-settings-open && !root.about-open && !root.feedback-open
-        && !root.update-dialog-visible && !root.messages-open
-        && !root.update-confirm-open
+        && !root.messages-open
         && !root.reset-password-open && !root.alias-open && !root.delete-open
         && !root.disconnect-open
         && !root.device-group-open && !root.connection-dialog-open && !root.lan-open
@@ -877,16 +840,6 @@ export component MainWindow inherits Window {
         && root.offline-warning == "" && root.lan-access-warning == "";
     out property <bool> can-show-release-welcome: !root.release-welcome-open
         && root.main-unobstructed;
-    // Follow the first available update. Dismissing the dialog replaces this
-    // binding, so background checks do not reopen it during this launch.
-    in-out property <bool> update-open: root.update-available;
-    private property <bool> update-dialog-visible:
-        root.update-open && root.update-available
-        && !root.release-welcome-pending && !root.release-welcome-open;
-    changed update-open => {
-        if !root.update-open { root.update-confirm-open = false; }
-    }
-    in-out property <bool> update-confirm-open: false;
     in-out property <bool> reset-password-open: false;
     changed reset-password-open => {
         root.new-password-input = "";
@@ -1114,7 +1067,7 @@ export component MainWindow inherits Window {
             y: 7px;
             width: 16px;
             height: 16px;
-            source: @image-url("../../../resources/linux/crossdesk_16x16.png");
+            source: @image-url("../../../resources/linux/farlink_16x16.png");
             image-fit: contain;
         }
         Text {
@@ -1219,7 +1172,7 @@ export component MainWindow inherits Window {
                     }
                     return accept;
                 }
-                if root.about-open && !root.update-dialog-visible {
+                if root.about-open {
                     if event.text == Key.Escape {
                         if root.about-page != AboutPage.overview { root.about-back(); }
                         else { root.about-open = false; }
@@ -1354,46 +1307,6 @@ export component MainWindow inherits Window {
             clicked => { root.gallery-action("release", ""); root.menu-open = !root.menu-open; }
         }
         // Unread messages take precedence so the menu has only one indicator.
-        if !root.gallery-mode && root.update-available && root.announcement-unread <= 0: FlatSurface {
-            x: menu-button.x + menu-button.width - self.width + 4px;
-            y: menu-button.y - 1px;
-            width: 16px;
-            height: 16px;
-            border-radius: 8px;
-            outline-color: UiSurface.edge;
-            background: WorkbenchStyle.accent;
-            opacity: root.menu-open || mod(animation-tick(), 2s) < 1s ? 1 : 0;
-            z: 9;
-            accessible-role: button;
-            accessible-label: UiStrings.update-available;
-            accessible-action-default => { root.menu-open = !root.menu-open; }
-            // Center the visible mark independently of font baseline metrics.
-            Rectangle {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: 2px;
-                height: 10px;
-                accessible-role: none;
-                Rectangle {
-                    y: 0px;
-                    width: parent.width;
-                    height: 6px;
-                    border-radius: 1px;
-                    background: white;
-                }
-                Rectangle {
-                    y: 8px;
-                    width: parent.width;
-                    height: 2px;
-                    border-radius: 1px;
-                    background: white;
-                }
-            }
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.gallery-action("release", ""); root.menu-open = !root.menu-open; }
-            }
-        }
         if !root.gallery-mode && root.announcement-unread > 0: FlatSurface {
             x: menu-button.x + menu-button.width - self.width + 4px;
             y: menu-button.y - 1px;
@@ -2301,7 +2214,7 @@ export component MainWindow inherits Window {
         y: menu-button.y + menu-button.height + 6px;
         width: max(128px, max(menu-feedback-label.preferred-width, max(menu-settings-label.preferred-width,
                    max(menu-messages-label.preferred-width + (root.announcement-unread > 0 ? menu-message-badge.width + 8px : 0px),
-                       menu-about-label.preferred-width + (root.update-available ? menu-update-badge.width + 8px : 0px)))) + 28px);
+                       menu-about-label.preferred-width))) + 28px);
         height: application-menu-content.preferred-height;
         background: WorkbenchStyle.surface;
         outline-color: UiSurface.edge;
@@ -2400,7 +2313,7 @@ export component MainWindow inherits Window {
                 border-radius: UiRadius.control;
                 animate background { duration: 120ms; }
                 accessible-role: button;
-                accessible-label: UiStrings.about + (root.update-available ? " · " + UiStrings.update-available : "");
+                accessible-label: UiStrings.about;
                 accessible-action-default => { about-touch.clicked(); }
                 menu-about-label := Text {
                     x: 8px;
@@ -2409,22 +2322,6 @@ export component MainWindow inherits Window {
                     color: WorkbenchStyle.text; font-size: 12px;
                     vertical-alignment: center;
                     accessible-role: none;
-                }
-                menu-update-badge := Rectangle {
-                    visible: root.update-available;
-                    x: parent.width - self.width - 7px;
-                    y: (parent.height - self.height) / 2;
-                    width: menu-update-label.preferred-width + 12px;
-                    height: 18px;
-                    border-radius: 9px;
-                    background: #dbeafe;
-                    accessible-role: none;
-                    menu-update-label := Text {
-                        text: UiStrings.new-version;
-                        font-size: 11px; font-weight: 400; color: #1d4ed8;
-                        horizontal-alignment: center; vertical-alignment: center;
-                        accessible-role: none;
-                    }
                 }
                 about-touch := TouchArea {
                     mouse-cursor: pointer;
@@ -3440,7 +3337,7 @@ export component MainWindow inherits Window {
                             height: self.preferred-height; spacing: 10px;
                             Image {
                                 width: 32px; height: 32px;
-                                source: @image-url("../../../resources/linux/crossdesk_128x128.png");
+                                source: @image-url("../../../resources/linux/farlink_128x128.png");
                                 image-fit: contain;
                             }
                             Text {
@@ -3451,44 +3348,6 @@ export component MainWindow inherits Window {
                                 text: UiStrings.version + " " + root.current-version;
                                 color: WorkbenchStyle.muted; font-size: 12px; wrap: word-wrap;
                                 horizontal-stretch: 1; vertical-alignment: center;
-                            }
-                        }
-                    }
-                    if root.update-available: FlatSurface {
-                        height: update-summary.preferred-height + 24px;
-                        background: WorkbenchStyle.field-surface;
-                        border-radius: UiRadius.control;
-                        outline-color: UiSurface.edge;
-                        update-summary := VerticalLayout {
-                            x: 12px; y: 12px; width: parent.width - 24px;
-                            height: self.preferred-height;
-                            padding: 0px; spacing: 10px;
-                            if root.update-available: HorizontalLayout {
-                                spacing: 12px;
-                                height: max(32px, version-link.preferred-height);
-                                Rectangle {
-                                    min-width: 0px; horizontal-stretch: 1;
-                                    accessible-role: button;
-                                    accessible-label: UiStrings.release-notes + " " + root.latest-version;
-                                    accessible-action-default => { version-touch.clicked(); }
-                                    version-link := Text {
-                                        width: parent.width; height: parent.height;
-                                        text: UiStrings.update-available + ": " + root.latest-version;
-                                        color: version-touch.has-hover ? #254cc0 : WorkbenchStyle.accent;
-                                        font-size: 13px; font-weight: 500; wrap: word-wrap;
-                                        vertical-alignment: center;
-                                    }
-                                    version-touch := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.about-open = false; root.update-open = true; }
-                                    }
-                                }
-                                SettingsButton {
-                                    width: max(116px, release-notes-button-metrics.preferred-width + 24px);
-                                    text: UiStrings.view-release-notes;
-                                    clicked => { root.about-open = false; root.update-open = true; }
-                                    release-notes-button-metrics := Text { visible: false; text: UiStrings.view-release-notes; font-size: 12px; }
-                                }
                             }
                         }
                     }
@@ -3532,237 +3391,6 @@ export component MainWindow inherits Window {
         }
     }
 
-    // Update notification modal.
-    if root.update-dialog-visible: Rectangle {
-        background: #14233b45;
-        z: 47;
-        TouchArea { clicked => { focus-sink.focus(); } }
-        DialogSurface {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            width: min(480px, parent.width - 40px);
-            // Use the same content area for sizing and centering the dialog.
-            height: min(488px, parent.height - 32px);
-            border-radius: UiRadius.surface;
-            outline-color: UiSurface.edge;
-
-            VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-                VerticalLayout {
-                    vertical-stretch: 0;
-                    spacing: 6px;
-                    Text {
-                        height: 24px;
-                        text: UiStrings.update-available;
-                        color: WorkbenchStyle.text;
-                        font-size: 18px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-                    HorizontalLayout {
-                        height: 20px;
-                        spacing: 12px;
-                        Text {
-                            text: root.latest-version;
-                            color: WorkbenchStyle.muted;
-                            font-size: 13px;
-                            vertical-alignment: center;
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                        Rectangle {
-                            width: update-website-label.preferred-width;
-                            accessible-role: button;
-                            accessible-label: update-website-label.text;
-                            accessible-action-default => { root.open-website(); }
-                            update-website-label := Text {
-                                text: UiStrings.access-website + "https://crossdesk.cn";
-                                color: website-touch.has-hover ? #254cc0 : WorkbenchStyle.accent;
-                                font-size: 13px;
-                                vertical-alignment: center;
-                            }
-                            website-touch := TouchArea { mouse-cursor: pointer; clicked => { root.open-website(); } }
-                        }
-                    }
-                }
-
-                VerticalLayout {
-                    vertical-stretch: 1;
-                    spacing: 8px;
-                    Text {
-                        height: 18px;
-                        text: UiStrings.release-notes;
-                        color: WorkbenchStyle.text;
-                        font-size: 12px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-                    FlatSurface {
-                        background: WorkbenchStyle.field-surface;
-                        outline-color: UiSurface.edge;
-                        border-radius: UiRadius.control;
-                        // Inset the viewport so text and the scrollbar stay clear
-                        // of the rounded frame, including at either scroll limit.
-                        update-notes-scroll := ScrollView {
-                            x: 12px;
-                            y: 12px;
-                            width: parent.width - 24px;
-                            height: parent.height - 24px;
-                            viewport-width: self.width - 12px;
-                            viewport-height: update-notes-content.preferred-height;
-                            horizontal-scrollbar-policy: always-off;
-                            vertical-scrollbar-policy: as-needed;
-                            update-notes-content := VerticalLayout {
-                                width: update-notes-scroll.viewport-width;
-                                alignment: start;
-                                spacing: 8px;
-                                padding-bottom: 6px;
-                                for block in root.release-note-blocks: Rectangle {
-                                    height: update-note.preferred-height + (block.section-gap ? 6px : 0px);
-                                    update-note := StyledText {
-                                        y: block.section-gap ? 6px : 0px;
-                                        // Measure wrapped paragraphs at the viewport
-                                        // width before stacking the following block.
-                                        width: update-notes-scroll.viewport-width;
-                                        height: self.preferred-height;
-                                        text: block.content;
-                                        default-color: WorkbenchStyle.text;
-                                        default-font-size: 13px;
-                                        // Match the 1.5em line height of message bodies.
-                                        default-font-family: "CrossDesk Message Spacing";
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                VerticalLayout {
-                    vertical-stretch: 0;
-                    spacing: 16px;
-                    SurfaceSeparator { height: 1px; outline-color: UiSurface.separator; }
-                    if root.update-install-status != "": Text {
-                        text: root.update-install-status;
-                        font-size: 12px;
-                        color: WorkbenchStyle.muted;
-                        wrap: word-wrap;
-                        max-height: 64px;
-                        overflow: elide;
-                    }
-                    HorizontalLayout {
-                        alignment: end;
-                        spacing: 8px;
-                        WorkbenchButton {
-                            width: 88px;
-                            height: 34px;
-                            text: UiStrings.later;
-                            clicked => { root.cancel-update(); root.update-open = false; }
-                        }
-                        if root.update-install-failed && root.update-install-available: WorkbenchButton {
-                            width: max(110px, manual-download-metrics.preferred-width + 24px);
-                            height: 34px;
-                            enabled: !root.update-install-busy;
-                            text: UiStrings.download;
-                            clicked => { root.open-manual-download(); }
-                            manual-download-metrics := Text { visible: false; text: UiStrings.download; font-size: 12px; }
-                        }
-                        WorkbenchButton {
-                            width: max(110px, update-action-metrics.preferred-width + 24px);
-                            height: 34px;
-                            primary: true;
-                            enabled: !root.update-install-busy;
-                            text: root.update-action-text;
-                            clicked => { root.open-download(); }
-                            update-action-metrics := Text { visible: false; text: root.update-action-text; font-size: 12px; }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Keep confirmation inside the app instead of relying on external native
-    // dialogs and their platform-specific button labels.
-    if root.update-confirm-open: Rectangle {
-        background: #14233b66;
-        z: 48;
-        TouchArea {}
-        FocusScope {
-            width: parent.width;
-            height: parent.height;
-            key-pressed(event) => {
-                if event.text == Key.Escape {
-                    root.update-confirm-open = false;
-                    return accept;
-                }
-                if event.text == Key.Tab {
-                    if update-confirm-cancel.has-focus {
-                        update-confirm-install.focus();
-                    } else {
-                        update-confirm-cancel.focus();
-                    }
-                    return accept;
-                }
-                return reject;
-            }
-            Timer {
-                interval: 1ms;
-                running: true;
-                triggered => {
-                    self.running = false;
-                    // Defer focus until after Slint's accessibility update.
-                    // Return defaults to cancelling this disruptive action.
-                    update-confirm-cancel.focus();
-                }
-            }
-            DialogSurface {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                width: min(440px, parent.width - 40px);
-                height: update-confirm-content.preferred-height;
-                border-radius: UiRadius.surface;
-                outline-color: UiSurface.edge;
-                TouchArea {}
-                update-confirm-content := VerticalLayout {
-                    padding: 24px;
-                    spacing: 20px;
-                    Text {
-                        text: UiStrings.install-update;
-                        color: WorkbenchStyle.text;
-                        font-size: 18px;
-                        font-weight: 600;
-                        wrap: word-wrap;
-                    }
-                    Text {
-                        text: UiStrings.install-update-confirm;
-                        color: WorkbenchStyle.text;
-                        font-size: 13px;
-                        wrap: word-wrap;
-                    }
-                    HorizontalLayout {
-                        alignment: end;
-                        spacing: 8px;
-                        update-confirm-cancel := WorkbenchButton {
-                            text: UiStrings.cancel;
-                            clicked => { root.update-confirm-open = false; }
-                        }
-                        update-confirm-install := WorkbenchButton {
-                            width: max(112px, confirm-label-metrics.preferred-width + 24px);
-                            text: UiStrings.install-update;
-                            primary: true;
-                            enabled: root.update-install-available && !root.update-install-busy;
-                            clicked => { root.confirm-update(); }
-                            confirm-label-metrics := Text {
-                                visible: false;
-                                text: UiStrings.install-update;
-                                font-size: 13px;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     // Linux Wayland sessions show this advisory once per application launch.
     if root.wayland-notice-open: Rectangle {

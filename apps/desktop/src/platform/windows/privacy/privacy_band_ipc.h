@@ -19,7 +19,7 @@ constexpr UINT kPrivacyTextChanged = WM_APP + 72;
 constexpr DWORD kPrivacyWindowBand = 18;  // ZBID_ABOVELOCK_UX, current desktop.
 constexpr size_t kPrivacyMaxMonitors = 64;
 constexpr wchar_t kPrivacyBandBootstrap[] = L"CROSSDESK_PRIVACY_BAND_BOOTSTRAP";
-constexpr wchar_t kPrivacyBandDll[] = L"crossdesk_privacy_window.dll";
+constexpr wchar_t kPrivacyBandDll[] = L"farlink_privacy_window.dll";
 
 struct PrivacyBandWindow {
   uint64_t hwnd = 0;

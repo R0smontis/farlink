@@ -1,10 +1,10 @@
 function setup_targets()
-    local crossdesk_version = get_config("CROSSDESK_VERSION") or "0.0.0"
-    local version_define = "CROSSDESK_VERSION=\"" .. crossdesk_version .. "\""
+    local farlink_version = get_config("CROSSDESK_VERSION") or "0.0.0"
+    local version_define = "CROSSDESK_VERSION=\"" .. farlink_version .. "\""
     local windows_resource_defines = {
-        "CROSSDESK_VERSION_STRING=\"" .. crossdesk_version .. "\""
+        "CROSSDESK_VERSION_STRING=\"" .. farlink_version .. "\""
     }
-    local version_base = crossdesk_version:gsub("^v", ""):match("^(%d[%d%.]*)") or "0.0.0"
+    local version_base = farlink_version:gsub("^v", ""):match("^(%d[%d%.]*)") or "0.0.0"
     local version_parts = {}
     for part in version_base:gmatch("%d+") do
         local value = tonumber(part) or 0
@@ -21,7 +21,7 @@ function setup_targets()
 
     local function copy_slint_runtime(target)
         if not target:is_plat("windows", "linux") and
-            not (target:is_plat("macosx") and target:name() == "crossdesk") then
+            not (target:is_plat("macosx") and target:name() == "farlink") then
             return
         end
 
@@ -73,9 +73,9 @@ function setup_targets()
         os.cp(source, destination)
     end
 
-    local crossdesk_windows_resource = "apps/desktop/resources/windows/crossdesk.rc"
+    local farlink_windows_resource = "apps/desktop/resources/windows/farlink.rc"
     if is_config("CROSSDESK_PORTABLE", true) then
-        crossdesk_windows_resource = "apps/desktop/resources/windows/crossdesk_portable.rc"
+        crossdesk_windows_resource = "apps/desktop/resources/windows/farlink_portable.rc"
     end
 
     target("rd_log")
@@ -1024,26 +1024,6 @@ function setup_targets()
         end
         add_rules("crossdesk.slint_runtime")
 
-    target("version_checker_test")
-        set_kind("binary")
-        set_default(false)
-        add_packages("cpp-httplib", "nlohmann_json")
-        add_deps("rd_log", "crossdesk_wire", "updater_core")
-        add_includedirs("apps/desktop/src/version_checker")
-        add_files("apps/desktop/tests/version_checker_test.cpp",
-            "apps/desktop/src/version_checker/version_checker.cpp",
-            "apps/desktop/src/version_checker/linux_update_download.cpp")
-        if is_os("macosx") then
-            add_defines("CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN")
-            add_frameworks("Security", "CoreFoundation")
-        end
-
-    target("update_checker_test")
-        set_kind("binary")
-        set_default(false)
-        add_deps("version_checker")
-        add_files("apps/desktop/tests/update_checker_test.cpp")
-
     target("privacy")
         set_kind("object")
         add_deps("rd_log", "crossdesk_wire")
@@ -1051,8 +1031,8 @@ function setup_targets()
         add_includedirs("apps/desktop/src/privacy", {public = true})
         if is_os("windows") then
             add_files("apps/desktop/src/platform/windows/privacy/*.cpp")
-            add_deps("crossdesk_privacy_cursor_helper")
-            add_deps("crossdesk_privacy_window", {inherit = false})
+            add_deps("farlink_privacy_cursor_helper")
+            add_deps("farlink_privacy_window", {inherit = false})
             add_includedirs("apps/desktop/src/platform/windows/input")
             add_syslinks("Wtsapi32", "Ole32", {public = true})
         elseif is_os("macosx") then
@@ -1065,16 +1045,16 @@ function setup_targets()
         end
 
     if is_os("windows") then
-        target("crossdesk_privacy_window")
+        target("farlink_privacy_window")
             set_kind("shared")
             set_runtimes("MT")
             add_files("apps/desktop/src/platform/windows/privacy/band_module/main.cpp")
             add_files("apps/desktop/src/platform/windows/privacy/band_module/privacy_cover_renderer.cpp")
-            add_files("apps/desktop/resources/windows/crossdesk_privacy_window.rc",
+            add_files("apps/desktop/resources/windows/farlink_privacy_window.rc",
                 {defines = windows_resource_defines})
             add_syslinks("user32", "gdi32", "dwmapi")
 
-        target("crossdesk_privacy_cursor_helper")
+        target("farlink_privacy_cursor_helper")
             set_kind("binary")
             add_files("apps/desktop/src/platform/windows/privacy/cursor_helper/main.cpp")
     end
@@ -1299,61 +1279,6 @@ function setup_targets()
         add_includedirs("apps/desktop/src/gui/assets/localization",
             "apps/desktop/src/gui/assets/fonts", {public = true})
 
-    target("updater_core")
-        set_kind("static")
-        add_packages("cpp-httplib", "openssl3", "nlohmann_json")
-        add_deps("crossdesk_wire")
-        add_includedirs("apps/desktop/src", {public = true})
-        local update_key = get_config("CROSSDESK_UPDATE_PUBLIC_KEY") or
-            os.getenv("CROSSDESK_UPDATE_PUBLIC_KEY") or ""
-        on_load(function ()
-            assert(update_key == "" or (#update_key == 64 and update_key:match("^[0-9a-f]+$")),
-                "CROSSDESK_UPDATE_PUBLIC_KEY must be a 32-byte lowercase hex Ed25519 public key")
-        end)
-        add_files("apps/desktop/src/updater/update_core.cpp",
-            {defines = {version_define, "CROSSDESK_UPDATE_PUBLIC_KEY=\"" .. update_key .. "\""}})
-        if is_os("windows") then
-            add_files("apps/desktop/src/platform/windows/updater/*.cpp")
-            add_syslinks("Advapi32", "Shell32", "Ole32", {public = true})
-        else
-            add_files("apps/desktop/src/platform/common/updater_posix.cpp")
-            if is_os("macosx") then
-                add_files("apps/desktop/src/platform/macos/updater/*.cpp")
-                add_syslinks("proc", {public = true})
-                add_defines("CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN")
-                add_frameworks("Security", "CoreFoundation", {public = true})
-            else
-                add_files("apps/desktop/src/platform/linux/updater/*.cpp")
-            end
-        end
-
-    if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
-        target("crossdesk_updater")
-            set_kind("binary")
-            add_deps("updater_core", "single_instance")
-            add_packages("nlohmann_json")
-            add_files("apps/desktop/src/updater/main.cpp")
-            if is_os("windows") then
-                add_files("apps/desktop/resources/windows/crossdesk_updater.rc",
-                    {defines = windows_resource_defines})
-            end
-    end
-
-    target("version_checker")
-        set_kind("object")
-        add_packages("cpp-httplib")
-        add_packages("nlohmann_json", {public = true})
-        add_deps("rd_log", "crossdesk_wire", "updater_core")
-        if is_config("CROSSDESK_PORTABLE", true) then
-            add_defines("CROSSDESK_PORTABLE=1")
-        end
-        add_files("apps/desktop/src/version_checker/*.cpp")
-        add_includedirs("apps/desktop/src/version_checker", {public = true})
-        if is_os("macosx") then
-            add_defines("CPPHTTPLIB_USE_CERTS_FROM_MACOSX_KEYCHAIN")
-            add_frameworks("Security", "CoreFoundation")
-        end
-
     target("tools")
         set_kind("object")
         add_deps("rd_log", "desktop_common", "crossdesk_wire")
@@ -1393,13 +1318,6 @@ function setup_targets()
         add_packages("libyuv", "tinyfiledialogs", "openssl3", "libsdl3", "nlohmann_json", "asio", "websocketpp")
         add_defines("ASIO_STANDALONE")
         add_files("apps/desktop/src/network/lan/*.cpp")
-        -- The updater is a first-class feature switch, independent of the
-        -- portable layout. A portable build never ships one (upstream semantics).
-        if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
-            add_defines("CROSSDESK_HAS_UPDATER=1", {public = true})
-            add_deps("updater_core", "version_checker")
-            add_files("apps/desktop/src/updater/update_controller.cpp")
-        end
         if is_config("CROSSDESK_PORTABLE", true) then
             -- RuntimeState changes layout in portable builds. Consumers of GUI
             -- headers must see the same definition, without affecting its deps.
@@ -1499,7 +1417,7 @@ function setup_targets()
                 "apps/desktop/src/platform/windows/screen_capturer",
                 "deps/submodules/minirtc/src/api")
 
-        target("crossdesk_service")
+        target("farlink_service")
             set_kind("binary")
             add_packages("nlohmann_json")
             add_includedirs("libs/wire/include")
@@ -1508,14 +1426,14 @@ function setup_targets()
             add_files("apps/desktop/src/platform/windows/service/main.cpp",
                 "apps/desktop/src/platform/windows/service/service_host.cpp",
                 "apps/desktop/src/platform/windows/service/rdp_session_handoff.cpp")
-            add_files("apps/desktop/resources/windows/crossdesk_service.rc",
+            add_files("apps/desktop/resources/windows/farlink_service.rc",
                 {defines = windows_resource_defines})
             add_includedirs("apps/desktop/src/platform/windows/service",
                 "apps/desktop/src/platform/windows/screen_capturer")
 
-        target("crossdesk_session_helper")
+        target("farlink_session_helper")
             set_kind("binary")
-              add_deps("crossdesk_privacy_cursor_helper", {inherit = false})
+              add_deps("farlink_privacy_cursor_helper", {inherit = false})
               add_deps("wgc_plugin", {inherit = false})
             add_packages("libyuv", "nlohmann_json")
             add_deps("rd_log", "path_manager")
@@ -1524,7 +1442,7 @@ function setup_targets()
             add_files("apps/desktop/src/platform/windows/service/session_helper_main.cpp")
               add_files("apps/desktop/src/platform/windows/privacy/privacy_cursor_guard.cpp")
             add_files("apps/desktop/src/platform/windows/virtual_display/usbmmidd_virtual_display.cpp")
-            add_files("apps/desktop/resources/windows/crossdesk_session_helper.rc",
+            add_files("apps/desktop/resources/windows/farlink_session_helper.rc",
                 {defines = windows_resource_defines})
             add_includedirs("apps/desktop/src/common",
                   "apps/desktop/src/screen_capturer", "deps/submodules/minirtc/src/api",
@@ -1536,12 +1454,9 @@ function setup_targets()
             add_includedirs("libs/wire/include")
     end
 
-    target("crossdesk")
+    target("farlink")
         set_kind("binary")
         add_deps("rd_log", "desktop_common", "gui", "single_instance")
-        if is_config("CROSSDESK_ENABLE_UPDATER", true) and not is_config("CROSSDESK_PORTABLE", true) then
-            add_deps("crossdesk_updater", {inherit = false})
-        end
         add_files("apps/desktop/src/app/*.cpp")
         add_includedirs("apps/desktop/src", "apps/desktop/src/app", {public = true})
         if is_os("windows") then
@@ -1552,8 +1467,8 @@ function setup_targets()
             add_includedirs("apps/desktop/src/platform/windows/service",
                 "apps/desktop/src/platform/windows/screen_capturer")
             add_links("Advapi32", "Wtsapi32", "Ole32", "Userenv")
-            add_deps("wgc_plugin", "crossdesk_service", "crossdesk_session_helper")
-            add_files(crossdesk_windows_resource, {defines = windows_resource_defines})
+            add_deps("wgc_plugin", "farlink_service", "farlink_session_helper")
+            add_files(farlink_windows_resource, {defines = windows_resource_defines})
         elseif is_os("linux") then
             add_files("apps/desktop/src/platform/linux/headless/headless_session.cpp")
         end

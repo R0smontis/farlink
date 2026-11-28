@@ -33,7 +33,7 @@ class HarmonyLogSink final : public spdlog::sinks::base_sink<std::mutex> {
     const std::string text(formatted.data(), formatted.size());
     const auto level = message.level >= spdlog::level::err ? LOG_ERROR :
         message.level >= spdlog::level::warn ? LOG_WARN : LOG_INFO;
-    OH_LOG_Print(LOG_APP, level, 0, "CrossDeskDesktop", "%{public}s", text.c_str());
+    OH_LOG_Print(LOG_APP, level, 0, "FarlinkDesktop", "%{public}s", text.c_str());
   }
   void flush_() override {}
 };

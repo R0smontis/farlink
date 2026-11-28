@@ -12,7 +12,10 @@ import javax.net.ssl.HttpsURLConnection;
 /** One check per desktop session. State and completion callbacks run on main. */
 final class RemoteVersionCheck {
     static final String NOTICE = "被控端版本过低，请升级到最新版本。";
-    static final String RELEASE_URL = "https://version.crossdesk.cn/version.json";
+    // Upstream's release manifest is not used by this fork: there is no Farlink
+    // update service, so the checker is pointed at an inert empty URL and never
+    // contacts upstream infrastructure.
+    static final String RELEASE_URL = "";
     interface Cancellation { void cancel(); }
     interface Fetcher { Cancellation fetch(Consumer<byte[]> completion); }
 
@@ -71,6 +74,11 @@ final class RemoteVersionCheck {
 
         private ReleaseRequest(Consumer<byte[]> completion) { this.completion = completion; }
         static Cancellation start(Consumer<byte[]> completion) {
+            // This fork has no update service: never open a connection.
+            if (RELEASE_URL.isEmpty()) {
+                completion.accept(null);
+                return new ReleaseRequest(completion);
+            }
             ReleaseRequest request = new ReleaseRequest(completion);
             request.main.postDelayed(request.timeout, 15000);
             Thread worker = new Thread(request, "CrossDesk version check");

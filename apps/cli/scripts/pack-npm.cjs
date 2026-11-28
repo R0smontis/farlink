@@ -84,7 +84,7 @@ function inspect(binary, target) {
   }
   const doctor = JSON.parse(run(binary, ['doctor', '--json'], { timeout: 15000 }));
   if (doctor.bridge_version !== 1) throw new Error('Native binary does not report the expected bridge version.');
-  if (doctor.automation_protocol !== 'crossdesk-automation/1')
+  if (doctor.automation_protocol !== 'farlink-automation/1')
     throw new Error('Native binary does not report the expected automation protocol.');
   return info;
 }
@@ -134,10 +134,10 @@ try {
     const filename = tarballName(name, version);
     if (fs.existsSync(path.join(output, filename))) throw new Error(`Output already exists: ${filename}`);
   }
-  const executable = process.platform === 'win32' ? 'crossdesk-cli.exe' : 'crossdesk-cli';
+  const executable = process.platform === 'win32' ? 'farlink-cli.exe' : 'farlink-cli';
   binary ||= path.join(root, 'build', platform.xmakePlatform, platform.xmakeArch, 'release', executable);
   const info = inspect(binary, target);
-  staging = fs.mkdtempSync(path.join(os.tmpdir(), 'crossdesk-npm-'));
+  staging = fs.mkdtempSync(path.join(os.tmpdir(), 'farlink-npm-'));
   fs.mkdirSync(output, { recursive: true });
   const native = path.join(staging, 'native');
   fs.mkdirSync(path.join(native, 'bin'), { recursive: true });
@@ -157,7 +157,7 @@ try {
                        'LICENSE', '.gitmodules'])
     copy(entry, path.join(native, 'source', entry));
   json(path.join(native, 'build-info.json'), { version, ...info });
-  fs.writeFileSync(path.join(native, 'README.md'), `# ${platform.packageName}\n\nNative ${target} dependency for [${project.name}](https://www.npmjs.com/package/${project.name}) ${version}, published under the ${platform.packageName.split('/')[0]} scope.\n\nInstall the cross-platform entry package with \`npm install -g ${project.name}\` or run \`npx ${project.name} doctor --json\`. This platform package contains the native binary and does not register a shell command.\n\nSource repository: [CrossDesk](${project.repository.url.replace(/^git\+/, '').replace(/\.git$/, '')}). Report problems at ${project.bugs.url}.\n\nRuntime requirements and linked libraries: [build-info.json](build-info.json).\n\nController and MiniRTC sources are included in source/. From source/, configure with xmake f -y --CROSSDESK_BUILD_DESKTOP=n --CROSSDESK_BUILD_CLI=y --USE_CUDA=n -m release, then run xmake build crossdesk-cli. External dependency notices and corresponding sources must accompany the product release; see source/apps/cli/docs/source-provenance.md.\n`);
+  fs.writeFileSync(path.join(native, 'README.md'), `# ${platform.packageName}\n\nNative ${target} dependency for [${project.name}](https://www.npmjs.com/package/${project.name}) ${version}, published under the ${platform.packageName.split('/')[0]} scope.\n\nInstall the cross-platform entry package with \`npm install -g ${project.name}\` or run \`npx ${project.name} doctor --json\`. This platform package contains the native binary and does not register a shell command.\n\nSource repository: [Farlink (fork of CrossDesk)](${project.repository.url.replace(/^git\+/, '').replace(/\.git$/, '')}). Report problems at ${project.bugs.url}.\n\nRuntime requirements and linked libraries: [build-info.json](build-info.json).\n\nController and MiniRTC sources are included in source/. From source/, configure with xmake f -y --CROSSDESK_BUILD_DESKTOP=n --CROSSDESK_BUILD_CLI=y --USE_CUDA=n -m release, then run xmake build farlink-cli. External dependency notices and corresponding sources must accompany the product release; see source/apps/cli/docs/source-provenance.md.\n`);
   const metadata = {
     license: project.license, author: project.author, repository: project.repository,
     homepage: project.homepage, bugs: project.bugs,
@@ -176,7 +176,7 @@ try {
   fs.chmodSync(path.join(launcher, 'npm', 'cli.cjs'), 0o755);
   json(path.join(launcher, 'package.json'), {
     ...metadata, name: project.name, version, description: project.description, engines: project.engines,
-    bin: { 'crossdesk-cli': 'npm/cli.cjs' },
+    bin: { 'farlink-cli': 'npm/cli.cjs' },
     os: ['darwin', 'linux', 'win32'], cpu: ['arm64', 'x64'],
     files: ['npm', 'docs', 'README.md', 'LICENSE'],
     optionalDependencies: Object.fromEntries(packageNames.map((name) => [name, version])),

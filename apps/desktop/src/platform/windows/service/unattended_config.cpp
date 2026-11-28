@@ -12,7 +12,7 @@
 
 namespace crossdesk {
 namespace {
-constexpr wchar_t kRegistryKey[] = L"SOFTWARE\\CrossDesk\\Unattended";
+constexpr wchar_t kRegistryKey[] = L"SOFTWARE\\Farlink\\Unattended";
 constexpr wchar_t kDirectorySecurity[] =
     L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
 

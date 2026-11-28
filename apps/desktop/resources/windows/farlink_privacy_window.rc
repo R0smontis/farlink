@@ -4,10 +4,10 @@
  * Copyright (c) 2026 by DI JUNKUN, All Rights Reserved.
  */
 
-IDI_CROSSDESK_LOGO ICON "crossdesk.ico"
+IDI_CROSSDESK_LOGO ICON "farlink.ico"
 
-#define CROSSDESK_FILE_DESCRIPTION "CrossDesk Privacy Window"
-#define CROSSDESK_ORIGINAL_FILENAME "crossdesk_privacy_window.dll"
+#define CROSSDESK_FILE_DESCRIPTION "Farlink Privacy Window"
+#define CROSSDESK_ORIGINAL_FILENAME "farlink_privacy_window.dll"
 #define CROSSDESK_FILE_TYPE VFT_DLL
 
 #include "version_info.rcinc"

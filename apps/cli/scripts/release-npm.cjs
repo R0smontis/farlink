@@ -9,7 +9,7 @@ const { setTimeout: sleep } = require('node:timers/promises');
 const project = require('../package.json');
 const platforms = require('../npm/platforms.json');
 const registry = 'https://registry.npmjs.org/';
-const repository = 'kunkundi/crossdesk';
+const repository = 'R0smontis/farlink';
 
 function versionParts(version) {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?$/.exec(version);
@@ -39,7 +39,7 @@ function releasePlan() {
   const dryRun = process.env.RELEASE_DRY_RUN === 'true';
   const version = project.version;
   versionParts(version);
-  assert.equal(project.name, '@chunkdash/crossdesk-cli', 'Unexpected entry package scope.');
+  assert.equal(project.name, '@chunkdash/farlink-cli', 'Unexpected entry package scope.');
   const nativeVersion = fs.readFileSync(path.join(__dirname, '../xmake.lua'), 'utf8')
     .match(/set_version\("([^"]+)"\)/)?.[1];
   assert.equal(version, nativeVersion, 'package.json and xmake.lua versions must match.');
@@ -106,7 +106,7 @@ function collectPackages(directory, version) {
     assert.deepEqual(native.manifest.cpu, [platform.cpu]);
     assert.deepEqual(native.manifest.libc, platform.libc ? [platform.libc] : undefined);
     assert(!native.manifest.bin, `${target}: native packages must not register commands.`);
-    const binary = `bin/crossdesk-cli${platform.os === 'win32' ? '.exe' : ''}`;
+    const binary = `bin/farlink-cli${platform.os === 'win32' ? '.exe' : ''}`;
     assert(native.files.some((file) => file.path === binary && (platform.os === 'win32' || (file.mode & 0o111))),
       `${target}: missing executable binary.`);
     const info = JSON.parse(archiveRead(native.file, 'build-info.json'));
@@ -118,7 +118,7 @@ function collectPackages(directory, version) {
 
     const launcher = inspect(path.join(folder, names[1]), project.name, version);
     assert.deepEqual(launcher.manifest.optionalDependencies, dependencies, `${target}: platform dependencies mismatch.`);
-    assert.deepEqual(launcher.manifest.bin, { 'crossdesk-cli': 'npm/cli.cjs' });
+    assert.deepEqual(launcher.manifest.bin, { 'farlink-cli': 'npm/cli.cjs' });
     assert.deepEqual(JSON.parse(archiveRead(launcher.file, 'npm/platforms.json')), platforms);
     launchers.push({ target, ...launcher });
   }

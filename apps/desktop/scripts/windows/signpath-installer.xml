@@ -3,13 +3,13 @@
   <parameters>
     <parameter name="version" required="true" />
   </parameters>
-  <pe-file path="crossdesk-win-x64-${version}.exe"
-           product-name="CrossDesk"
+  <pe-file path="farlink-win-x64-${version}.exe"
+           product-name="Farlink"
            product-version="${version}"
            file-version="${version}"
-           company-name="CrossDesk"
-           copyright="Copyright (C) CrossDesk contributors"
-           original-filename="crossdesk-win-x64-${version}.exe">
+           company-name="Farlink contributors"
+           copyright="Copyright (C) Farlink contributors"
+           original-filename="farlink-win-x64-${version}.exe">
     <authenticode-sign />
   </pe-file>
 </artifact-configuration>

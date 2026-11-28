@@ -30,7 +30,7 @@ public class AnnouncementInboxTest {
         int offset=request.getInt("offset");boolean summary=request.getBoolean("summary_only");JSONArray items=new JSONArray();
         for(int i=offset;i<Math.min(count,offset+(summary?200:20));i++){
             JSONObject item=new JSONObject().put("id",i+1).put("revision",revision);
-            if(!summary)item.put("title",i==0?"欢迎使用 CrossDesk":"公告 "+(i+1)).put("body","安卓公告与 iOS 保持一致。\n\n访问 [CrossDesk 官网](https://crossdesk.cn) 了解更多。\n支持中文、换行与网页链接。").put("updated_at",1790812800L);
+            if(!summary)item.put("title",i==0?"欢迎使用 Farlink":"公告 "+(i+1)).put("body","安卓公告与 iOS 保持一致。\n\n访问 [Farlink 仓库](https://github.com/R0smontis/farlink) 了解更多。\n支持中文、换行与网页链接。").put("updated_at",1790812800L);
             items.put(item);
         }
         return new JSONObject().put("type","announcements").put("request_id",request.getString("request_id"))

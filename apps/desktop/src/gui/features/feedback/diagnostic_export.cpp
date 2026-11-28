@@ -139,7 +139,7 @@ ExportResult ExportDiagnostics(const std::filesystem::path& application_logs,
   std::vector<Entry> entries;
   try {
     for (const auto& [directory, name] :
-         {std::pair{application_logs, std::string("crossdesk.log")},
+         {std::pair{application_logs, std::string("farlink.log")},
           std::pair{transport_logs, std::string("minirtc.log")}}) {
       const auto path = directory / name;
       std::error_code error;

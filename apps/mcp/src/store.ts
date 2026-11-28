@@ -43,8 +43,8 @@ const configSchema = z.strictObject({
   version: z.literal(1),
   panel: panel.default("auto"),
   video: videoOptions.prefault({}),
-  server: host.default("api.crossdesk.cn"),
-  port: z.int().min(1).max(65535).default(9099),
+  server: host.default(""),
+  port: z.int().min(1).max(65535).default(0),
   devices: z.array(deviceSchema).max(256),
 });
 export type Config = z.infer<typeof configSchema>;

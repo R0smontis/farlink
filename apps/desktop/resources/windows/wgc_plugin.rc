@@ -1,4 +1,4 @@
-#define CROSSDESK_FILE_DESCRIPTION "CrossDesk Windows Graphics Capture Plugin"
+#define CROSSDESK_FILE_DESCRIPTION "Farlink Windows Graphics Capture Plugin"
 #define CROSSDESK_ORIGINAL_FILENAME "wgc_plugin.dll"
 #define CROSSDESK_FILE_TYPE VFT_DLL
 

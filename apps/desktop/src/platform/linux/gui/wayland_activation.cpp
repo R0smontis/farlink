@@ -149,7 +149,7 @@ bool ActivateWaylandWindow(void* display, void* surface,
     if (!request.token) return false;
     void (*token_listener[])(void) = {reinterpret_cast<void (*)(void)>(&Activation::Done)};
     if (api.add_listener(request.token, token_listener, &request) != 0) return false;
-    api.marshal(request.token, 1, nullptr, 1, 0, "crossdesk");
+    api.marshal(request.token, 1, nullptr, 1, 0, "farlink");
     api.marshal(request.token, 2, nullptr, 1, 0, surface);
     api.marshal(request.token, 3, nullptr, 1, 0);
     if (api.roundtrip(display, request.queue) < 0 || request.token_value.empty()) return false;

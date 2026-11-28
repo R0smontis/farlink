@@ -14,10 +14,10 @@ XMAKE_ARCH="$2"
 INPUT_VERSION="$3"
 EXTRA_RECOMMENDATION="${4:-}"
 
-PKG_NAME="crossdesk"
-VIRTUAL_PACKAGE_NAME="crossdesk-virtual-desktop-xfce"
-APP_NAME="CrossDesk"
-MAINTAINER="Junkun Di <junkun.di@hotmail.com>"
+PKG_NAME="farlink"
+VIRTUAL_PACKAGE_NAME="farlink-virtual-desktop-xfce"
+APP_NAME="Farlink"
+MAINTAINER="Farlink contributors"
 DESCRIPTION="A simple cross-platform remote desktop client."
 ALSA_RUNTIME_DEP="libasound2 | libasound2t64"
 PORTAL_RUNTIME_RECOMMENDS="xdg-desktop-portal, xdg-desktop-portal-gtk | xdg-desktop-portal-kde | xdg-desktop-portal-wlr"
@@ -54,10 +54,10 @@ if [[ ! "$DEB_VERSION" =~ ^[0-9][0-9A-Za-z.+:~_-]*$ ]]; then
     exit 2
 fi
 
-BUILD_BINARY="$PROJECT_ROOT/build/linux/$XMAKE_ARCH/release/crossdesk"
+BUILD_BINARY="$PROJECT_ROOT/build/linux/$XMAKE_ARCH/release/farlink"
 if [[ ! -x "$BUILD_BINARY" ]]; then
     echo "Missing release binary: $BUILD_BINARY" >&2
-    echo "Build it first with: xmake f -m release -y && xmake b -vy crossdesk" >&2
+    echo "Build it first with: xmake f -m release -y && xmake b -vy farlink" >&2
     exit 1
 fi
 
@@ -68,7 +68,7 @@ for command_name in readelf ldd dpkg-deb strip; do
     fi
 done
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/crossdesk-deb.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/farlink-deb.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 DEB_DIR="$WORK_DIR/${PKG_NAME}-${DEB_VERSION}"
@@ -80,21 +80,13 @@ DESKTOP_DIR="$DEB_DIR/usr/share/applications"
 
 install -d "$DEBIAN_DIR" "$BIN_DIR" "$PRIVATE_DIR" "$DESKTOP_DIR"
 install -m 0755 "$SCRIPT_DIR/autostart_postinst.sh" "$DEBIAN_DIR/postinst"
-install -m 0755 "$BUILD_BINARY" "$PRIVATE_DIR/crossdesk-bin"
-# The updater is only present in non-portable builds (CROSSDESK_HAS_UPDATER).
-# The fork ships portable, so stage it only when the build actually produced it.
-UPDATER_STAGED=0
-if [[ -f "$(dirname "$BUILD_BINARY")/crossdesk_updater" ]]; then
-    install -m 0755 "$(dirname "$BUILD_BINARY")/crossdesk_updater" "$PRIVATE_DIR/crossdesk_updater"
-    UPDATER_STAGED=1
-fi
-
+install -m 0755 "$BUILD_BINARY" "$PRIVATE_DIR/farlink-bin"
 # PipeWire is deliberately optional. The Wayland capturer resolves PipeWire
 # 0.3 with dlopen() so the same package can run on Ubuntu 20.04 without the
 # runtime while using the host runtime on newer Ubuntu releases.
 if readelf -d "$BUILD_BINARY" \
     | grep -qE 'Shared library: \[libpipewire-0\.3\.so'; then
-    echo "CrossDesk must not link directly to the optional PipeWire runtime" >&2
+    echo "Farlink must not link directly to the optional PipeWire runtime" >&2
     exit 1
 fi
 
@@ -102,12 +94,12 @@ fi
 # A direct link would force one ABI even when the other is already installed.
 if readelf -d "$BUILD_BINARY" \
     | grep -E 'Shared library: \[libfuse' >/dev/null; then
-    echo "CrossDesk must load FUSE 2 or 3 dynamically, not link to one ABI" >&2
+    echo "Farlink must load FUSE 2 or 3 dynamically, not link to one ABI" >&2
     exit 1
 fi
 
 # Slint is intentionally built as a shared library. Keep that runtime private
-# to CrossDesk instead of relying on a non-existent distribution package.
+# to Farlink instead of relying on a non-existent distribution package.
 SLINT_NEEDED="$(readelf -d "$BUILD_BINARY" | sed -n \
     's/.*Shared library: \[\(libslint_cpp[^]]*\)\].*/\1/p' | head -n 1)"
 if [[ -n "$SLINT_NEEDED" ]]; then
@@ -117,7 +109,7 @@ if [[ -n "$SLINT_NEEDED" ]]; then
     SLINT_LIBRARY="$(dirname "$BUILD_BINARY")/$SLINT_NEEDED"
     if [[ ! -f "$SLINT_LIBRARY" ]]; then
         echo "Missing build-matched Slint runtime: $SLINT_LIBRARY" >&2
-        echo "Build it first with: xmake b -vy crossdesk" >&2
+        echo "Build it first with: xmake b -vy farlink" >&2
         exit 1
     fi
     install -m 0755 "$SLINT_LIBRARY" "$PRIVATE_DIR/$SLINT_NEEDED"
@@ -129,10 +121,7 @@ fi
 # Check the staged files with only their private runtime directory available.
 # ldd -r can exit successfully even when it reports unresolved symbols, so its
 # diagnostics must also be checked. This does not start the GUI or updater.
-CHECK_EXECUTABLES="crossdesk-bin"
-if [[ "$UPDATER_STAGED" = 1 ]]; then
-    CHECK_EXECUTABLES="$CHECK_EXECUTABLES crossdesk_updater"
-fi
+CHECK_EXECUTABLES="farlink-bin"
 for executable in $CHECK_EXECUTABLES; do
     dependency_report="$WORK_DIR/$executable.ldd"
     if ! env -u LD_PRELOAD -u LD_AUDIT LD_LIBRARY_PATH="$PRIVATE_DIR" \
@@ -144,29 +133,29 @@ for executable in $CHECK_EXECUTABLES; do
     fi
 done
 if [[ -n "$SLINT_NEEDED" ]]; then
-    if ! grep -Fq "$SLINT_NEEDED => $PRIVATE_DIR/$SLINT_NEEDED (" "$WORK_DIR/crossdesk-bin.ldd"; then
+    if ! grep -Fq "$SLINT_NEEDED => $PRIVATE_DIR/$SLINT_NEEDED (" "$WORK_DIR/farlink-bin.ldd"; then
         echo "Packaged executable does not load its private Slint runtime" >&2
-        cat "$WORK_DIR/crossdesk-bin.ldd" >&2
+        cat "$WORK_DIR/farlink-bin.ldd" >&2
         exit 1
     fi
 fi
 
 cat > "$BIN_DIR/$PKG_NAME" <<'EOF'
 #!/bin/sh
-private_lib_dir="/usr/lib/crossdesk"
+private_lib_dir="/usr/lib/farlink"
 if [ -n "${LD_LIBRARY_PATH:-}" ]; then
     export LD_LIBRARY_PATH="$private_lib_dir:$LD_LIBRARY_PATH"
 else
     export LD_LIBRARY_PATH="$private_lib_dir"
 fi
-exec /usr/lib/crossdesk/crossdesk-bin "$@"
+exec /usr/lib/farlink/farlink-bin "$@"
 EOF
 chmod 0755 "$BIN_DIR/$PKG_NAME"
 ln -s "$PKG_NAME" "$BIN_DIR/$APP_NAME"
 
 for size in 16 24 32 48 64 96 128 256; do
     install -d "$ICON_BASE_DIR/${size}x${size}/apps"
-    install -m 0644 "$PROJECT_ROOT/apps/desktop/resources/linux/crossdesk_${size}x${size}.png" \
+    install -m 0644 "$PROJECT_ROOT/apps/desktop/resources/linux/farlink_${size}x${size}.png" \
         "$ICON_BASE_DIR/${size}x${size}/apps/${PKG_NAME}.png"
 done
 
@@ -191,12 +180,12 @@ EOF
 # Give shells a desktop entry for the remote window's separate app id. Without
 # it, some shells fall back to the process's main launcher and merge the groups;
 # Wayland also uses this entry to resolve the icon. Hide it from app menus: a
-# fresh launch can open CrossDesk, but cannot recreate a live remote session.
+# fresh launch can open Farlink, but cannot recreate a live remote session.
 cat > "$DESKTOP_DIR/$PKG_NAME-remote-control.desktop" <<EOF
 [Desktop Entry]
 Version=1.0
 Name=$APP_NAME Remote Control
-Comment=Active CrossDesk remote control sessions
+Comment=Active Farlink remote control sessions
 Exec=/usr/bin/$PKG_NAME
 Icon=$PKG_NAME
 StartupWMClass=$PKG_NAME-remote-control
@@ -213,7 +202,7 @@ for package_name in "$PKG_NAME" "$VIRTUAL_PACKAGE_NAME"; do
     other_package="$VIRTUAL_PACKAGE_NAME"
     if [[ "$package_name" == "$VIRTUAL_PACKAGE_NAME" ]]; then
         extra_depends=", $HEADLESS_RUNTIME_DEPS"
-        description="CrossDesk with Xfce and Xvfb for independent virtual desktops."
+        description="Farlink with Xfce and Xvfb for independent virtual desktops."
         other_package="$PKG_NAME"
     fi
     cat > "$DEBIAN_DIR/control" <<EOF

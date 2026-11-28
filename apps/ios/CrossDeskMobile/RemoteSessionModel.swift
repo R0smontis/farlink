@@ -300,7 +300,7 @@ struct SignalServerConfiguration: Equatable {
     let host: String
     let signalPort: Int
 
-    static let official = Self(host: "api.crossdesk.cn", signalPort: 9099)
+    static let official = Self(host: "", signalPort: 0)
     private static let customServerKey = "crossdesk.mobile.custom-signal-server"
 
     static func loadCustom() -> Self? {
@@ -788,32 +788,9 @@ final class RemoteSessionModel: NSObject, ObservableObject, CrossDeskRTCBridgeDe
             remoteUpdateMessage = Self.remoteUpdateNotice
             return
         }
-        let generation = remoteVersionCheckGeneration
-        let appVersion = remoteAppVersion
-        // Only public release metadata is fetched; no peer ID or version is sent.
-        let url = URL(string: "https://version.crossdesk.cn/version.json")!
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
-                                 timeoutInterval: 15)
-        remoteVersionCheckTask = URLSession.shared.dataTask(with: request) {
-            [weak self] data, response, error in
-            let latest: String?
-            if error == nil, let data,
-               (response as? HTTPURLResponse)?.statusCode == 200 {
-                latest = CrossDeskRTCBridge.availableUpdate(appVersion: appVersion,
-                                                            releaseJSON: data)
-            } else {
-                latest = nil
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      self.remoteVersionCheckGeneration == generation,
-                      self.isConnected else { return }
-                self.remoteVersionCheckTask = nil
-                guard latest != nil else { return }
-                self.remoteUpdateMessage = Self.remoteUpdateNotice
-            }
-        }
-        remoteVersionCheckTask?.resume()
+        // This fork has no update service: the upstream release manifest is never
+        // contacted. A peer running a newer build is not something the fork can
+        // act on, so no remote-update notice is produced either.
     }
 
     func savedPassword(for remoteID: String) -> String {

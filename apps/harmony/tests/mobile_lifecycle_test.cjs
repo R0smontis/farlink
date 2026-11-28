@@ -52,9 +52,9 @@ function feed(c,event){events.push({session:c.session,...event});c.poll();}
   assert.equal(c.state.modal,'consent');await c.consent();await flush();
   assert(commands.some(c=>c.op==='start'));const start=commands.find(c=>c.op==='start');assert.equal(start.identity,'');
   feed(c,{type:'identity',identity:'123456789@secret'});await flush();
-  assert.equal(secrets.get('identity:api.crossdesk.cn:9099'),'123456789@secret');
+  assert.equal(secrets.get('identity:selfhost.example.com:9099'),'123456789@secret');
   feed(c,{type:'identity',identity:'123456789'});await flush();
-  assert.equal(secrets.get('identity:api.crossdesk.cn:9099'),'123456789@secret'); // Public reconnect report cannot erase the password.
+  assert.equal(secrets.get('identity:selfhost.example.com:9099'),'123456789@secret'); // Public reconnect report cannot erase the password.
   feed(c,{type:'signal',status:1,controller:false,generation:1,id:'123456789'});
   assert.equal(c.state.signal,1);assert(commands.some(c=>c.op==='signal'&&c.message.type==='announcements_list'));
   await c.requestConnection('987654321');assert.equal(c.state.modal,'password');c.state.remember=true;c.begin('correct');

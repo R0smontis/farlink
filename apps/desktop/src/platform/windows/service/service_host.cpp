@@ -1223,7 +1223,7 @@ bool CrossDeskServiceHost::LaunchUnattendedHost(DWORD session_id) {
   if (FAILED(CoCreateGuid(&nonce)) || !StringFromGUID2(nonce, guid, 40))
     return false;
   const std::wstring event_name =
-      L"Global\\CrossDeskUnattendedStop-" + std::wstring(guid);
+      L"Global\\FarlinkUnattendedStop-" + std::wstring(guid);
   PSECURITY_DESCRIPTOR descriptor = nullptr;
   if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
           L"D:P(A;;GA;;;SY)", SDDL_REVISION_1, &descriptor, nullptr))
@@ -1677,13 +1677,13 @@ std::wstring CrossDeskServiceHost::GetSessionHelperPath() const {
   }
 
   return (std::filesystem::path(current_executable).parent_path() /
-          L"crossdesk_session_helper.exe")
+          L"farlink_session_helper.exe")
       .wstring();
 }
 
 std::wstring CrossDeskServiceHost::GetSessionHelperStopEventName(
     DWORD session_id) const {
-  return L"Global\\CrossDeskSessionHelperStop-" + std::to_wstring(session_id);
+  return L"Global\\FarlinkSessionHelperStop-" + std::to_wstring(session_id);
 }
 
 std::wstring CrossDeskServiceHost::GetSecureInputHelperPath() const {
@@ -1692,7 +1692,7 @@ std::wstring CrossDeskServiceHost::GetSecureInputHelperPath() const {
 
 std::wstring CrossDeskServiceHost::GetSecureInputHelperStopEventName(
     DWORD session_id) const {
-  return L"Global\\CrossDeskSecureInputHelperStop-" +
+  return L"Global\\FarlinkSecureInputHelperStop-" +
          std::to_wstring(session_id);
 }
 
@@ -2709,7 +2709,7 @@ ServiceRegistrationState QueryCrossDeskServiceRegistration(
   std::error_code error;
   if (!std::filesystem::is_regular_file(expected, error) ||
       !std::filesystem::is_regular_file(
-          expected.parent_path() / L"crossdesk_session_helper.exe", error)) {
+          expected.parent_path() / L"farlink_session_helper.exe", error)) {
     return ServiceRegistrationState::repair_required;
   }
   return ServiceRegistrationState::current;
@@ -2834,7 +2834,7 @@ bool RepairCrossDeskService(const std::wstring& binary_path) {
   std::error_code error;
   if (!std::filesystem::is_regular_file(service_path, error) ||
       !std::filesystem::is_regular_file(
-          service_path.parent_path() / L"crossdesk_session_helper.exe", error)) {
+          service_path.parent_path() / L"farlink_session_helper.exe", error)) {
     LOG_ERROR("Service repair failed: service binaries missing");
     return false;
   }

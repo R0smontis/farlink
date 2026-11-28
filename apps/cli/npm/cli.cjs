@@ -11,7 +11,7 @@ function main() {
   const target = `${process.platform}-${process.arch}`;
   const platform = platforms[target];
   if (!platform) {
-    throw new Error(`No crossdesk-cli build for ${target}. Supported targets: ${Object.keys(platforms).join(', ')}.`);
+    throw new Error(`No farlink-cli build for ${target}. Supported targets: ${Object.keys(platforms).join(', ')}.`);
   }
   if (process.platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime) {
     throw new Error('This release requires glibc Linux. Alpine/musl needs a separate native build.');
@@ -26,7 +26,7 @@ function main() {
   if (require(manifestPath).version !== version) {
     throw new Error(`Expected ${packageName}@${version}; reinstall matching package versions.`);
   }
-  const binary = path.join(path.dirname(manifestPath), 'bin', process.platform === 'win32' ? 'crossdesk-cli.exe' : 'crossdesk-cli');
+  const binary = path.join(path.dirname(manifestPath), 'bin', process.platform === 'win32' ? 'farlink-cli.exe' : 'farlink-cli');
   fs.accessSync(binary, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
   const args = process.argv.slice(2);
   // Hosts such as Pi should spawn the native path directly, retaining descriptor
@@ -71,7 +71,7 @@ function main() {
   };
   child.once('error', (error) => {
     cleanup();
-    process.stderr.write(`crossdesk-cli: cannot start native program (${error.code || 'unknown error'}).\n`);
+    process.stderr.write(`farlink-cli: cannot start native program (${error.code || 'unknown error'}).\n`);
     process.exitCode = 1;
   });
   child.once('exit', (code, signal) => {
@@ -84,6 +84,6 @@ function main() {
 try {
   main();
 } catch (error) {
-  process.stderr.write(`crossdesk-cli: ${error.message}\n`);
+  process.stderr.write(`farlink-cli: ${error.message}\n`);
   process.exitCode = 1;
 }

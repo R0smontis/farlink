@@ -35,7 +35,7 @@ target("crossdesk_terminal")
     end
 target_end()
 
-target("crossdesk-cli")
+target("farlink-cli")
     set_kind("binary")
     set_version("0.2.0")
     add_deps("crossdesk_terminal")

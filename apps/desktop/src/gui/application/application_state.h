@@ -49,11 +49,6 @@ struct InteractionState {
 };
 
 struct UpdateState {
-  bool update_available_ = false;
-  std::string latest_version_;
-  std::string release_name_;
-  std::string release_notes_;
-  std::string release_date_;
 };
 
 struct UiState {

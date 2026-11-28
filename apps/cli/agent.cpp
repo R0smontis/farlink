@@ -857,10 +857,10 @@ private:
       const auto method = String(j, "method", 32);
       if (method == "hello") {
         Fields(j, {"id", "method", "protocol"});
-        if (String(j, "protocol") != "crossdesk-automation/1")
+        if (String(j, "protocol") != "farlink-automation/1")
           throw std::invalid_argument("VERSION_MISMATCH");
         hello_ = true;
-        Reply(id, {{"protocol", "crossdesk-automation/1"},
+        Reply(id, {{"protocol", "farlink-automation/1"},
                    {"image_formats", {"image/png"}},
                    {"video_protocols", {"h264-annexb/1", "nv12/1"}},
                    {"video_decoders", {"auto", "software"}},
