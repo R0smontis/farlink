@@ -294,14 +294,59 @@ int ConfigCenter::Load() {
     for (const auto& [device, value] : bitrate_caps.items()) {
       if (!device.empty() && value.is_number_integer()) {
         const auto bps = value.get<std::int64_t>();
-        // Accept exactly the explicit preset ceilings; anything else (a
-        // hand-edit, or a value from another build) is dropped, never
-        // silently clamped into a tier the user did not choose.
-        if (bps == 8'000'000 || bps == 20'000'000 || bps == 50'000'000 ||
-            bps == 80'000'000)
+        if (bps >= 1'000'000 && bps <= 100'000'000 && (bps % 1'000'000) == 0)
           device_video_bitrate_cap_bps_.emplace(device, static_cast<int>(bps));
       }
     }
+  }
+  bitrate_tiers_.clear();
+  const auto saved_tiers = nlohmann::json::parse(
+      ini_->GetValue(section_, "video_bitrate_tiers", "[]"), nullptr, false);
+  if (saved_tiers.is_array()) {
+    for (const auto& entry : saved_tiers) {
+      if (!entry.is_object()) continue;
+      const auto name = entry.value("name", std::string{});
+      const auto mbps = entry.value("mbps", -1);
+      if (mbps < 0 || mbps > 100) continue;
+      if (bitrate_tiers_.size() >= 12) break;
+      bitrate_tiers_.push_back({name, mbps});
+    }
+  }
+  network_overlay_config_ = NetworkOverlayConfig{};
+  const auto saved_overlay = nlohmann::json::parse(
+      ini_->GetValue(section_, "network_overlay_config", "{}"), nullptr, false);
+  if (saved_overlay.is_object()) {
+    auto clamp_f = [](double v, float lo, float hi) {
+      return static_cast<float>(std::clamp(v, static_cast<double>(lo), static_cast<double>(hi)));
+    };
+    if (saved_overlay.contains("x_ratio") && saved_overlay["x_ratio"].is_number())
+      network_overlay_config_.x_ratio = clamp_f(saved_overlay["x_ratio"].get<double>(), 0.0f, 1.0f);
+    if (saved_overlay.contains("y_ratio") && saved_overlay["y_ratio"].is_number())
+      network_overlay_config_.y_ratio = clamp_f(saved_overlay["y_ratio"].get<double>(), 0.0f, 1.0f);
+    if (saved_overlay.contains("width") && saved_overlay["width"].is_number_integer())
+      network_overlay_config_.width = std::clamp(saved_overlay["width"].get<int>(), 88, 460);
+    if (saved_overlay.contains("height") && saved_overlay["height"].is_number_integer())
+      network_overlay_config_.height = std::clamp(saved_overlay["height"].get<int>(), 36, 460);
+    if (saved_overlay.contains("font_size") && saved_overlay["font_size"].is_number_integer())
+      network_overlay_config_.font_size = std::clamp(saved_overlay["font_size"].get<int>(), 8, 24);
+    if (saved_overlay.contains("opacity_percent") && saved_overlay["opacity_percent"].is_number_integer())
+      network_overlay_config_.opacity_percent = std::clamp(saved_overlay["opacity_percent"].get<int>(), 20, 100);
+    if (saved_overlay.contains("layout_mode") && saved_overlay["layout_mode"].is_number_integer())
+      network_overlay_config_.layout_mode = std::clamp(saved_overlay["layout_mode"].get<int>(), 0, 1);
+    auto read_bool = [&](const char* key, bool& field) {
+      if (saved_overlay.contains(key) && saved_overlay[key].is_boolean())
+        field = saved_overlay[key].get<bool>();
+    };
+    read_bool("show_clock", network_overlay_config_.show_clock);
+    read_bool("show_transport", network_overlay_config_.show_transport);
+    read_bool("show_fps", network_overlay_config_.show_fps);
+    read_bool("show_bitrate", network_overlay_config_.show_bitrate);
+    read_bool("show_rtt", network_overlay_config_.show_rtt);
+    read_bool("show_frame_latency", network_overlay_config_.show_frame_latency);
+    read_bool("show_loss", network_overlay_config_.show_loss);
+    read_bool("show_resolution_tier", network_overlay_config_.show_resolution_tier);
+    read_bool("show_codec", network_overlay_config_.show_codec);
+    read_bool("show_endpoints", network_overlay_config_.show_endpoints);
   }
   const auto port_forward_allow = nlohmann::json::parse(
       ini_->GetValue(section_, "device_port_forward_allowlist", "{}"), nullptr, false);
@@ -954,12 +999,10 @@ int ConfigCenter::GetVideoBitrateCapBps(const std::string& device) const {
 }
 
 int ConfigCenter::SetVideoBitrateCapBps(const std::string& device, int bps) {
-  // Only exact presets (or 0 = Auto) persist; the selector is the sole
-  // writer, and clamping arbitrary input here would silently rewrite user
-  // intent into a neighbouring tier.
+  // Allow 0 (Auto) or any integer Mbps ceiling in [1, 100] Mbps so user-edited
+  // tiers persist cleanly alongside the built-in defaults.
   if (device.empty() || bps < 0 || bps > 100'000'000) return -1;
-  if (bps != 0 && bps != 8'000'000 && bps != 20'000'000 &&
-      bps != 50'000'000 && bps != 80'000'000) return -1;
+  if (bps != 0 && (bps < 1'000'000 || (bps % 1'000'000) != 0)) return -1;
   if (bps == GetVideoBitrateCapBps(device)) return 0;
   auto devices = device_video_bitrate_cap_bps_;
   if (bps == 0)
@@ -969,6 +1012,81 @@ int ConfigCenter::SetVideoBitrateCapBps(const std::string& device, int bps) {
   if (StoreValues({{"device_video_bitrate_cap_bps", nlohmann::json(devices).dump()}}) != 0)
     return -1;
   device_video_bitrate_cap_bps_ = std::move(devices);
+  return 0;
+}
+
+std::vector<ConfigCenter::BitrateTierConfig> ConfigCenter::GetBitrateTiers() const {
+  if (!bitrate_tiers_.empty()) return bitrate_tiers_;
+  return {
+      {"自动（原画）", 0},
+      {"原画", 30},
+      {"超清", 14},
+      {"高清", 8},
+  };
+}
+
+int ConfigCenter::SetBitrateTiers(const std::vector<BitrateTierConfig>& tiers) {
+  if (tiers.empty() || tiers.size() > 12) return -1;
+  std::vector<BitrateTierConfig> normalized;
+  normalized.reserve(tiers.size());
+  bool has_auto = false;
+  for (const auto& t : tiers) {
+    if (t.mbps < 0 || t.mbps > 100) return -1;
+    if (t.mbps == 0) {
+      if (has_auto) continue;
+      has_auto = true;
+      normalized.push_back({t.name.empty() ? "自动（原画）" : t.name, 0});
+    } else {
+      normalized.push_back({t.name.empty() ? "自定义" : t.name, t.mbps});
+    }
+  }
+  if (!has_auto) {
+    normalized.insert(normalized.begin(), {"自动（原画）", 0});
+  }
+  nlohmann::json payload = nlohmann::json::array();
+  for (const auto& t : normalized) {
+    payload.push_back({{"name", t.name}, {"mbps", t.mbps}});
+  }
+  if (StoreValues({{"video_bitrate_tiers", payload.dump()}}) != 0) return -1;
+  bitrate_tiers_ = std::move(normalized);
+  return 0;
+}
+
+ConfigCenter::NetworkOverlayConfig ConfigCenter::GetNetworkOverlayConfig() const {
+  return network_overlay_config_;
+}
+
+int ConfigCenter::SetNetworkOverlayConfig(const NetworkOverlayConfig& config) {
+  NetworkOverlayConfig clamped = config;
+  clamped.x_ratio = std::clamp(clamped.x_ratio, 0.0f, 1.0f);
+  clamped.y_ratio = std::clamp(clamped.y_ratio, 0.0f, 1.0f);
+  clamped.width = std::clamp(clamped.width, 88, 460);
+  clamped.height = std::clamp(clamped.height, 36, 460);
+  clamped.font_size = std::clamp(clamped.font_size, 8, 24);
+  clamped.opacity_percent = std::clamp(clamped.opacity_percent, 20, 100);
+  clamped.layout_mode = std::clamp(clamped.layout_mode, 0, 1);
+  if (clamped == network_overlay_config_) return 0;
+  const nlohmann::json payload = {
+      {"x_ratio", clamped.x_ratio},
+      {"y_ratio", clamped.y_ratio},
+      {"width", clamped.width},
+      {"height", clamped.height},
+      {"font_size", clamped.font_size},
+      {"opacity_percent", clamped.opacity_percent},
+      {"layout_mode", clamped.layout_mode},
+      {"show_clock", clamped.show_clock},
+      {"show_transport", clamped.show_transport},
+      {"show_fps", clamped.show_fps},
+      {"show_bitrate", clamped.show_bitrate},
+      {"show_rtt", clamped.show_rtt},
+      {"show_frame_latency", clamped.show_frame_latency},
+      {"show_loss", clamped.show_loss},
+      {"show_resolution_tier", clamped.show_resolution_tier},
+      {"show_codec", clamped.show_codec},
+      {"show_endpoints", clamped.show_endpoints},
+  };
+  if (StoreValues({{"network_overlay_config", payload.dump()}}) != 0) return -1;
+  network_overlay_config_ = clamped;
   return 0;
 }
 

@@ -18,6 +18,7 @@
 #include <set>
 #include <utility>
 #include <string>
+#include <vector>
 
 
 namespace crossdesk {
@@ -61,6 +62,51 @@ class ConfigCenter {
     }
   };
 
+  struct BitrateTierConfig {
+    std::string name;
+    int mbps = 0;  // 0 = Auto, 1..100 = explicit Mbps ceiling
+    bool operator==(const BitrateTierConfig& other) const {
+      return name == other.name && mbps == other.mbps;
+    }
+  };
+
+  struct NetworkOverlayConfig {
+    float x_ratio = 0.015f;     // normalized position inside video area [0..1]
+    float y_ratio = 0.03f;
+    int width = 136;            // logical px (88..420)
+    int height = 186;           // logical px (40..420)
+    int font_size = 11;         // logical px (8..24)
+    int opacity_percent = 78;   // 20..100
+    int layout_mode = 0;        // 0 = vertical multi-line, 1 = compact horizontal
+    bool show_clock = true;
+    bool show_transport = true;
+    bool show_fps = true;
+    bool show_bitrate = true;
+    bool show_rtt = true;
+    bool show_frame_latency = true;
+    bool show_loss = true;
+    bool show_resolution_tier = true;
+    bool show_codec = false;
+    bool show_endpoints = false;
+    bool operator==(const NetworkOverlayConfig& other) const {
+      return x_ratio == other.x_ratio && y_ratio == other.y_ratio &&
+             width == other.width && height == other.height &&
+             font_size == other.font_size &&
+             opacity_percent == other.opacity_percent &&
+             layout_mode == other.layout_mode &&
+             show_clock == other.show_clock &&
+             show_transport == other.show_transport &&
+             show_fps == other.show_fps &&
+             show_bitrate == other.show_bitrate &&
+             show_rtt == other.show_rtt &&
+             show_frame_latency == other.show_frame_latency &&
+             show_loss == other.show_loss &&
+             show_resolution_tier == other.show_resolution_tier &&
+             show_codec == other.show_codec &&
+             show_endpoints == other.show_endpoints;
+    }
+  };
+
   // write config
   int SetLanguage(LANGUAGE language);
   int SetConnectionMode(CONNECTION_MODE mode);
@@ -100,6 +146,8 @@ class ConfigCenter {
   // exactly one explicit preset ceiling in bits per second. Values outside
   // the preset set are rejected; unknown devices default to 0.
   int SetVideoBitrateCapBps(const std::string& device, int bps);
+  int SetBitrateTiers(const std::vector<BitrateTierConfig>& tiers);
+  int SetNetworkOverlayConfig(const NetworkOverlayConfig& config);
   int SetStreamWindowSize(const std::string& device, StreamWindowSize size);
   int SetPortableServicePromptSuppressed(bool suppressed);
   int SetLastPresentedRelease(const std::string& version);
@@ -159,6 +207,8 @@ class ConfigCenter {
   int GetWheelSensitivityPercent(const std::string& device) const;
   int GetKeyboardShortcutMode(const std::string& device) const;
   int GetVideoBitrateCapBps(const std::string& device) const;
+  std::vector<BitrateTierConfig> GetBitrateTiers() const;
+  NetworkOverlayConfig GetNetworkOverlayConfig() const;
   std::optional<StreamWindowSize> GetStreamWindowSize(const std::string& device) const;
   bool IsPortableServicePromptSuppressed() const;
   std::string GetLastPresentedRelease() const;
@@ -227,6 +277,8 @@ class ConfigCenter {
   std::map<std::string, int> device_wheel_sensitivity_;
   std::map<std::string, int> device_keyboard_shortcut_mode_;
   std::map<std::string, int> device_video_bitrate_cap_bps_;
+  std::vector<BitrateTierConfig> bitrate_tiers_;
+  NetworkOverlayConfig network_overlay_config_;
   bool portable_service_prompt_suppressed_ = false;
   std::string last_presented_release_;
   std::string file_transfer_save_path_ = "";

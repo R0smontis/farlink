@@ -37,57 +37,59 @@ void Expect(bool condition, const char* message) {
 }
 
 void TestBitrateCapPresets() {
-  // Exact preset mapping: Auto, 8M, 20M, 50M, 80M.
+  // Default tiers: Auto (0), 原画 30M, 超清 14M, 高清 8M.
   Expect(BitrateCapPreset::BpsForIndex(0) == 0, "Auto preset must be 0 bps (no cap)");
-  Expect(BitrateCapPreset::BpsForIndex(1) == 8'000'000, "index 1 must be 8 Mbps");
-  Expect(BitrateCapPreset::BpsForIndex(2) == 20'000'000, "index 2 must be 20 Mbps");
-  Expect(BitrateCapPreset::BpsForIndex(3) == 50'000'000, "index 3 must be 50 Mbps");
-  Expect(BitrateCapPreset::BpsForIndex(4) == 80'000'000, "index 4 must be 80 Mbps");
+  Expect(BitrateCapPreset::BpsForIndex(1) == 30'000'000, "index 1 must be 30 Mbps");
+  Expect(BitrateCapPreset::BpsForIndex(2) == 14'000'000, "index 2 must be 14 Mbps");
+  Expect(BitrateCapPreset::BpsForIndex(3) == 8'000'000, "index 3 must be 8 Mbps");
 
   // Index validity.
   Expect(BitrateCapPreset::ValidIndex(0), "index 0 valid");
-  Expect(BitrateCapPreset::ValidIndex(4), "index 4 valid");
+  Expect(BitrateCapPreset::ValidIndex(3), "index 3 valid");
   Expect(!BitrateCapPreset::ValidIndex(-1), "index -1 invalid");
-  Expect(!BitrateCapPreset::ValidIndex(5), "index 5 invalid");
+  Expect(!BitrateCapPreset::ValidIndex(4), "index 4 invalid");
 
   // Invalid indices fall back to the no-cap contract, never an accidental cap.
   Expect(BitrateCapPreset::BpsForIndex(-1) == 0, "negative index yields no cap");
-  Expect(BitrateCapPreset::BpsForIndex(5) == 0, "overflow index yields no cap");
+  Expect(BitrateCapPreset::BpsForIndex(4) == 0, "overflow index yields no cap");
   Expect(BitrateCapPreset::BpsForIndex(1000) == 0, "large index yields no cap");
 
-  // bps -> index round-trip for every preset.
+  // bps -> index round-trip for every default tier.
   for (int index = 0; index < BitrateCapPreset::kCount; ++index) {
     const int bps = BitrateCapPreset::BpsForIndex(index);
     Expect(BitrateCapPreset::IndexForBps(bps) == index,
-           "bps->index round-trip must be exact for every preset");
+           "bps->index round-trip must be exact for every default tier");
   }
 
-  // Auto round-trips through zero.
+  // Custom tier round-trip.
+  auto custom = BitrateCapPreset::DefaultTiers();
+  custom.push_back({"蓝光", 50});
+  Expect(BitrateCapPreset::BpsForIndex(custom, 4) == 50'000'000, "custom 50M bps");
+  Expect(BitrateCapPreset::IndexForBps(custom, 50'000'000) == 4, "custom 50M index");
+
+  // Auto round-trips through zero; unknown bps falls back to Auto.
   Expect(BitrateCapPreset::IndexForBps(0) == BitrateCapPreset::kAutoIndex,
          "0 bps must map to the Auto index");
-
-  // Unknown bps values fall back to Auto rather than inventing a cap.
   Expect(BitrateCapPreset::IndexForBps(7'999'999) == BitrateCapPreset::kAutoIndex,
          "near-miss bps falls back to Auto");
-  Expect(BitrateCapPreset::IndexForBps(100'000'000) == BitrateCapPreset::kAutoIndex,
-         "100 Mbps (not a preset) falls back to Auto");
   Expect(BitrateCapPreset::IndexForBps(-5) == BitrateCapPreset::kAutoIndex,
          "negative bps falls back to Auto");
 
-  // Validation accepts exactly the preset set plus zero.
+  // Validation accepts 0 or any integer Mbps in [1, 100].
   Expect(BitrateCapPreset::ValidBps(0), "0 bps valid (Auto)");
   Expect(BitrateCapPreset::ValidBps(8'000'000), "8M valid");
-  Expect(BitrateCapPreset::ValidBps(20'000'000), "20M valid");
+  Expect(BitrateCapPreset::ValidBps(14'000'000), "14M valid");
+  Expect(BitrateCapPreset::ValidBps(30'000'000), "30M valid");
   Expect(BitrateCapPreset::ValidBps(50'000'000), "50M valid");
-  Expect(BitrateCapPreset::ValidBps(80'000'000), "80M valid");
+  Expect(BitrateCapPreset::ValidBps(100'000'000), "100M valid");
   Expect(!BitrateCapPreset::ValidBps(1), "1 bps invalid");
-  Expect(!BitrateCapPreset::ValidBps(9'000'000), "9M invalid");
+  Expect(!BitrateCapPreset::ValidBps(101'000'000), "101M invalid");
   Expect(!BitrateCapPreset::ValidBps(-1), "negative invalid");
 
   // Wire clamping: negative becomes no-cap, over-max folds to the max.
   Expect(BitrateCapPreset::ClampWireBps(-100) == 0, "negative clamps to no cap");
   Expect(BitrateCapPreset::ClampWireBps(0) == 0, "zero stays zero");
-  Expect(BitrateCapPreset::ClampWireBps(8'000'000) == 8'000'000, "in-range unchanged");
+  Expect(BitrateCapPreset::ClampWireBps(14'000'000) == 14'000'000, "in-range unchanged");
   Expect(BitrateCapPreset::ClampWireBps(200'000'000) == BitrateCapPreset::kWireMaxBps,
          "over-max clamps to the wire maximum");
 }

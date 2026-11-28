@@ -64,6 +64,8 @@ public:
   // Returns true only when a deferred native surface became attached during
   // this call, allowing the caller to seed it from a cached frame once.
   bool EnsureAttached();
+  void SetTitlebarControlCenterCallback(std::function<void(float anchor_x)> callback);
+  void SetTitlebarControlCenterActive(bool active);
   bool NeedsRedraw() const;
 
   PresentResult Present(const Frame& frame);

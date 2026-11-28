@@ -1046,6 +1046,10 @@ struct GuiApplication::StreamView {
   DisplayResolutionInfo resolution_choices;
   std::shared_ptr<slint::VectorModel<ui::NetworkStatsRow>> stats_model =
       std::make_shared<slint::VectorModel<ui::NetworkStatsRow>>();
+  std::shared_ptr<slint::VectorModel<ui::BitrateTierEntry>> bitrate_tier_model =
+      std::make_shared<slint::VectorModel<ui::BitrateTierEntry>>();
+  bool overlay_config_loaded = false;
+  int audio_volume_percent = 100;
   WindowDragState drag;
   std::string endpoint;
   unsigned endpoint_window_number = 1;
@@ -2618,23 +2622,150 @@ void GuiApplication::BindStreamCallbacks(StreamView& view) {
         requested, props->high_fps_supported_.load(), view.stream_refresh_hz);
     SendVideoSettingsRequest(*props, quality, frame_rate, preference);
   });
+  const auto sync_all_bitrate_tier_models = [this] {
+    const auto cfg_tiers = config_center_->GetBitrateTiers();
+    std::vector<BitrateTier> tiers;
+    tiers.reserve(cfg_tiers.size());
+    std::vector<ui::BitrateTierEntry> rows;
+    rows.reserve(cfg_tiers.size());
+    for (const auto& t : cfg_tiers) {
+      BitrateTier bt{t.name, t.mbps};
+      ui::BitrateTierEntry row{};
+      row.name = UiText(bt.name);
+      row.mbps = bt.mbps;
+      row.label = UiText(BitrateCapPreset::FormatTierLabel(bt));
+      tiers.push_back(std::move(bt));
+      rows.push_back(std::move(row));
+    }
+    for (auto& [_, other] : ui_->streams) {
+      ui::UpdateModelRows(*other.bitrate_tier_model, rows);
+      other.window->set_bitrate_cap_index(BitrateCapPreset::IndexForBps(
+          tiers, other.session->video_bitrate_cap_bps_.load()));
+    }
+  };
   stream->on_choose_bitrate_cap([this, &view](int index) {
     const auto& props = view.session;
-    if (!BitrateCapPreset::ValidIndex(index)) return;
-    const int bps = BitrateCapPreset::BpsForIndex(index);
-    // Persist first per device; a failed write must not apply a session
-    // state the user will not recognize next time. Auto erases the entry.
+    const auto cfg_tiers = config_center_->GetBitrateTiers();
+    std::vector<BitrateTier> tiers;
+    tiers.reserve(cfg_tiers.size());
+    for (const auto& t : cfg_tiers) tiers.push_back({t.name, t.mbps});
+    if (index < 0 || index >= static_cast<int>(tiers.size())) return;
+    const int bps = BitrateCapPreset::BpsForIndex(tiers, index);
     if (config_center_->SetVideoBitrateCapBps(
             props->device_preference_key_, bps) != 0) {
       view.window->set_bitrate_cap_index(
-          BitrateCapPreset::IndexForBps(props->video_bitrate_cap_bps_.load()));
+          BitrateCapPreset::IndexForBps(tiers, props->video_bitrate_cap_bps_.load()));
       return;
     }
     props->video_bitrate_cap_bps_.store(bps);
-    // SameSettings() detects the changed max_bitrate_bps on the next
-    // subscription sync and re-sends it; needs_sync forces the comparison
-    // rather than waiting for the 5 s unacknowledged timeout.
+    view.window->set_bitrate_cap_index(index);
     props->preview_needs_sync_ = true;
+  });
+  stream->on_add_bitrate_tier([this, sync_all_bitrate_tier_models](
+                                  slint::SharedString name, int mbps) {
+    if (mbps < BitrateCapPreset::kMinExplicitMbps ||
+        mbps > BitrateCapPreset::kMaxExplicitMbps)
+      return;
+    auto tiers = config_center_->GetBitrateTiers();
+    if (static_cast<int>(tiers.size()) >= BitrateCapPreset::kMaxCustomTiers) return;
+    tiers.push_back({std::string(name), mbps});
+    if (config_center_->SetBitrateTiers(tiers) == 0) {
+      sync_all_bitrate_tier_models();
+    }
+  });
+  stream->on_update_bitrate_tier([this, sync_all_bitrate_tier_models](
+                                     int index, slint::SharedString name, int mbps) {
+    auto tiers = config_center_->GetBitrateTiers();
+    if (index <= 0 || index >= static_cast<int>(tiers.size())) return;
+    if (mbps < BitrateCapPreset::kMinExplicitMbps ||
+        mbps > BitrateCapPreset::kMaxExplicitMbps)
+      return;
+    tiers[index].name = std::string(name);
+    tiers[index].mbps = mbps;
+    if (config_center_->SetBitrateTiers(tiers) == 0) {
+      sync_all_bitrate_tier_models();
+    }
+  });
+  stream->on_remove_bitrate_tier([this, sync_all_bitrate_tier_models](int index) {
+    auto tiers = config_center_->GetBitrateTiers();
+    if (index <= 0 || index >= static_cast<int>(tiers.size())) return;
+    tiers.erase(tiers.begin() + index);
+    if (config_center_->SetBitrateTiers(tiers) == 0) {
+      sync_all_bitrate_tier_models();
+    }
+  });
+  stream->on_reset_bitrate_tiers([this, sync_all_bitrate_tier_models] {
+    std::vector<ConfigCenter::BitrateTierConfig> defaults;
+    for (const auto& t : BitrateCapPreset::DefaultTiers()) {
+      defaults.push_back({t.name, t.mbps});
+    }
+    if (config_center_->SetBitrateTiers(defaults) == 0) {
+      sync_all_bitrate_tier_models();
+    }
+  });
+  stream->on_change_audio_volume([this, &view](int percent) {
+    const int clamped = std::clamp(percent, 0, 100);
+    view.audio_volume_percent = clamped;
+    std::lock_guard delivery_lock(audio_delivery_mutex_);
+    devices_.SetAudioVolume(view.session->remote_id_,
+                            static_cast<float>(clamped) / 100.0f);
+  });
+  stream->on_toggle_host_lock_on_disconnect([this, &view](bool enabled) {
+    if (config_center_->SetLockOnDisconnect(enabled) == 0) {
+      view.window->set_host_lock_on_disconnect(enabled);
+    }
+  });
+  stream->on_toggle_force_relay([this, &view](bool enabled) {
+    if (config_center_->SetForceRelay(enabled) == 0) {
+      view.window->set_force_relay_enabled(enabled);
+    }
+  });
+  stream->on_control_center_state_changed([&view](bool open) {
+    view.presenter.SetTitlebarControlCenterActive(open);
+  });
+  stream->on_save_network_overlay_config([this, &view] {
+    const auto& w = view.window;
+    ConfigCenter::NetworkOverlayConfig cfg{};
+    cfg.x_ratio = w->get_overlay_x_ratio();
+    cfg.y_ratio = w->get_overlay_y_ratio();
+    cfg.width = static_cast<int>(std::lround(w->get_overlay_width()));
+    cfg.height = static_cast<int>(std::lround(w->get_overlay_height()));
+    cfg.font_size = w->get_overlay_font_size();
+    cfg.opacity_percent = w->get_overlay_opacity_percent();
+    cfg.layout_mode = w->get_overlay_layout_mode();
+    cfg.show_clock = w->get_overlay_show_clock();
+    cfg.show_transport = w->get_overlay_show_transport();
+    cfg.show_fps = w->get_overlay_show_fps();
+    cfg.show_bitrate = w->get_overlay_show_bitrate();
+    cfg.show_rtt = w->get_overlay_show_rtt();
+    cfg.show_frame_latency = w->get_overlay_show_frame_latency();
+    cfg.show_loss = w->get_overlay_show_loss();
+    cfg.show_resolution_tier = w->get_overlay_show_resolution_tier();
+    cfg.show_codec = w->get_overlay_show_codec();
+    cfg.show_endpoints = w->get_overlay_show_endpoints();
+    config_center_->SetNetworkOverlayConfig(cfg);
+  });
+  stream->on_reset_network_overlay_config([this, &view] {
+    const ConfigCenter::NetworkOverlayConfig def{};
+    config_center_->SetNetworkOverlayConfig(def);
+    const auto& w = view.window;
+    w->set_overlay_x_ratio(def.x_ratio);
+    w->set_overlay_y_ratio(def.y_ratio);
+    w->set_overlay_width(static_cast<float>(def.width));
+    w->set_overlay_height(static_cast<float>(def.height));
+    w->set_overlay_font_size(def.font_size);
+    w->set_overlay_opacity_percent(def.opacity_percent);
+    w->set_overlay_layout_mode(def.layout_mode);
+    w->set_overlay_show_clock(def.show_clock);
+    w->set_overlay_show_transport(def.show_transport);
+    w->set_overlay_show_fps(def.show_fps);
+    w->set_overlay_show_bitrate(def.show_bitrate);
+    w->set_overlay_show_rtt(def.show_rtt);
+    w->set_overlay_show_frame_latency(def.show_frame_latency);
+    w->set_overlay_show_loss(def.show_loss);
+    w->set_overlay_show_resolution_tier(def.show_resolution_tier);
+    w->set_overlay_show_codec(def.show_codec);
+    w->set_overlay_show_endpoints(def.show_endpoints);
   });
   stream->on_toggle_host_mute([this, &view](bool enabled) {
     const auto& props = view.session;
@@ -4143,16 +4274,59 @@ void GuiApplication::InitializeStreamWindow(StreamView& view) {
   stream->window().set_xdg_app_id("farlink-remote-control");
   stream->set_custom_titlebar(use_xwayland_gui_);
 #endif
+#if defined(__APPLE__)
+  stream->set_native_titlebar_control(true);
+#endif
   stream->set_control_hand_cursor_supported(SupportsControlHandCursor(ui_->main->window()));
   RegisterFontAwesome(stream->window());
   ui_localization::ApplyStreamWindowStrings(stream, localization_language_index_);
   stream->set_displays(view.display_model);
   stream->set_remote_resolutions(view.resolution_model);
   stream->set_stats_rows(view.stats_model);
+  stream->set_bitrate_tiers(view.bitrate_tier_model);
+  {
+    const auto cfg_tiers = config_center_->GetBitrateTiers();
+    std::vector<ui::BitrateTierEntry> rows;
+    rows.reserve(cfg_tiers.size());
+    for (const auto& t : cfg_tiers) {
+      BitrateTier bt{t.name, t.mbps};
+      rows.push_back({UiText(bt.name), bt.mbps, UiText(BitrateCapPreset::FormatTierLabel(bt))});
+    }
+    ui::UpdateModelRows(*view.bitrate_tier_model, std::move(rows));
+  }
+  {
+    const auto ov = config_center_->GetNetworkOverlayConfig();
+    stream->set_overlay_x_ratio(ov.x_ratio);
+    stream->set_overlay_y_ratio(ov.y_ratio);
+    stream->set_overlay_width(static_cast<float>(ov.width));
+    stream->set_overlay_height(static_cast<float>(ov.height));
+    stream->set_overlay_font_size(ov.font_size);
+    stream->set_overlay_opacity_percent(ov.opacity_percent);
+    stream->set_overlay_layout_mode(ov.layout_mode);
+    stream->set_overlay_show_clock(ov.show_clock);
+    stream->set_overlay_show_transport(ov.show_transport);
+    stream->set_overlay_show_fps(ov.show_fps);
+    stream->set_overlay_show_bitrate(ov.show_bitrate);
+    stream->set_overlay_show_rtt(ov.show_rtt);
+    stream->set_overlay_show_frame_latency(ov.show_frame_latency);
+    stream->set_overlay_show_loss(ov.show_loss);
+    stream->set_overlay_show_resolution_tier(ov.show_resolution_tier);
+    stream->set_overlay_show_codec(ov.show_codec);
+    stream->set_overlay_show_endpoints(ov.show_endpoints);
+    view.overlay_config_loaded = true;
+  }
+  stream->set_host_lock_on_disconnect(config_center_->IsLockOnDisconnect());
+  stream->set_force_relay_enabled(config_center_->IsForceRelay());
   BindStreamCallbacks(view);
   view.presenter.PrepareWindow(stream, [this, &view] {
     NotifyVideoFrameReady(*view.session);
   });
+  view.presenter.SetTitlebarControlCenterCallback(
+      [weak = slint::ComponentWeakHandle(stream)](float anchor_x) {
+        if (auto handle = weak.lock()) {
+          (*handle)->invoke_toggle_control_center_at(anchor_x);
+        }
+      });
   view.session->SetVideoRenderer(view.renderer);
   if (stream->get_custom_titlebar()) view.normal_size.height += kWaylandTitlebarLogicalHeight;
   if (auto saved = config_center_->GetStreamWindowSize(view.session->device_preference_key_))
@@ -4382,9 +4556,16 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
       props->video_bitrate_cap_bps_.store(
           config_center_->GetVideoBitrateCapBps(props->device_preference_key_));
     }
-
-    stream->set_bitrate_cap_index(
-        BitrateCapPreset::IndexForBps(props->video_bitrate_cap_bps_.load()));
+    {
+      const auto cfg_tiers = config_center_->GetBitrateTiers();
+      std::vector<BitrateTier> tiers;
+      tiers.reserve(cfg_tiers.size());
+      for (const auto& t : cfg_tiers) tiers.push_back({t.name, t.mbps});
+      stream->set_bitrate_cap_index(
+          BitrateCapPreset::IndexForBps(tiers, props->video_bitrate_cap_bps_.load()));
+    }
+    stream->set_host_lock_on_disconnect(config_center_->IsLockOnDisconnect());
+    stream->set_force_relay_enabled(config_center_->IsForceRelay());
     stream->set_host_mute_supported(
         status == MiniRtcConnectionStatus::MiniRtcConnectionConnected &&
         props->host_mute_supported_.load());
@@ -4554,9 +4735,8 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
     stream->set_network_summary(UiText(""));
     stream->set_network_quality(0);
   }
-  // Monospace overlay, one fact per line, matching the reference client's
-  // network card: time, transport, fps, inbound rate, RTT, frame latency,
-  // loss, resolution + quality tier.
+  // Customizable monospace network overlay. Composes only the fields enabled
+  // by the user, in either vertical multi-line or compact horizontal format.
   {
     char clock_text[16] = "--:--:--";
     const std::time_t now_wall = std::time(nullptr);
@@ -4569,9 +4749,6 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
         status == MiniRtcConnectionStatus::MiniRtcConnectionConnected) {
       transport = "UDP LAN";
     }
-    const char* quality_names[] = {"省流", "高清", "超清", "原画"};
-    int quality_index = props->video_settings_.quality;
-    if (quality_index < 0 || quality_index > 3) quality_index = 1;
     std::string resolution_short;
     {
       std::lock_guard lock(props->video_frame_mutex_);
@@ -4583,20 +4760,43 @@ void GuiApplication::SyncStreamWindow(StreamView& view) {
       else if (vw > 0) resolution_short = std::to_string(vw) + "x" + std::to_string(vh);
       else resolution_short = "—";
     }
+    std::string tier_short = "auto";
+    {
+      const int cap_bps = props->video_bitrate_cap_bps_.load();
+      if (cap_bps > 0) {
+        tier_short = std::to_string(cap_bps / 1'000'000) + "M";
+      }
+    }
     char loss_text[16];
     std::snprintf(loss_text, sizeof(loss_text), "%.1f%%", total_loss * 100.0f);
-    std::string overlay = clock_text;
-    overlay += "\n";
-    overlay += transport;
-    overlay += "\n";
-    overlay += std::to_string(props->fps_) + " fps\n";
-    overlay += FormatBitrate(net.total_inbound_stats.bitrate) + "\n";
-    overlay += connection_latency + "\n";
-    overlay += (latency ? std::to_string(static_cast<int>(std::lround(latency->average_ms))) : std::string("—")) +
-               " ms frm.\n";
-    overlay += loss_text;
-    overlay += " loss\n";
-    overlay += resolution_short + " " + quality_names[quality_index];
+
+    std::vector<std::string> parts;
+    if (stream->get_overlay_show_clock()) parts.emplace_back(clock_text);
+    if (stream->get_overlay_show_transport()) parts.emplace_back(transport);
+    if (stream->get_overlay_show_fps()) parts.emplace_back(std::to_string(props->fps_) + " fps");
+    if (stream->get_overlay_show_bitrate()) parts.emplace_back(FormatBitrate(net.total_inbound_stats.bitrate));
+    if (stream->get_overlay_show_rtt()) parts.emplace_back(connection_latency);
+    if (stream->get_overlay_show_frame_latency()) {
+      parts.emplace_back(
+          (latency ? std::to_string(static_cast<int>(std::lround(latency->average_ms)))
+                   : std::string("—")) + " ms frm.");
+    }
+    if (stream->get_overlay_show_loss()) parts.emplace_back(std::string(loss_text) + " loss");
+    if (stream->get_overlay_show_resolution_tier()) parts.emplace_back(resolution_short + " " + tier_short);
+    if (stream->get_overlay_show_codec()) {
+      parts.emplace_back(
+          (!codecs.remote_encoder.empty() ? codecs.remote_encoder : "—") + " / " +
+          (!codecs.local_decoder.empty() ? codecs.local_decoder : "—"));
+    }
+    if (stream->get_overlay_show_endpoints() && direct && net.remote_endpoint[0] != '\0') {
+      parts.emplace_back(net.remote_endpoint);
+    }
+    const char* sep = stream->get_overlay_layout_mode() == 1 ? "  |  " : "\n";
+    std::string overlay;
+    for (size_t i = 0; i < parts.size(); ++i) {
+      if (i > 0) overlay += sep;
+      overlay += parts[i];
+    }
     stream->set_network_overlay_text(UiText(overlay));
   }
   // D8 inter-presentation freeze metrics. All four render as unavailable

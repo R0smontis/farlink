@@ -117,6 +117,7 @@ public:
   // Open the output on the first frame and close it after the last stream ends.
   void ClearAudio(const std::string& remote_id);
   void PushAudio(const std::string& remote_id, const char *data, size_t size);
+  void SetAudioVolume(const std::string& remote_id, float gain);
 
   bool SupportsTextInput() const;
   bool SendTextCommand(const std::string& text);
@@ -166,6 +167,7 @@ private:
   // Bookkeeping for the playback queue cap: how many bytes were trimmed from
   // the head of each stream the last time its backlog exceeded the cap.
   std::unordered_map<std::string, uint64_t> output_stream_dropped_bytes_;
+  std::unordered_map<std::string, float> output_stream_gains_;
   std::chrono::steady_clock::time_point next_audio_output_retry_{};
   ScreenCapturerFactory *screen_capturer_factory_ = nullptr;
   ScreenCapturer *screen_capturer_ = nullptr;

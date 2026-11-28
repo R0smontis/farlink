@@ -310,6 +310,27 @@ bool SlintVideoPresenter::EnsureAttached() {
   return false;
 }
 
+void SlintVideoPresenter::SetTitlebarControlCenterCallback(
+    std::function<void(float anchor_x)> callback) {
+#if defined(__APPLE__)
+  if (auto* metal = dynamic_cast<MacMetalVideoRenderer*>(impl_->renderer.get())) {
+    metal->SetTitlebarControlCenterCallback(std::move(callback));
+  }
+#else
+  (void)callback;
+#endif
+}
+
+void SlintVideoPresenter::SetTitlebarControlCenterActive(bool active) {
+#if defined(__APPLE__)
+  if (auto* metal = dynamic_cast<MacMetalVideoRenderer*>(impl_->renderer.get())) {
+    metal->SetTitlebarControlCenterActive(active);
+  }
+#else
+  (void)active;
+#endif
+}
+
 bool SlintVideoPresenter::NeedsRedraw() const {
 #if defined(__APPLE__)
   const auto* metal_renderer =

@@ -14,60 +14,74 @@
 #ifndef CROSSDESK_GUI_BITRATE_CAP_PRESET_H_
 #define CROSSDESK_GUI_BITRATE_CAP_PRESET_H_
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace crossdesk {
 
+struct BitrateTier {
+  std::string name;
+  int mbps = 0;  // 0 = Auto (no cap); 1..100 = explicit Mbps ceiling
+};
+
 struct BitrateCapPreset {
-  // Ordered exactly as the selector row renders: index 0 is Auto (no cap —
-  // the encoder/congestion ceiling applies, 80 Mbps by default), the rest
-  // are explicit ceilings in Mbps.
-  static constexpr int kCount = 5;
+  // Default tiers matching the reference control center:
+  // Auto (no cap), 原画 30M, 超清 14M, 高清 8M.
   static constexpr int kAutoIndex = 0;
-  static constexpr int kMbps[kCount] = {0, 8, 20, 50, 80};
-
-  // Wire representation of "no cap": MiniRtcUpdateVideoBitrateLimit treats 0
-  // as "remove the limit", and the subscription max_bitrate_bps field uses
-  // the same zero-restores-default convention.
   static constexpr int kNoCapBps = 0;
+  static constexpr int kMinExplicitMbps = 1;
+  static constexpr int kMaxExplicitMbps = 100;
+  static constexpr int kWireMaxBps = kMaxExplicitMbps * 1'000'000;
+  static constexpr int kMaxCustomTiers = 12;
 
-  // Highest negotiated value the peer side accepts on the wire
-  // (preview_subscription.h rejects max_bitrate_bps above 100 Mbps).
-  static constexpr int kWireMaxBps = 100'000'000;
-
-  static bool ValidIndex(int index) { return index >= 0 && index < kCount; }
-
-  // Bits per second for one selector index. Unknown or out-of-range input
-  // maps to the Auto ceiling contract (0), never to an accidental cap.
-  static int BpsForIndex(int index) {
-    if (!ValidIndex(index)) return kNoCapBps;
-    return kMbps[index] * 1'000'000;
+  static std::vector<BitrateTier> DefaultTiers() {
+    return {
+        {"自动（原画）", 0},
+        {"原画", 30},
+        {"超清", 14},
+        {"高清", 8},
+    };
   }
 
-  // Selector index for a persisted bits-per-second value. 0 means Auto.
-  // Unknown values (written by another build, or hand-edited) fall back to
-  // Auto rather than silently inventing a cap the user never chose.
-  static int IndexForBps(int bps) {
+  static bool ValidMbps(int mbps) {
+    return mbps == 0 || (mbps >= kMinExplicitMbps && mbps <= kMaxExplicitMbps);
+  }
+
+  static bool ValidBps(int bps) {
+    if (bps == kNoCapBps) return true;
+    if (bps < kMinExplicitMbps * 1'000'000 || bps > kWireMaxBps) return false;
+    return (bps % 1'000'000) == 0;
+  }
+
+  static std::string FormatTierLabel(const BitrateTier& tier) {
+    if (tier.mbps <= 0) return tier.name.empty() ? "自动（原画）" : tier.name;
+    const std::string base = tier.name.empty() ? "自定义" : tier.name;
+    return base + " " + std::to_string(tier.mbps) + "M";
+  }
+
+  static int IndexForBps(const std::vector<BitrateTier>& tiers, int bps) {
     if (bps <= 0) return kAutoIndex;
-    for (int index = 1; index < kCount; ++index) {
-      if (kMbps[index] * 1'000'000 == bps) return index;
+    const int mbps = bps / 1'000'000;
+    for (int i = 0; i < static_cast<int>(tiers.size()); ++i) {
+      if (tiers[i].mbps == mbps && tiers[i].mbps > 0) return i;
     }
     return kAutoIndex;
   }
 
-  // True when the value may be persisted or put on the wire: either no cap,
-  // or exactly one of the explicit presets. Anything else (negative,
-  // non-preset, above the wire maximum) is rejected before persistence.
-  static bool ValidBps(int bps) {
-    if (bps == kNoCapBps) return true;
-    for (int index = 1; index < kCount; ++index) {
-      if (kMbps[index] * 1'000'000 == bps) return true;
-    }
-    return false;
+  static int BpsForIndex(const std::vector<BitrateTier>& tiers, int index) {
+    if (index < 0 || index >= static_cast<int>(tiers.size())) return kNoCapBps;
+    const int mbps = tiers[index].mbps;
+    if (mbps <= 0) return kNoCapBps;
+    return std::clamp(mbps, kMinExplicitMbps, kMaxExplicitMbps) * 1'000'000;
   }
 
-  // Clamps a wire-bound value into the range the peer accepts. Negative
-  // becomes no-cap; values above the wire maximum fold down to it. The
-  // selector itself never produces these, but the subscription merge path
-  // handles values negotiated before a cap choice existed.
+  // Backward-compatible helpers against the default tier list.
+  static constexpr int kCount = 4;
+  static bool ValidIndex(int index) { return index >= 0 && index < kCount; }
+  static int BpsForIndex(int index) { return BpsForIndex(DefaultTiers(), index); }
+  static int IndexForBps(int bps) { return IndexForBps(DefaultTiers(), bps); }
+
   static int ClampWireBps(int bps) {
     if (bps < 0) return kNoCapBps;
     if (bps > kWireMaxBps) return kWireMaxBps;

@@ -60,6 +60,8 @@ class MacMetalVideoRenderer final : public VideoRenderer {
   bool Attach(void* slint_view, std::function<void()> drawable_ready = {});
   void Detach();
   bool IsAttached() const;
+  void SetTitlebarControlCenterCallback(std::function<void(float anchor_x)> callback);
+  void SetTitlebarControlCenterActive(bool active);
 
   // Cheap main-thread geometry check used by the UI frame timer. New decoded
   // frames are tracked by GuiRuntime's dirty flag; this covers native resize,

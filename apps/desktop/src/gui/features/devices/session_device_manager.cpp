@@ -825,9 +825,20 @@ void SessionDeviceManager::ClearAudio(const std::string& remote_id) {
   SDL_DestroyAudioStream(found->second);
   output_streams_.erase(found);
   output_stream_dropped_bytes_.erase(remote_id);
+  output_stream_gains_.erase(remote_id);
   // An open SDL playback device can keep the Windows audio driver active even
   // without queued samples. Release it when no peer needs playback anymore.
   if (output_streams_.empty()) DestroyAudioOutput();
+}
+
+void SessionDeviceManager::SetAudioVolume(const std::string& remote_id,
+                                          float gain) {
+  const float clamped = std::clamp(gain, 0.0f, 1.0f);
+  output_stream_gains_[remote_id] = clamped;
+  const auto found = output_streams_.find(remote_id);
+  if (found != output_streams_.end() && found->second) {
+    SDL_SetAudioStreamGain(found->second, clamped);
+  }
 }
 
 void SessionDeviceManager::PushAudio(const std::string& remote_id,
@@ -871,6 +882,10 @@ void SessionDeviceManager::PushAudio(const std::string& remote_id,
       return;
     }
     found = output_streams_.emplace(remote_id, stream).first;
+    const auto gain_it = output_stream_gains_.find(remote_id);
+    if (gain_it != output_stream_gains_.end()) {
+      SDL_SetAudioStreamGain(stream, gain_it->second);
+    }
   }
   SDL_AudioStream* stream = found->second;
   if (!SDL_PutAudioStreamData(stream, data, static_cast<int>(size))) {

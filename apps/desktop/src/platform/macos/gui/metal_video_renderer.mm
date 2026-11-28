@@ -54,6 +54,12 @@
 - (instancetype)initWithWindow:(NSWindow*)window;
 @end
 
+@interface FarlinkTitlebarControlView : NSView
+@property(nonatomic, copy) void (^toggleHandler)(CGFloat anchorX);
+@property(nonatomic) BOOL menuActive;
+- (instancetype)initWithWindow:(NSWindow*)window;
+@end
+
 @implementation CrossDeskMetalVideoView
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -287,6 +293,135 @@
 - (void)dealloc {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   [_titlebarBackground removeFromSuperview];
+}
+
+@end
+
+@implementation FarlinkTitlebarControlView {
+  __weak NSWindow* _streamWindow;
+  NSButton* _button;
+  NSTrackingArea* _trackingArea;
+  BOOL _hovered;
+}
+
+- (instancetype)initWithWindow:(NSWindow*)window {
+  self = [super initWithFrame:NSMakeRect(0.0, 0.0, 96.0, 28.0)];
+  if (self != nil) {
+    _streamWindow = window;
+    _button = [[NSButton alloc] initWithFrame:NSMakeRect(6.0, 2.0, 82.0, 24.0)];
+    _button.bordered = NO;
+    _button.wantsLayer = YES;
+    _button.layer.cornerRadius = 6.0;
+    _button.hidden = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+    NSNotificationCenter* nc = NSNotificationCenter.defaultCenter;
+    [nc addObserver:self selector:@selector(fullscreenChanged:)
+               name:NSWindowDidEnterFullScreenNotification object:window];
+    [nc addObserver:self selector:@selector(fullscreenChanged:)
+               name:NSWindowWillExitFullScreenNotification object:window];
+    [nc addObserver:self selector:@selector(fullscreenChanged:)
+               name:NSWindowDidExitFullScreenNotification object:window];
+    _button.layer.cornerCurve = kCACornerCurveContinuous;
+    _button.target = self;
+    _button.action = @selector(handleClick:);
+    if (@available(macOS 11.0, *)) {
+      NSImageSymbolConfiguration* cfg =
+          [NSImageSymbolConfiguration configurationWithPointSize:12.0
+                                                          weight:NSFontWeightMedium];
+      NSImage* img = [NSImage imageWithSystemSymbolName:@"slider.horizontal.3"
+                               accessibilityDescription:@"控制中心"];
+      img = [img imageWithSymbolConfiguration:cfg];
+      _button.image = img;
+      _button.imagePosition = NSImageLeading;
+      _button.imageHugsTitle = YES;
+    }
+    _button.title = @" 控制中心";
+    _button.font = [NSFont systemFontOfSize:12.5 weight:NSFontWeightMedium];
+    _button.contentTintColor = [NSColor colorWithWhite:0.12 alpha:1.0];
+    [self addSubview:_button];
+    [self updateButtonVisual];
+    [self sizeButtonToFit];
+  }
+  return self;
+}
+
+- (void)sizeButtonToFit {
+  [_button sizeToFit];
+  const CGFloat w = std::max<CGFloat>(78.0, ceil(_button.frame.size.width) + 16.0);
+  _button.frame = NSMakeRect(4.0, 2.0, w, 24.0);
+  [self setFrameSize:NSMakeSize(w + 12.0, 28.0)];
+}
+
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (_trackingArea != nil) {
+    [self removeTrackingArea:_trackingArea];
+  }
+  _trackingArea = [[NSTrackingArea alloc]
+      initWithRect:_button.frame
+           options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways)
+             owner:self
+          userInfo:nil];
+  [self addTrackingArea:_trackingArea];
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+  (void)event;
+  _hovered = YES;
+  [self updateButtonVisual];
+}
+
+- (void)mouseExited:(NSEvent*)event {
+  (void)event;
+  _hovered = NO;
+  [self updateButtonVisual];
+}
+
+- (void)setMenuActive:(BOOL)active {
+  if (_menuActive == active) return;
+  _menuActive = active;
+  [self updateButtonVisual];
+}
+
+- (void)updateButtonVisual {
+  if (_menuActive) {
+    _button.layer.backgroundColor =
+        [NSColor colorWithWhite:0.0 alpha:0.12].CGColor;
+  } else if (_hovered) {
+    _button.layer.backgroundColor =
+        [NSColor colorWithWhite:0.0 alpha:0.07].CGColor;
+  } else {
+    _button.layer.backgroundColor = NSColor.clearColor.CGColor;
+  }
+}
+
+- (void)handleClick:(id)sender {
+  (void)sender;
+  CGFloat anchor_x = 0.0;
+  NSWindow* window = _streamWindow;
+  if (window != nil && window.contentView != nil) {
+    const NSRect btn_in_win = [_button convertRect:_button.bounds toView:nil];
+    const NSRect btn_in_content = [window.contentView convertRect:btn_in_win fromView:nil];
+    anchor_x = NSMaxX(btn_in_content);
+  }
+  if (self.toggleHandler != nil) {
+    self.toggleHandler(anchor_x);
+  }
+}
+
+- (BOOL)mouseDownCanMoveWindow {
+  return NO;
+}
+
+- (void)fullscreenChanged:(NSNotification*)notification {
+  (void)notification;
+  NSWindow* window = _streamWindow;
+  if (window == nil) return;
+  const BOOL fs = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  _button.hidden = fs;
+}
+
+- (void)dealloc {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 @end
@@ -924,6 +1059,9 @@ struct MacMetalVideoRenderer::Impl {
   CrossDeskMetalVideoView* video_view = nil;
   NSLayoutConstraint* video_top = nil;
   NSTitlebarAccessoryViewController* title_accessory_controller = nil;
+  NSTitlebarAccessoryViewController* control_accessory_controller = nil;
+  std::function<void(float)> titlebar_control_callback;
+  bool titlebar_control_active = false;
   CAMetalLayer* metal_layer = nil;
   struct DrawableRequest {
     id<CAMetalDrawable> drawable = nil;
@@ -1190,6 +1328,17 @@ struct MacMetalVideoRenderer::Impl {
         }
       }
       title_accessory_controller = nil;
+      if (control_accessory_controller != nil) {
+        ((FarlinkTitlebarControlView*)control_accessory_controller.view).toggleHandler = nil;
+        if (window != nil) {
+          const NSUInteger cidx = [window.titlebarAccessoryViewControllers
+              indexOfObjectIdenticalTo:control_accessory_controller];
+          if (cidx != NSNotFound) {
+            [window removeTitlebarAccessoryViewControllerAtIndex:cidx];
+          }
+        }
+        control_accessory_controller = nil;
+      }
       if (window != nil && !IsStreamWindowFullscreen((__bridge void *)slint_view)) {
         RestoreNativeWindowChrome(window);
         window.titleVisibility = NSWindowTitleVisible;
@@ -1926,6 +2075,22 @@ bool MacMetalVideoRenderer::Attach(void* opaque_slint_view,
     impl_->title_accessory_controller.view = title_view;
     [window addTitlebarAccessoryViewController:
                 impl_->title_accessory_controller];
+    impl_->control_accessory_controller =
+        [[NSTitlebarAccessoryViewController alloc] init];
+    impl_->control_accessory_controller.layoutAttribute =
+        NSLayoutAttributeTrailing;
+    FarlinkTitlebarControlView* control_view =
+        [[FarlinkTitlebarControlView alloc] initWithWindow:window];
+    control_view.menuActive = impl_->titlebar_control_active ? YES : NO;
+    Impl* raw_impl = impl_.get();
+    control_view.toggleHandler = ^(CGFloat anchorX) {
+      if (raw_impl->titlebar_control_callback) {
+        raw_impl->titlebar_control_callback(static_cast<float>(anchorX));
+      }
+    };
+    impl_->control_accessory_controller.view = control_view;
+    [window addTitlebarAccessoryViewController:
+                impl_->control_accessory_controller];
     window.titleVisibility = NSWindowTitleHidden;
 
     // Adding the title accessory changes AppKit's content layout guide. Commit
@@ -1978,6 +2143,22 @@ void MacMetalVideoRenderer::Detach() {
 
 bool MacMetalVideoRenderer::IsAttached() const {
   return impl_ && impl_->attached.load(std::memory_order_acquire);
+}
+
+void MacMetalVideoRenderer::SetTitlebarControlCenterCallback(
+    std::function<void(float anchor_x)> callback) {
+  impl_->titlebar_control_callback = std::move(callback);
+}
+
+void MacMetalVideoRenderer::SetTitlebarControlCenterActive(bool active) {
+  impl_->titlebar_control_active = active;
+  @autoreleasepool {
+    if (impl_->control_accessory_controller != nil) {
+      FarlinkTitlebarControlView* view =
+          (FarlinkTitlebarControlView*)impl_->control_accessory_controller.view;
+      view.menuActive = active ? YES : NO;
+    }
+  }
 }
 
 bool MacMetalVideoRenderer::NeedsSurfaceRedraw() const {
